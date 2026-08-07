@@ -1,0 +1,37 @@
+# --- Secrets ---------------------------------------------------------------
+# Real values live only on the machine that needs them. `.env.example` is the
+# committed template and must stay in step with src/config/index.ts.
+.env
+.env.*
+!.env.example
+
+# --- Dependencies ----------------------------------------------------------
+node_modules/
+
+# --- Build output ----------------------------------------------------------
+dist/
+build/
+*.tsbuildinfo
+.vite/
+
+# --- Test and tooling artefacts --------------------------------------------
+coverage/
+.nyc_output/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# --- Editors and OS --------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+.vscode/*
+!.vscode/extensions.json
+
+# --- Local scratch ---------------------------------------------------------
+# Anywhere to keep throwaway SQL, notes or exports without them reaching a
+# commit by accident.
+scratch/
+tmp/
+*.local.*

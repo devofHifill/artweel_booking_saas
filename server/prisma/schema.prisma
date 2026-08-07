@@ -1,0 +1,1343 @@
+// ---------------------------------------------------------------------------
+// Booking SaaS — Phase 0 core domain
+//
+// Design rules that apply to EVERY model in this file:
+//
+//  1. organization_id on every tenant-owned table. Uniqueness is always
+//     composite with it. The WordPress plugin this replaces had global
+//     uniques (categories.name, staff.email) — those break the instant a
+//     second tenant exists.
+//
+//  2. All instants are timestamptz. Never DATE + TIME. Alongside the instant
+//     we keep the IANA timezone and the local wall-clock intent, so a weekly
+//     7pm class stays at 7pm across a daylight-saving transition instead of
+//     silently drifting an hour.
+//
+//  3. Money is integer cents. Never a float.
+//
+//  4. Correctness that matters is enforced by Postgres, not by application
+//     code. The EXCLUDE constraints and CHECK constraints live in the
+//     migration SQL — see migrations/*/migration.sql. Prisma cannot express
+//     them, which is a limitation of Prisma, not a reason to skip them.
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider        = "prisma-client-js"
+  // Required for the `extensions` block below — postgis and btree_gist are
+  // not optional here, the concurrency model is built on them.
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+  extensions        = [postgis, btree_gist]
+}
+
+// ===========================================================================
+// TENANCY & IDENTITY
+// ===========================================================================
+
+enum Plan {
+  SOLO
+  STUDIO
+  PRO
+}
+
+enum SubscriptionStatus {
+  /// 14-day free trial, no card taken.
+  TRIALING
+  ACTIVE
+  /// A payment failed. Still fully working — see the grace period.
+  PAST_DUE
+  /// Trial ended or grace expired without payment. Read-only, never deleted.
+  SUSPENDED
+  CANCELED
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  INSTRUCTOR
+  FRONT_DESK
+}
+
+model Organization {
+  id       String @id @default(uuid()) @db.Uuid
+  name     String
+  slug     String @unique
+  /// Default display timezone. Individual locations may differ — a studio
+  /// running mobile events across a state line is a real case.
+  timezone String @default("America/New_York")
+  currency String @default("USD")
+
+  // --- Our own subscription ----------------------------------------------
+  // Distinct from Stripe Connect below: this is what the STUDIO pays US.
+  // Two different Stripe relationships on one row, which is exactly why the
+  // field names spell out which is which.
+  plan               Plan               @default(SOLO)
+  subscriptionStatus SubscriptionStatus @default(TRIALING)
+
+  /// 14 days, no card. The clock starts at signup, not at first login.
+  trialEndsAt DateTime? @map("trial_ends_at") @db.Timestamptz(3)
+
+  billingCustomerId     String?   @unique @map("billing_customer_id")
+  billingSubscriptionId String?   @unique @map("billing_subscription_id")
+  currentPeriodEnd      DateTime? @map("current_period_end") @db.Timestamptz(3)
+
+  /**
+   * When a failed payment stops being a warning and starts being a block.
+   * Set on the first failure; cleared the moment payment succeeds.
+   */
+  gracePeriodEndsAt DateTime? @map("grace_period_ends_at") @db.Timestamptz(3)
+
+  /// Which setup steps the studio has finished. Drives the wizard.
+  onboardingSteps  Json?     @map("onboarding_steps")
+  onboardingDoneAt DateTime? @map("onboarding_done_at") @db.Timestamptz(3)
+
+  /**
+   * Where this studio came from — the one marketing number that matters.
+   *
+   * First-touch, captured client-side and passed through at signup. No
+   * cookies and no cross-site identifier: for a self-serve product the
+   * question is "which page produced signups", which needs an aggregate, not
+   * a profile of a person.
+   */
+  signupSource   String? @map("signup_source")
+  signupReferrer String? @map("signup_referrer")
+  signupLanding  String? @map("signup_landing")
+
+  // --- Stripe Connect ----------------------------------------------------
+  // The studio is paid DIRECTLY. We are a platform, never the merchant of
+  // record: their money never touches our balance, which keeps us out of
+  // money-transmission territory and means a dispute is theirs to answer.
+  stripeAccountId     String?   @unique @map("stripe_account_id")
+  /// Stripe's own verdict, mirrored from the account.updated webhook. An
+  /// account can exist and still be unable to take money.
+  stripeChargesEnabled Boolean  @default(false) @map("stripe_charges_enabled")
+  stripePayoutsEnabled Boolean  @default(false) @map("stripe_payouts_enabled")
+  stripeOnboardedAt    DateTime? @map("stripe_onboarded_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memberships          Membership[]
+  serviceCategories    ServiceCategory[]
+  serviceTypes         ServiceType[]
+  staff                Staff[]
+  customers            Customer[]
+  locations            Location[]
+  resources            Resource[]
+  resourceAllocations  ResourceAllocation[]
+  availabilityRules    AvailabilityRule[]
+  availabilityOverride AvailabilityOverride[]
+  busyBlocks           BusyBlock[]
+  courseSeries         CourseSeries[]
+  sessions             Session[]
+  bookings             Booking[]
+  bookingHolds         BookingHold[]
+  staffTimeBlocks      StaffTimeBlock[]
+  idempotencyKeys      IdempotencyKey[]
+  cancellationPolicies CancellationPolicy[]
+  payments             Payment[]
+  webhookEvents        WebhookEvent[]
+  notifications        Notification[]
+  notificationTemplates NotificationTemplate[]
+  calendarConnections  CalendarConnection[]
+
+  @@map("organizations")
+}
+
+model User {
+  id           String  @id @default(uuid()) @db.Uuid
+  /// Global unique: one human, one login, potentially many organizations.
+  /// Stored lowercased — addresses are compared case-insensitively.
+  email        String  @unique
+  passwordHash String? @map("password_hash")
+  name         String
+
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memberships        Membership[]
+  staff              Staff[]
+  refreshTokens      RefreshToken[]
+  verificationTokens VerificationToken[]
+
+  @@map("users")
+}
+
+/// A refresh token, stored only as a hash.
+///
+/// A leaked database must not yield usable sessions, so the raw token is
+/// returned to the client once and never persisted. Rotation is mandatory:
+/// every refresh issues a new token and revokes the old one.
+///
+/// `familyId` chains a rotation lineage together, which is what makes theft
+/// detectable. If a token that was already rotated away is presented again,
+/// either the legitimate client replayed it or an attacker stole it — and we
+/// cannot tell which, so the entire family is revoked and the human logs in
+/// again.
+model RefreshToken {
+  id        String @id @default(uuid()) @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+  /// SHA-256 of the raw token. Not a password hash: the token is already
+  /// 32 bytes of entropy, so key stretching buys nothing and costs latency.
+  tokenHash String @unique @map("token_hash")
+  familyId  String @map("family_id") @db.Uuid
+
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  userAgent String? @map("user_agent")
+  ip        String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+enum VerificationPurpose {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+/// Single-use, short-lived tokens for email verification and password reset.
+/// Hashed for the same reason as refresh tokens, and marked used rather than
+/// deleted so a replay is distinguishable from an unknown token.
+model VerificationToken {
+  id        String              @id @default(uuid()) @db.Uuid
+  userId    String              @map("user_id") @db.Uuid
+  tokenHash String              @unique @map("token_hash")
+  purpose   VerificationPurpose
+
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
+  @@map("verification_tokens")
+}
+
+model Membership {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  userId         String         @map("user_id") @db.Uuid
+  role           MembershipRole @default(INSTRUCTOR)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+// ===========================================================================
+// CATALOG
+// ===========================================================================
+
+enum BookingMode {
+  /// Staff-availability driven. Capacity is usually 1. A private lesson.
+  APPOINTMENT
+  /// Seat-based on a concrete session. Capacity is the seat count.
+  EVENT
+  /// A multi-session course booked and paid for once.
+  COURSE_SERIES
+}
+
+enum StaffPreference {
+  MANUAL
+  LEAST_BUSY
+  MOST_BUSY
+  ROUND_ROBIN
+}
+
+model ServiceCategory {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  name           String
+  sortOrder      Int    @default(0) @map("sort_order")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serviceTypes ServiceType[]
+
+  @@unique([organizationId, name])
+  @@map("service_categories")
+}
+
+model ServiceType {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  categoryId     String?      @map("category_id") @db.Uuid
+  name           String
+  slug           String
+  description    String?
+  bookingMode    BookingMode  @default(APPOINTMENT) @map("booking_mode")
+
+  durationMinutes Int @map("duration_minutes")
+
+  /// Per-service, NOT a global setting. The plugin had one global slot_length,
+  /// which makes a 180-minute wheel class and a 30-minute consult impossible
+  /// to offer side by side.
+  slotGranularityMinutes Int @default(15) @map("slot_granularity_minutes")
+
+  capacityMin Int @default(1) @map("capacity_min")
+  capacityMax Int @default(1) @map("capacity_max")
+
+  priceCents   Int    @default(0) @map("price_cents")
+  depositType  String @default("none") @map("deposit_type") // none | percent | fixed
+  depositValue Int    @default(0) @map("deposit_value")
+
+  paddingBeforeMinutes Int @default(0) @map("padding_before_minutes")
+  paddingAfterMinutes  Int @default(0) @map("padding_after_minutes")
+
+  /// How far ahead a customer must book, and how far out they may book.
+  minNoticeMinutes Int @default(0) @map("min_notice_minutes")
+  maxHorizonDays   Int @default(120) @map("max_horizon_days")
+
+  staffPreference StaffPreference @default(MANUAL) @map("staff_preference")
+
+  skillLevel               String? @map("skill_level")
+  prerequisiteServiceTypeId String? @map("prerequisite_service_type_id") @db.Uuid
+
+  cancellationPolicyId String? @map("cancellation_policy_id") @db.Uuid
+
+  color    String  @default("#A6522C")
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category           ServiceCategory?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  cancellationPolicy CancellationPolicy? @relation(fields: [cancellationPolicyId], references: [id], onDelete: SetNull)
+
+  staffServices    StaffService[]
+  serviceLocations ServiceLocation[]
+  serviceResources ServiceResource[]
+  courseSeries     CourseSeries[]
+  sessions         Session[]
+  bookings         Booking[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, isActive])
+  @@map("service_types")
+}
+
+/// Cancellation and refund terms, stored as DATA rather than expressed in code.
+///
+/// Every studio wants different terms, and the terms change seasonally. A
+/// policy encoded in application logic means a deploy every time a studio
+/// changes its mind — which for a self-serve product means a support ticket
+/// nobody is there to answer.
+///
+/// `tiers` is an ordered array, most generous first:
+///   [{ hoursBefore: 48, refundPercent: 100 },
+///    { hoursBefore: 24, refundPercent: 50, creditPercent: 50 },
+///    { hoursBefore: 0,  refundPercent: 0,  creditPercent: 0  }]
+///
+/// The first tier whose `hoursBefore` is met by the actual notice wins.
+model CancellationPolicy {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  name           String
+  /// Applied to services that name no policy of their own. A partial unique
+  /// index in the migration enforces at most one default per organization.
+  isDefault      Boolean @default(false) @map("is_default")
+
+  tiers Json
+
+  noShowFeeCents        Int     @default(0) @map("no_show_fee_cents")
+  allowReschedule       Boolean @default(true) @map("allow_reschedule")
+  rescheduleCutoffHours Int     @default(24) @map("reschedule_cutoff_hours")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serviceTypes ServiceType[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("cancellation_policies")
+}
+
+// ===========================================================================
+// PEOPLE
+// ===========================================================================
+
+model Staff {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  userId         String? @map("user_id") @db.Uuid
+  name           String
+  email          String
+  phone          String?
+  bio            String?
+  photoUrl       String? @map("photo_url")
+  /// Authoritative for this person's working hours. Actually consulted by the
+  /// availability engine — the plugin stored a timezone and never used it.
+  timezone       String  @default("America/New_York")
+  color          String  @default("#A6522C")
+  isPublic       Boolean @default(true) @map("is_public")
+  isActive       Boolean @default(true) @map("is_active")
+
+  /// 0 = unlimited.
+  maxBookingsPerDay Int @default(0) @map("max_bookings_per_day")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  staffServices        StaffService[]
+  staffLocations       StaffLocation[]
+  availabilityRules    AvailabilityRule[]
+  availabilityOverride AvailabilityOverride[]
+  busyBlocks           BusyBlock[]
+  sessions             Session[]
+  bookings             Booking[]
+  staffTimeBlocks      StaffTimeBlock[]
+  calendarConnection   CalendarConnection?
+
+  @@unique([organizationId, email])
+  @@index([organizationId, isActive])
+  @@map("staff")
+}
+
+model StaffService {
+  id                 String @id @default(uuid()) @db.Uuid
+  staffId            String @map("staff_id") @db.Uuid
+  serviceTypeId      String @map("service_type_id") @db.Uuid
+  priceOverrideCents Int?   @map("price_override_cents")
+
+  staff       Staff       @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  serviceType ServiceType @relation(fields: [serviceTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, serviceTypeId])
+  @@index([serviceTypeId])
+  @@map("staff_services")
+}
+
+model Customer {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  name           String
+  email          String
+  phone          String?
+  notes          String?
+  timezone       String?
+
+  /// TCPA: SMS consent must be recorded, timestamped and revocable.
+  smsConsentAt       DateTime? @map("sms_consent_at") @db.Timestamptz(3)
+  marketingConsentAt DateTime? @map("marketing_consent_at") @db.Timestamptz(3)
+  /// Set when the customer replies STOP. Opt-out ALWAYS wins over consent —
+  /// a later booking form tick must not silently resubscribe them.
+  smsOptedOutAt      DateTime? @map("sms_opted_out_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bookings     Booking[]
+  bookingHolds BookingHold[]
+
+  /// Scoped per organization. The plugin deduped on `email OR phone` globally,
+  /// which merges two family members who share a phone.
+  @@unique([organizationId, email])
+  @@index([organizationId, phone])
+  @@map("customers")
+}
+
+// ===========================================================================
+// PLACES
+// ===========================================================================
+
+enum LocationType {
+  /// The studio. Customers come here.
+  FIXED
+  /// A region the studio travels to. Radius or polygon.
+  SERVICE_AREA
+  /// The customer supplies the venue; address captured at booking time.
+  CUSTOMER_SUPPLIED
+}
+
+model Location {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  name           String
+  locationType   LocationType @default(FIXED) @map("location_type")
+
+  address String?
+  /// Finally used, rather than merely present as they were in the plugin.
+  lat     Float?
+  lng     Float?
+  /// Locations carry their own zone: a mobile studio crossing a state line
+  /// genuinely operates in two.
+  timezone String @default("America/New_York")
+
+  // --- SERVICE_AREA only -------------------------------------------------
+  radiusMeters Int? @map("radius_meters")
+  /// PostGIS polygon for irregular coverage. Prisma cannot type this, so it
+  /// is read and written through raw SQL.
+  boundary     Unsupported("geography(Polygon, 4326)")?
+
+  /// [{ maxKm, feeCents, minSpendCents }] — travel pricing by distance band.
+  travelFeeBands Json? @map("travel_fee_bands")
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  staffLocations      StaffLocation[]
+  serviceLocations    ServiceLocation[]
+  resources           Resource[]
+  availabilityRules   AvailabilityRule[]
+  sessions            Session[]
+  bookings            Booking[]
+
+  @@index([organizationId, isActive])
+  @@map("locations")
+}
+
+model StaffLocation {
+  id         String @id @default(uuid()) @db.Uuid
+  staffId    String @map("staff_id") @db.Uuid
+  locationId String @map("location_id") @db.Uuid
+
+  staff    Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, locationId])
+  @@map("staff_locations")
+}
+
+model ServiceLocation {
+  id            String @id @default(uuid()) @db.Uuid
+  serviceTypeId String @map("service_type_id") @db.Uuid
+  locationId    String @map("location_id") @db.Uuid
+
+  serviceType ServiceType @relation(fields: [serviceTypeId], references: [id], onDelete: Cascade)
+  location    Location    @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceTypeId, locationId])
+  @@map("service_locations")
+}
+
+// ===========================================================================
+// RESOURCES
+//
+// A pottery studio's capacity is not a number the owner types into a form.
+// It is a physical fact: eight wheels means eight students. A kiln firing
+// blocks a kiln for fourteen hours.
+// ===========================================================================
+
+enum ResourceType {
+  WHEEL
+  KILN
+  SLAB_ROLLER
+  KIT
+  VEHICLE
+  ROOM
+  OTHER
+}
+
+model Resource {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  locationId     String?      @map("location_id") @db.Uuid
+  name           String
+  resourceType   ResourceType @default(OTHER) @map("resource_type")
+
+  /// How many of this thing exist. Eight wheels is quantity 8.
+  quantity Int @default(1)
+
+  /// True when the resource cannot be shared for ANY overlapping period —
+  /// a kiln, a room, a van. Denormalised onto resource_allocations so that a
+  /// partial EXCLUDE constraint can enforce it in the database.
+  ///
+  /// False for counted resources (wheels), where overlap is legal up to
+  /// `quantity` and correctness comes from a locked SUM instead.
+  isExclusive Boolean @default(false) @map("is_exclusive")
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  serviceResources ServiceResource[]
+  allocations      ResourceAllocation[]
+
+  @@index([organizationId, isActive])
+  @@map("resources")
+}
+
+model ServiceResource {
+  id               String @id @default(uuid()) @db.Uuid
+  serviceTypeId    String @map("service_type_id") @db.Uuid
+  resourceId       String @map("resource_id") @db.Uuid
+  /// Per seat, not per booking: one wheel per student.
+  quantityPerSeat  Int    @default(1) @map("quantity_per_seat")
+
+  serviceType ServiceType @relation(fields: [serviceTypeId], references: [id], onDelete: Cascade)
+  resource    Resource    @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceTypeId, resourceId])
+  @@map("service_resources")
+}
+
+model ResourceAllocation {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  resourceId     String @map("resource_id") @db.Uuid
+
+  /// Nullable: a kiln firing is an allocation with no booking behind it.
+  bookingId String? @map("booking_id") @db.Uuid
+  sessionId String? @map("session_id") @db.Uuid
+
+  quantity Int @default(1)
+
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+
+  /// Copied from resource.isExclusive at write time so the partial EXCLUDE
+  /// constraint has a same-row predicate to test.
+  exclusive Boolean @default(false)
+
+  note String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  resource     Resource     @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  booking      Booking?     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  session      Session?     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([resourceId, startsAt, endsAt])
+  @@index([organizationId])
+  @@map("resource_allocations")
+}
+
+// ===========================================================================
+// AVAILABILITY
+//
+// Three plugin tables (staff_schedule, staff_breaks, staff_days_off) collapse
+// into rules + overrides. Recurrence is an RRULE evaluated in local time,
+// never a pre-generated row per day that then drifts out of sync.
+// ===========================================================================
+
+enum AvailabilityRuleType {
+  WORKING
+  BREAK
+}
+
+enum OverrideType {
+  DAY_OFF
+  CUSTOM_HOURS
+  EXTRA_HOURS
+}
+
+model AvailabilityRule {
+  id             String               @id @default(uuid()) @db.Uuid
+  organizationId String               @map("organization_id") @db.Uuid
+  staffId        String               @map("staff_id") @db.Uuid
+  locationId     String?              @map("location_id") @db.Uuid
+  ruleType       AvailabilityRuleType @default(WORKING) @map("rule_type")
+
+  /// iCal RRULE, e.g. FREQ=WEEKLY;BYDAY=TU,TH
+  rrule String
+
+  /// Wall-clock, local to `timezone`. Stored as minutes past local midnight
+  /// rather than a TIME column: it makes DST arithmetic explicit instead of
+  /// hiding it inside a type that has no zone.
+  startMinute Int    @map("start_minute")
+  endMinute   Int    @map("end_minute")
+  timezone    String
+
+  effectiveFrom  DateTime  @map("effective_from") @db.Timestamptz(3)
+  effectiveUntil DateTime? @map("effective_until") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  staff        Staff        @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  location     Location?    @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([staffId, effectiveFrom])
+  @@index([organizationId])
+  @@map("availability_rules")
+}
+
+model AvailabilityOverride {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  staffId        String       @map("staff_id") @db.Uuid
+  overrideType   OverrideType @map("override_type")
+
+  /// Local calendar date the override applies to, as YYYY-MM-DD. A date has
+  /// no instant until you know the zone, so it is stored as what it is.
+  localDate String @map("local_date")
+
+  startMinute Int? @map("start_minute")
+  endMinute   Int? @map("end_minute")
+
+  reason String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  staff        Staff        @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, localDate, overrideType])
+  @@index([organizationId])
+  @@map("availability_overrides")
+}
+
+model BusyBlock {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  staffId        String @map("staff_id") @db.Uuid
+
+  externalSource String  @map("external_source") // google | outlook | apple
+  externalId     String  @map("external_id")
+  title          String?
+
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+
+  syncedAt DateTime @default(now()) @map("synced_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  staff        Staff        @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  /// Deliberately NO exclusion constraint. External calendars legitimately
+  /// contain overlapping events, and a sync must never fail because someone
+  /// double-booked themselves in Google. These are advisory input to the
+  /// availability engine, not commitments.
+  @@unique([staffId, externalSource, externalId])
+  @@index([staffId, startsAt, endsAt])
+  @@map("busy_blocks")
+}
+
+// ===========================================================================
+// SESSIONS & BOOKINGS
+// ===========================================================================
+
+enum SessionStatus {
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  ATTENDED
+  NO_SHOW
+  CANCELLED
+}
+
+model CourseSeries {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  serviceTypeId  String @map("service_type_id") @db.Uuid
+  name           String
+  cohortLabel    String? @map("cohort_label")
+  sessionCount   Int    @map("session_count")
+  priceCents     Int    @default(0) @map("price_cents")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serviceType  ServiceType  @relation(fields: [serviceTypeId], references: [id], onDelete: Cascade)
+  sessions     Session[]
+
+  @@index([organizationId])
+  @@map("course_series")
+}
+
+/// A concrete, bookable instance in time.
+///
+/// The plugin derived event sessions on the fly from a start time, a count
+/// and a gap, on every single request. Making them real rows is what makes a
+/// lockable seat counter, waitlists and per-session cancellation possible.
+model Session {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  serviceTypeId  String  @map("service_type_id") @db.Uuid
+  courseSeriesId String? @map("course_series_id") @db.Uuid
+  /// "week 3 of 6"
+  seriesIndex    Int?    @map("series_index")
+
+  staffId    String? @map("staff_id") @db.Uuid
+  locationId String? @map("location_id") @db.Uuid
+
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+
+  /// The instant above is authoritative for ordering and comparison. These
+  /// two preserve INTENT: "7pm local, in this zone". Without them a DST shift
+  /// silently moves a recurring class by an hour.
+  timezone       String
+  localStartTime String @map("local_start_time") // "19:00"
+
+  capacity Int @default(1)
+
+  /// Authoritative reserved-seat count: confirmed bookings PLUS live holds.
+  /// A CHECK constraint keeps it within [0, capacity], and every mutation
+  /// happens under SELECT ... FOR UPDATE on this row.
+  seatsTaken Int @default(0) @map("seats_taken")
+
+  status SessionStatus @default(SCHEDULED)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serviceType  ServiceType   @relation(fields: [serviceTypeId], references: [id], onDelete: Cascade)
+  courseSeries CourseSeries? @relation(fields: [courseSeriesId], references: [id], onDelete: Cascade)
+  staff        Staff?        @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  location     Location?     @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  bookings            Booking[]
+  bookingHolds        BookingHold[]
+  resourceAllocations ResourceAllocation[]
+  staffTimeBlocks     StaffTimeBlock[]
+  calendarEventLinks  CalendarEventLink[]
+
+  @@index([organizationId, startsAt])
+  @@index([serviceTypeId, startsAt])
+  @@index([courseSeriesId, seriesIndex])
+  @@map("sessions")
+}
+
+model Booking {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  customerId     String @map("customer_id") @db.Uuid
+  serviceTypeId  String @map("service_type_id") @db.Uuid
+
+  /// EVENT / COURSE_SERIES bookings point at a session.
+  sessionId String? @map("session_id") @db.Uuid
+  /// APPOINTMENT bookings point at a staff member instead.
+  staffId   String? @map("staff_id") @db.Uuid
+
+  locationId String? @map("location_id") @db.Uuid
+  /// Mobile bookings: the customer's address, geocoded at booking time.
+  serviceAddress Json? @map("service_address")
+
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+  timezone String
+
+  seats Int @default(1)
+
+  status BookingStatus @default(PENDING)
+
+  travelFeeCents Int @default(0) @map("travel_fee_cents")
+  totalCents     Int @default(0) @map("total_cents")
+
+  /// 32 random bytes. The plugin used md5(booking_id + email), which is
+  /// guessable by anyone who knows the customer's email address.
+  cancelToken Bytes  @unique @map("cancel_token")
+  source      String @default("web")
+
+  notes String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  serviceType  ServiceType  @relation(fields: [serviceTypeId], references: [id], onDelete: Cascade)
+  session      Session?     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  staff        Staff?       @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  resourceAllocations ResourceAllocation[]
+  staffTimeBlocks     StaffTimeBlock[]
+  payments            Payment[]
+  notifications       Notification[]
+  calendarEventLinks  CalendarEventLink[]
+
+  @@index([organizationId, startsAt])
+  @@index([sessionId])
+  @@index([staffId, startsAt])
+  @@index([customerId])
+  @@map("bookings")
+}
+
+/// A seat reservation held while a customer is inside checkout.
+///
+/// Held seats are counted in sessions.seats_taken, so a popular class cannot
+/// be sold twice during the payment round-trip. An expiry job releases
+/// abandoned holds. The plugin had no equivalent: it created the booking
+/// first and hoped payment followed.
+model BookingHold {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  sessionId      String? @map("session_id") @db.Uuid
+  staffId        String? @map("staff_id") @db.Uuid
+  customerId     String? @map("customer_id") @db.Uuid
+
+  seats Int @default(1)
+
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  /// Set once the hold has been converted or released, so the expiry job is
+  /// idempotent and a hold can never be released twice.
+  releasedAt DateTime? @map("released_at") @db.Timestamptz(3)
+
+  checkoutReference String? @map("checkout_reference")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session      Session?     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([expiresAt, releasedAt])
+  @@index([sessionId])
+  @@map("booking_holds")
+}
+
+/// The single authoritative record of when a staff member is committed.
+///
+/// Appointments and sessions BOTH write here. That is the point: Postgres
+/// cannot enforce an exclusion constraint across two tables, so an instructor
+/// with a 2pm private lesson and a 2pm group class would otherwise collide
+/// undetected. One table, one EXCLUDE constraint, no possible overlap.
+///
+/// External calendar events deliberately do NOT live here — see BusyBlock.
+model StaffTimeBlock {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  staffId        String @map("staff_id") @db.Uuid
+
+  bookingId String? @map("booking_id") @db.Uuid
+  sessionId String? @map("session_id") @db.Uuid
+
+  /// Includes padding and, for mobile bookings, travel time. This is the
+  /// span during which the instructor genuinely cannot do anything else.
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+
+  /// Where the instructor physically is for this block.
+  ///
+  /// Denormalised from the location or the customer-supplied address rather
+  /// than joined at query time: the availability engine needs the coordinates
+  /// of every adjacent commitment to compute travel time, and a three-way
+  /// join on the hot read path is exactly what the 200ms budget cannot afford.
+  lat Float?
+  lng Float?
+
+  source String @default("booking") // booking | session | manual
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  staff        Staff        @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  booking      Booking?     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  session      Session?     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([staffId, startsAt, endsAt])
+  @@index([organizationId])
+  @@map("staff_time_blocks")
+}
+
+/// Daily page-view counts for the marketing site.
+///
+/// Deliberately an AGGREGATE with no user identifier, no cookie and no
+/// fingerprint. That is not only a privacy position — it is also why the site
+/// needs no consent banner, and a consent banner on a landing page measurably
+/// costs signups. The number we act on is "which page produced trials", and
+/// that comes from `organizations.signup_source`, not from following people.
+model MarketingEvent {
+  id   String @id @default(uuid()) @db.Uuid
+  /// YYYY-MM-DD, UTC.
+  day  String
+  path String
+  /// Referrer HOST only, never the full URL — a full referrer can carry a
+  /// search query or a private page title.
+  ///
+  /// Empty string rather than NULL for "none", because Postgres treats NULLs
+  /// as distinct in a unique index: with nullable columns here, every direct
+  /// visit would insert a NEW row instead of incrementing the counter, and
+  /// the table would grow one row per page view.
+  referrerHost String @default("") @map("referrer_host")
+  source       String @default("")
+
+  views Int @default(0)
+
+  @@unique([day, path, referrerHost, source])
+  @@index([day])
+  @@map("marketing_events")
+}
+
+enum CalendarConnectionStatus {
+  ACTIVE
+  /// The refresh token was rejected. Only the instructor can fix this by
+  /// reconnecting, so it is a distinct state the UI must surface loudly.
+  NEEDS_REAUTH
+  DISABLED
+}
+
+/// One instructor's connected calendar.
+///
+/// Per staff member, not per studio: an instructor's availability is their
+/// own calendar, and a freelancer teaching at three studios connects once per
+/// studio because each studio only gets to see the busy times relevant to it.
+model CalendarConnection {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  staffId        String @unique @map("staff_id") @db.Uuid
+
+  provider String @default("google")
+  /// The Google account that was connected, shown so an instructor can tell
+  /// which of their logins is in use.
+  accountEmail String? @map("account_email")
+  calendarId   String  @default("primary") @map("calendar_id")
+
+  /// AES-256-GCM ciphertext, never plaintext. See lib/crypto.ts.
+  accessTokenEnc  String    @map("access_token_enc")
+  refreshTokenEnc String?   @map("refresh_token_enc")
+  tokenExpiresAt  DateTime? @map("token_expires_at") @db.Timestamptz(3)
+
+  /// Google's incremental sync cursor. Absent means the next sync is a full one.
+  syncToken String? @map("sync_token")
+
+  /// Push notification channel. Google expires these after about a week, so
+  /// they have to be renewed or inbound sync silently stops.
+  channelId         String?   @unique @map("channel_id")
+  channelResourceId String?   @map("channel_resource_id")
+  channelExpiresAt  DateTime? @map("channel_expires_at") @db.Timestamptz(3)
+  /// Verifies inbound push requests actually came from our own watch call.
+  channelTokenEnc   String?   @map("channel_token_enc")
+
+  status       CalendarConnectionStatus @default(ACTIVE)
+  lastSyncedAt DateTime?                @map("last_synced_at") @db.Timestamptz(3)
+  lastError    String?                  @map("last_error")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  staff        Staff        @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  eventLinks CalendarEventLink[]
+  syncJobs   CalendarSyncJob[]
+
+  @@index([organizationId])
+  @@index([channelExpiresAt])
+  @@map("calendar_connections")
+}
+
+/// Maps one of our bookings or sessions to the event we created for it.
+///
+/// This is the LOOP GUARD. Inbound sync must be able to recognise an event as
+/// one we pushed ourselves — otherwise a class we wrote to the instructor's
+/// calendar comes back as a busy block and makes its own slot unbookable. The
+/// previous WordPress implementation hit exactly this and worked around it by
+/// disabling calendar checks for events entirely.
+model CalendarEventLink {
+  id           String  @id @default(uuid()) @db.Uuid
+  connectionId String  @map("connection_id") @db.Uuid
+  bookingId    String? @map("booking_id") @db.Uuid
+  sessionId    String? @map("session_id") @db.Uuid
+
+  externalEventId String @map("external_event_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  connection CalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  booking    Booking?           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  session    Session?           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, externalEventId])
+  @@unique([connectionId, bookingId])
+  @@unique([connectionId, sessionId])
+  @@index([externalEventId])
+  @@map("calendar_event_links")
+}
+
+enum CalendarSyncAction {
+  UPSERT
+  DELETE
+}
+
+/// Outbound calendar writes, queued.
+///
+/// Same reasoning as the notification outbox: a booking must not fail because
+/// Google is slow, and a write must not be lost because the process died. Uses
+/// the identical lease-claim pattern.
+model CalendarSyncJob {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  connectionId   String @map("connection_id") @db.Uuid
+
+  bookingId String? @map("booking_id") @db.Uuid
+  sessionId String? @map("session_id") @db.Uuid
+
+  action CalendarSyncAction
+
+  payload Json
+
+  status       NotificationStatus @default(PENDING)
+  attempts     Int                @default(0)
+  scheduledFor DateTime           @map("scheduled_for") @db.Timestamptz(3)
+  lastError    String?            @map("last_error")
+
+  /// Collapses repeated edits to the same booking into one pending write.
+  dedupeKey String @unique @map("dedupe_key")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  connection CalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledFor])
+  @@map("calendar_sync_jobs")
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  /// Deliberately not sent — no consent, opted out, or no address on file.
+  SKIPPED
+  /// Superseded before it went out, e.g. a reminder for a cancelled booking.
+  CANCELLED
+}
+
+/// A transactional OUTBOX, not a log.
+///
+/// Rows are written when something happens and drained by a worker, rather
+/// than sent inline. Sending inside the request would make a booking fail
+/// because an email provider was slow, and would lose the message entirely if
+/// the process died mid-send.
+///
+/// Workers claim rows with SELECT ... FOR UPDATE SKIP LOCKED, so several can
+/// run without ever handing the same message to two of them.
+model Notification {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  bookingId      String? @map("booking_id") @db.Uuid
+  customerId     String? @map("customer_id") @db.Uuid
+
+  channel     NotificationChannel
+  templateKey String              @map("template_key")
+
+  /// Email address or E.164 number, resolved at enqueue time so a later
+  /// change to the customer record cannot redirect a queued message.
+  destination String
+  /// Everything the template needs. Snapshotted for the same reason.
+  payload     Json
+
+  status   NotificationStatus @default(PENDING)
+  attempts Int                @default(0)
+
+  /// When it may first be sent. Reminders are enqueued immediately and dated
+  /// forward; retries push this out with exponential backoff.
+  scheduledFor DateTime  @map("scheduled_for") @db.Timestamptz(3)
+  sentAt       DateTime? @map("sent_at") @db.Timestamptz(3)
+
+  providerMessageId String? @map("provider_message_id")
+  lastError         String? @map("last_error")
+
+  /// Makes enqueueing idempotent. "reminder-24h for booking X" can only ever
+  /// exist once, however many times the code path runs.
+  dedupeKey String @unique @map("dedupe_key")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  booking      Booking?     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  /// The worker's claim query. Partial, so it stays proportional to the
+  /// backlog rather than to every message ever sent.
+  @@index([status, scheduledFor])
+  @@index([bookingId])
+  @@index([organizationId, createdAt])
+  @@map("notifications")
+}
+
+/// Per-studio wording. Falls back to the built-in defaults when absent, so a
+/// studio that never opens the settings page still sends sensible messages.
+model NotificationTemplate {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  templateKey    String              @map("template_key")
+  channel        NotificationChannel
+
+  subject String?
+  body    String
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, templateKey, channel])
+  @@map("notification_templates")
+}
+
+enum PaymentKind {
+  DEPOSIT
+  BALANCE
+  FULL
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+/// Money, kept in its own table rather than as columns on `bookings`.
+///
+/// The previous implementation stored payment_method, payment_status and
+/// transaction_id directly on the booking, which cannot represent a deposit
+/// plus a balance plus a partial refund — exactly what a £400 private party
+/// needs. One booking has many payments; one payment has many refunds.
+model Payment {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  bookingId      String? @map("booking_id") @db.Uuid
+  /// Set while money is being collected but the booking does not exist yet.
+  holdId         String? @map("hold_id") @db.Uuid
+
+  kind       PaymentKind
+  amountCents Int        @map("amount_cents")
+  currency   String      @default("USD")
+  status     PaymentStatus @default(PENDING)
+
+  provider                  String  @default("stripe")
+  providerCheckoutSessionId String? @unique @map("provider_checkout_session_id")
+  providerPaymentIntentId   String? @unique @map("provider_payment_intent_id")
+  /// The connected account the money went to. Recorded so a later refund
+  /// cannot be issued against the wrong studio.
+  providerAccountId         String? @map("provider_account_id")
+
+  refundedCents Int @default(0) @map("refunded_cents")
+
+  failureReason String?   @map("failure_reason")
+  succeededAt   DateTime? @map("succeeded_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  booking      Booking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  refunds      Refund[]
+
+  @@index([organizationId, createdAt])
+  @@index([bookingId])
+  @@map("payments")
+}
+
+model Refund {
+  id        String @id @default(uuid()) @db.Uuid
+  paymentId String @map("payment_id") @db.Uuid
+
+  amountCents Int     @map("amount_cents")
+  /// Studio credit issued instead of cash, per the cancellation policy.
+  creditCents Int     @default(0) @map("credit_cents")
+  reason      String?
+
+  providerRefundId String? @unique @map("provider_refund_id")
+  status           String  @default("pending")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+/// Every webhook Stripe has delivered, by its own event id.
+///
+/// Stripe retries until it gets a 2xx, and it does not promise to deliver
+/// exactly once. Without this table a retried `checkout.session.completed`
+/// creates a second booking and charges nobody for it. The unique constraint
+/// on event_id is what makes processing idempotent.
+model WebhookEvent {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String? @map("organization_id") @db.Uuid
+
+  provider String @default("stripe")
+  eventId  String @map("event_id")
+  eventType String @map("event_type")
+
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(3)
+  error       String?
+
+  payload Json
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, eventId])
+  @@index([eventType, processedAt])
+  @@map("webhook_events")
+}
+
+/// Replay protection for mutating endpoints. A retried booking request must
+/// return the original outcome, not create a second booking.
+model IdempotencyKey {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  key            String
+  endpoint       String
+  requestHash    String @map("request_hash")
+
+  responseStatus Int?  @map("response_status")
+  responseBody   Json? @map("response_body")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}

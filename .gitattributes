@@ -1,0 +1,26 @@
+# Normalise line endings.
+#
+# Development happens on Windows and deployment is Linux. Without this, CRLF
+# leaks into the repository and every file eventually shows as fully rewritten
+# in a diff, which makes review useless and blame worthless.
+* text=auto eol=lf
+
+# Shell scripts and Docker entrypoints MUST be LF or they fail inside a
+# container with a confusing "not found" error caused by a trailing \r.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.sql text eol=lf
+
+# Binary — never touch, never diff.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+
+# Generated. Keep it in the repository for reproducible installs, but collapse
+# it in diffs so a lockfile change does not bury a real one.
+package-lock.json linguist-generated=true -diff

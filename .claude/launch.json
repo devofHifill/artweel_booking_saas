@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "booking-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "server"],
+      "port": 4000
+    },
+    {
+      "name": "booking-dashboard",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "client"],
+      "port": 5173
+    }
+  ]
+}
