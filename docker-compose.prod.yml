@@ -1,17 +1,24 @@
-# Production/staging stack for the VPS.
+# Production/staging stack for the shared Hostinger VPS.
 #
-# Differences from docker-compose.yml (which is local development only):
+# This box already runs n8n and SEBVM behind Traefik on the external
+# `n8n_default` network, with ACME TLS via the `mytlschallenge` resolver.
+# Traefik owns ports 80 and 443, so this stack publishes NOTHING to the host
+# and is reached only through Traefik's routers.
 #
+# Two consequences worth stating plainly:
+#   - The API is not on host port 4000. SEBVM's express-server already
+#     publishes 0.0.0.0:4000, and a second bind would fail at startup.
+#     Our API still listens on 4000 inside its own container; Traefik reaches
+#     it over the docker network, where there is no collision.
+#   - There is no certbot step. Traefik issues and renews certificates itself
+#     through the same certresolver the other two projects use.
+#
+# Differences from docker-compose.yml (local development only):
 #   - No Redis. REDIS_URL is declared optional in src/config/index.ts and read
-#     nowhere else in the codebase, so running it would be a service to patch
-#     and back up for no behaviour.
+#     nowhere else, so running it would be a service to patch for no behaviour.
 #   - No docker/postgres-init mount. That script creates booking_test and
-#     booking_shadow, which exist for the test suite and for `migrate dev`.
-#     Neither runs here; `migrate deploy` needs no shadow database.
-#   - Both services publish to 127.0.0.1 only. nginx on the host is the single
-#     thing the internet can reach. Do not change these to 0.0.0.0 — Docker
-#     writes its port mappings straight into iptables and bypasses ufw, so a
-#     0.0.0.0 binding is publicly reachable even with the firewall "closed".
+#     booking_shadow for the test suite and `migrate dev`; neither runs here,
+#     and `migrate deploy` needs no shadow database.
 #
 # Postgres MUST stay the postgis image: migration 20260804115604_init_core_domain
 # runs CREATE EXTENSION postgis and btree_gist, and btree_gist is what lets the
@@ -25,11 +32,14 @@ services:
     env_file: ./server/.env.production
     volumes:
       - artweel_pgdata:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:5434:5432"
+    # Internal network only — deliberately NOT on n8n_default. Nothing outside
+    # this stack has any business reaching the database, and Traefik must not
+    # be able to route to it by accident.
+    networks:
+      - artweel-internal
     healthcheck:
-      # $$ escapes the substitution so the shell inside the container expands
-      # it, not compose on the host.
+      # $$ escapes the substitution so the container's shell expands it, not
+      # compose on the host.
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
@@ -45,8 +55,74 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:4000:4000"
+    networks:
+      - artweel-internal
+      - n8n_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=n8n_default"
+      - "traefik.http.services.artweel-api.loadbalancer.server.port=4000"
+
+      # --- Staging: keep this deployment out of search results ------------
+      #
+      # The app generates robots.txt from PUBLIC_URL and always emits
+      # "Allow: /" (src/modules/marketing/render.ts, renderRobots). An
+      # X-Robots-Tag response header is the stronger instrument anyway:
+      # Disallow only asks a crawler not to fetch, while noindex tells it not
+      # to index what it did fetch. Crawlers must be ALLOWED to fetch the page
+      # in order to see this header, so the two work together rather than
+      # fighting.
+      #
+      # DELETE this middleware and its two references when the product name is
+      # settled and this becomes the real production hostname.
+      - "traefik.http.middlewares.artweel-noindex.headers.customresponseheaders.X-Robots-Tag=noindex, nofollow"
+
+      # Marketing site, studio booking pages, Stripe/Twilio/Google webhooks.
+      - "traefik.http.routers.artweel-public.rule=Host(`artweel.fillforge.cloud`)"
+      - "traefik.http.routers.artweel-public.entrypoints=web,websecure"
+      - "traefik.http.routers.artweel-public.tls=true"
+      - "traefik.http.routers.artweel-public.tls.certresolver=mytlschallenge"
+      - "traefik.http.routers.artweel-public.service=artweel-api"
+      - "traefik.http.routers.artweel-public.middlewares=artweel-noindex@docker"
+
+      # The dashboard bundle calls /api with relative paths, so those requests
+      # arrive on the DASHBOARD hostname and must be peeled off to the API
+      # before the catch-all router below sends them to the static container.
+      # Priority beats the client router the same way SEBVM's api router does.
+      - "traefik.http.routers.artweel-api.rule=Host(`app.artweel.fillforge.cloud`) && (PathPrefix(`/api`) || PathPrefix(`/public`))"
+      - "traefik.http.routers.artweel-api.entrypoints=web,websecure"
+      - "traefik.http.routers.artweel-api.tls=true"
+      - "traefik.http.routers.artweel-api.tls.certresolver=mytlschallenge"
+      - "traefik.http.routers.artweel-api.priority=100"
+      - "traefik.http.routers.artweel-api.service=artweel-api"
+      - "traefik.http.routers.artweel-api.middlewares=artweel-noindex@docker"
+
+  client:
+    build:
+      context: ./client
+    image: artweel-client:latest
+    container_name: artweel-client
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks:
+      - n8n_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=n8n_default"
+      - "traefik.http.services.artweel-client.loadbalancer.server.port=80"
+      - "traefik.http.routers.artweel-app.rule=Host(`app.artweel.fillforge.cloud`)"
+      - "traefik.http.routers.artweel-app.entrypoints=web,websecure"
+      - "traefik.http.routers.artweel-app.tls=true"
+      - "traefik.http.routers.artweel-app.tls.certresolver=mytlschallenge"
+      - "traefik.http.routers.artweel-app.service=artweel-client"
+
+networks:
+  artweel-internal:
+    driver: bridge
+  # Created by the n8n stack; Traefik watches it. Never define it here.
+  n8n_default:
+    external: true
 
 volumes:
   artweel_pgdata:
