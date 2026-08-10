@@ -1,0 +1,12 @@
+# Keep the build context small and keep secrets out of image layers.
+node_modules
+dist
+tests
+vitest.config.ts
+vitest.perf.config.ts
+.env
+.env.*
+!.env.example
+*.log
+coverage
+.DS_Store

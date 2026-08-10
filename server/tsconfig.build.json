@@ -1,0 +1,20 @@
+{
+  // Build-only compiler config.
+  //
+  // The main tsconfig.json deliberately includes tests/ and prisma/ so that
+  // `npm run typecheck` covers them. That is right for checking and wrong for
+  // building: with rootDir "." the emitted tree becomes dist/src/server.js,
+  // dist/tests/... and dist/prisma/..., which does not match package.json's
+  // "start": "node dist/server.js", and ships the test suite to production.
+  //
+  // Narrowing rootDir to src puts the entrypoint at dist/server.js and the
+  // config loader at dist/config/index.js — which is what config/index.ts
+  // assumes when it resolves ../../.env relative to __dirname.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "tests", "prisma"]
+}

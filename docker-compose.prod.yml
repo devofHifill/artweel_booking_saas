@@ -1,0 +1,52 @@
+# Production/staging stack for the VPS.
+#
+# Differences from docker-compose.yml (which is local development only):
+#
+#   - No Redis. REDIS_URL is declared optional in src/config/index.ts and read
+#     nowhere else in the codebase, so running it would be a service to patch
+#     and back up for no behaviour.
+#   - No docker/postgres-init mount. That script creates booking_test and
+#     booking_shadow, which exist for the test suite and for `migrate dev`.
+#     Neither runs here; `migrate deploy` needs no shadow database.
+#   - Both services publish to 127.0.0.1 only. nginx on the host is the single
+#     thing the internet can reach. Do not change these to 0.0.0.0 — Docker
+#     writes its port mappings straight into iptables and bypasses ufw, so a
+#     0.0.0.0 binding is publicly reachable even with the firewall "closed".
+#
+# Postgres MUST stay the postgis image: migration 20260804115604_init_core_domain
+# runs CREATE EXTENSION postgis and btree_gist, and btree_gist is what lets the
+# staff_time_blocks EXCLUDE constraint mix equality with range overlap.
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: artweel-postgres
+    restart: unless-stopped
+    env_file: ./server/.env.production
+    volumes:
+      - artweel_pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5434:5432"
+    healthcheck:
+      # $$ escapes the substitution so the shell inside the container expands
+      # it, not compose on the host.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: ./server
+    image: artweel-api:latest
+    container_name: artweel-api
+    restart: unless-stopped
+    env_file: ./server/.env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:4000:4000"
+
+volumes:
+  artweel_pgdata:
