@@ -29,10 +29,36 @@ export class StripeProvider implements PaymentProvider {
   readonly name = 'stripe';
   private readonly stripe: Stripe;
 
-  constructor(
-    secretKey: string,
-    private readonly webhookSecret: string,
-  ) {
+  /**
+   * One secret per Stripe event destination, and a Connect integration needs
+   * two of them.
+   *
+   * Stripe scopes a destination to EITHER "your account" OR "connected
+   * accounts" — the `connect` boolean — and issues a separate signing secret
+   * for each. Our events land on both sides: checkout sessions are created
+   * with `stripeAccount` set, so `checkout.session.*` and `account.updated`
+   * arrive on the connected-accounts destination, while our own SaaS billing
+   * (`customer.subscription.*`, `invoice.payment_*`) arrives on the platform
+   * one. A single secret can only ever verify half of that, and the other half
+   * fails as a forged signature.
+   *
+   * So STRIPE_WEBHOOK_SECRET accepts a comma-separated list. One value still
+   * works exactly as before.
+   */
+  private readonly webhookSecrets: string[];
+
+  constructor(secretKey: string, webhookSecret: string) {
+    this.webhookSecrets = webhookSecret
+      .split(',')
+      .map((secret) => secret.trim())
+      .filter((secret) => secret.length > 0);
+
+    if (this.webhookSecrets.length === 0) {
+      throw new Error(
+        'STRIPE_WEBHOOK_SECRET must contain at least one signing secret.',
+      );
+    }
+
     this.stripe = new Stripe(secretKey, {
       // Pinned. An unpinned version means Stripe can change response shapes
       // under a running deployment.
@@ -189,15 +215,26 @@ export class StripeProvider implements PaymentProvider {
   }
 
   verifyWebhook(rawBody: Buffer, signature: string): WebhookEvent {
-    let event: Stripe.Event;
+    let event: Stripe.Event | null = null;
 
-    try {
-      event = this.stripe.webhooks.constructEvent(
-        rawBody,
-        signature,
-        this.webhookSecret,
-      );
-    } catch (err) {
+    /**
+     * Try each configured secret and accept the first that verifies.
+     *
+     * This is not a weakening of the check. Every candidate still has to pass
+     * Stripe's full HMAC comparison and timestamp tolerance; we are asking
+     * "was this signed by ANY destination we registered", which is precisely
+     * the question, because we registered more than one.
+     */
+    for (const secret of this.webhookSecrets) {
+      try {
+        event = this.stripe.webhooks.constructEvent(rawBody, signature, secret);
+        break;
+      } catch {
+        // Try the next one. Failing every secret is handled below.
+      }
+    }
+
+    if (!event) {
       // An unverified webhook is an unauthenticated stranger asserting that
       // somebody paid. There is no "probably fine" here.
       throw AppError.unauthorized(

@@ -107,23 +107,33 @@ exists once the endpoint does. So create the endpoint first, even though
 nothing is listening at that URL yet — Stripe does not check reachability at
 creation time, and failed deliveries simply retry.
 
+You need **two** event destinations, not one. Stripe scopes each destination to
+either your platform account or connected accounts — it is a boolean, there is
+no "both" — and issues a separate signing secret for each. Our events land on
+both sides, because checkout sessions are created on the studio's account:
+
+| Destination scope | Events |
+|---|---|
+| **Connected accounts** | `checkout.session.completed`, `checkout.session.expired`, `account.updated` |
+| **Your account** | `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed` |
+
+Both point at the **same URL**. `STRIPE_WEBHOOK_SECRET` takes both secrets
+comma-separated and `verifyWebhook` tries each.
+
 In the Stripe dashboard with **Test mode** on:
 
 1. **Developers → API keys** → copy the **Secret key** (`sk_test_…`).
-2. **Developers → Webhooks → Add endpoint**
+2. **Workbench → Webhooks → Create destination**, twice — once per scope above.
+   For each:
+   - **API version: `2025-01-27.acacia`** — not the newest offered. The SDK is
+     pinned to acacia in `stripe.provider.ts`, and Stripe renders event payloads
+     at the destination's version, so a newer one can hand your handlers a
+     renamed field.
+   - Destination type: **Webhook endpoint**
    - URL: `https://artweel.fillforge.cloud/webhooks/stripe`
-   - Events — the app handles exactly these:
-     - `checkout.session.completed`
-     - `checkout.session.expired`
-     - `account.updated`
-     - `customer.subscription.created`
-     - `customer.subscription.updated`
-     - `customer.subscription.deleted`
-     - `invoice.payment_succeeded`
-     - `invoice.payment_failed`
-   - Also tick **listen to events on connected accounts** — `account.updated`
-     is how a studio's Connect onboarding completion gets recorded.
-3. Copy the endpoint's **Signing secret** (`whsec_…`).
+   - Select the events listed for that scope
+3. Open each destination and copy its **Signing secret** (`whsec_…`). Stripe
+   returns a secret only at creation time — if you lose one you must roll it.
 
 Nothing charges real money in test mode. Card `4242 4242 4242 4242` with any
 future expiry completes checkout end to end.
@@ -152,7 +162,8 @@ Edit `server/.env.production` and fill in:
   `SHADOW_DATABASE_URL`** — three places, one value. This is the single most
   common way this deploy fails.
 - both JWT secrets, and `CREDENTIAL_ENCRYPTION_KEY`
-- `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` from step 3
+- `STRIPE_SECRET_KEY`, and **both** signing secrets from step 3 as a single
+  comma-separated `STRIPE_WEBHOOK_SECRET` value
 - `PUBLIC_URL` / `APP_URL` if your hostnames differ
 
 Use the hex password, not base64: `+` and `/` inside a connection string need
