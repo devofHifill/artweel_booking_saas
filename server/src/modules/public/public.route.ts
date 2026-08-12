@@ -198,6 +198,107 @@ publicRouter.post(
   }),
 );
 
+// --- Course cohorts -------------------------------------------------------
+
+publicRouter.get(
+  '/:slug/courses',
+  readLimit,
+  asyncHandler(async (req, res) => {
+    res.json(await service.getPublicCourses(param(req, 'slug')));
+  }),
+);
+
+/**
+ * Enrolment on an unpriced cohort. Priced ones are refused with
+ * COURSE_REQUIRES_PAYMENT rather than enrolled for free — see the note on
+ * `enrollPublic` for why paid course checkout is separate.
+ */
+publicRouter.post(
+  '/:slug/courses/:seriesId/enrollments',
+  writeLimit,
+  validateBody(
+    z.object({
+      seats: z.number().int().min(1).max(50).default(1),
+      customer: z.object({
+        name: z.string().min(1).max(120),
+        email: z.string().email().max(255),
+        phone: z.string().max(32).optional(),
+      }),
+      smsConsent: z.boolean().default(false),
+      notes: z.string().max(2000).optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const result = await service.enrollPublic({
+      ...req.body,
+      slug: param(req, 'slug'),
+      courseSeriesId: param(req, 'seriesId'),
+    });
+
+    res.status(201).json({
+      enrollment: {
+        id: result.enrollment.id,
+        seats: result.enrollment.seats,
+        status: result.enrollment.status,
+        totalCents: result.enrollment.totalCents,
+        courseName: result.courseName,
+        sessionCount: result.sessionCount,
+      },
+      manageToken: service.encodeToken(result.enrollment.cancelToken),
+    });
+  }),
+);
+
+/**
+ * Buying a priced cohort.
+ *
+ * Same shape as class checkout and for the same reason: seats are held first,
+ * across every week, and the enrolment is created by the webhook rather than
+ * by the browser coming back. A student who pays and closes the tab is still
+ * enrolled.
+ */
+publicRouter.post(
+  '/:slug/courses/:seriesId/checkout',
+  writeLimit,
+  validateBody(
+    z.object({
+      seats: z.number().int().min(1).max(50).default(1),
+      customer: z.object({
+        name: z.string().min(1).max(120),
+        email: z.string().email().max(255),
+        phone: z.string().max(32).optional(),
+      }),
+      // No amount field. The price comes from the cohort record.
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const { organization, series } = await service.getPublicCourseForCheckout(
+      param(req, 'slug'),
+      param(req, 'seriesId'),
+    );
+
+    const base = `${config.PUBLIC_URL}/public/${organization.slug}`;
+
+    const result = await startCheckout({
+      organizationId: organization.id,
+      serviceTypeId: series.serviceTypeId,
+      courseSeriesId: series.id,
+      seats: req.body.seats,
+      customerEmail: req.body.customer.email,
+      customerName: req.body.customer.name,
+      successUrl: `${base}?enrolled=1`,
+      cancelUrl: `${base}?cancelled=1`,
+    });
+
+    res.status(201).json({
+      checkoutUrl: result.checkoutUrl,
+      expiresAt: result.expiresAt,
+      price: result.price,
+      courseName: series.name,
+    });
+  }),
+);
+
 /**
  * Paid bookings go through here instead of POST /bookings.
  *

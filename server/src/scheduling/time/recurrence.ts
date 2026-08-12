@@ -130,6 +130,61 @@ export function expandRule(input: ExpandInput): RecurrenceWindow[] {
 }
 
 /**
+ * The first `count` local dates an RRULE produces, starting on or after
+ * `startLocalDate`.
+ *
+ * `expandRule` above answers "which windows fall inside this query range",
+ * which is the availability question. A cohort asks a different one: "give me
+ * exactly six Tuesdays". Framing that as a date range would mean guessing an
+ * end date, and the guess is wrong the moment the rule is monthly or skips
+ * weeks.
+ *
+ * Same discipline as `expandRule` though, and for the same reason: the rule is
+ * evaluated against naive UTC midnights as a pure DATE generator. No
+ * wall-clock meaning is attached here, so the library's fixed-duration
+ * stepping cannot introduce a DST error. The caller resolves each date against
+ * the zone separately.
+ */
+export function expandLocalDates(
+  rruleText: string,
+  startLocalDate: string,
+  count: number,
+): string[] {
+  if (count < 1) throw new Error('Session count must be at least 1.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startLocalDate)) {
+    throw new Error(`Invalid start date "${startLocalDate}".`);
+  }
+
+  // COUNT and UNTIL would compete with `count` for authority over how many
+  // sessions a cohort has. Rejecting is better than silently overriding: the
+  // caller believed one of the two, and we cannot tell which.
+  if (/\b(COUNT|UNTIL)=/i.test(rruleText)) {
+    throw new Error(
+      'Recurrence rule must not set COUNT or UNTIL; the cohort session count governs.',
+    );
+  }
+
+  const options = RRule.parseString(rruleText);
+  const rule = new RRule({
+    ...options,
+    dtstart: new Date(`${startLocalDate}T00:00:00.000Z`),
+    count,
+  });
+
+  const dates = rule
+    .all()
+    .map((d) => DateTime.fromJSDate(d, { zone: 'utc' }).toFormat('yyyy-MM-dd'));
+
+  if (dates.length < count) {
+    throw new Error(
+      `Recurrence rule produced ${dates.length} dates but ${count} were required.`,
+    );
+  }
+
+  return dates;
+}
+
+/**
  * Applies overrides on top of expanded rule windows for a single date.
  *
  *   DAY_OFF       removes the day entirely

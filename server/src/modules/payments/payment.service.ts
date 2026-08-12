@@ -6,6 +6,10 @@ import { logger } from '../../lib/logger';
 import { AppError, BookingErrorCode } from '../../lib/app-error';
 import { createHold, convertHold, releaseHold } from '../../scheduling/hold.service';
 import {
+  createSeriesHold,
+  convertSeriesHold,
+} from '../../scheduling/series.service';
+import {
   evaluatePolicy,
   resolvePolicyForService,
   type PolicyTier,
@@ -109,7 +113,10 @@ export async function refreshConnectStatus(organizationId: string) {
 export type StartCheckoutInput = {
   organizationId: string;
   serviceTypeId: string;
-  sessionId: string;
+  /** A single class. Mutually exclusive with courseSeriesId. */
+  sessionId?: string;
+  /** A whole cohort, bought once. Mutually exclusive with sessionId. */
+  courseSeriesId?: string;
   customerEmail: string;
   customerName: string;
   seats: number;
@@ -143,13 +150,40 @@ export async function startCheckout(input: StartCheckoutInput) {
     );
   }
 
+  if (!input.sessionId === !input.courseSeriesId) {
+    throw AppError.badRequest(
+      'Checkout needs exactly one of a session or a course.',
+    );
+  }
+
   const service = await prisma.serviceType.findFirst({
     where: { id: input.serviceTypeId, organizationId: input.organizationId },
   });
   if (!service) throw AppError.notFound('Service not found.');
 
+  /**
+   * A cohort carries its own price, and it is the cohort's that counts.
+   *
+   * The service's `priceCents` is the per-class price — a drop-in. Charging
+   * that for a six-week course would undercharge by a factor of six. Deposit
+   * terms still come from the service, because "50% up front" is a studio
+   * policy rather than something set per cohort.
+   */
+  const series = input.courseSeriesId
+    ? await prisma.courseSeries.findFirst({
+        where: {
+          id: input.courseSeriesId,
+          organizationId: input.organizationId,
+        },
+      })
+    : null;
+
+  if (input.courseSeriesId && !series) {
+    throw AppError.notFound('Course not found.');
+  }
+
   const price = priceBooking({
-    unitPriceCents: service.priceCents,
+    unitPriceCents: series ? series.priceCents : service.priceCents,
     seats: input.seats,
     travelFeeCents: input.travelFeeCents,
     depositType: service.depositType as 'none' | 'percent' | 'fixed',
@@ -163,11 +197,17 @@ export async function startCheckout(input: StartCheckoutInput) {
     );
   }
 
-  const hold = await createHold({
-    organizationId: input.organizationId,
-    sessionId: input.sessionId,
-    seats: input.seats,
-  });
+  const hold = series
+    ? await createSeriesHold({
+        organizationId: input.organizationId,
+        courseSeriesId: series.id,
+        seats: input.seats,
+      })
+    : await createHold({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId!,
+        seats: input.seats,
+      });
 
   // The Stripe session must die no later than the hold, or somebody could pay
   // for seats that had already been released back to the pool.
@@ -183,7 +223,7 @@ export async function startCheckout(input: StartCheckoutInput) {
       connectedAccountId: org.stripeAccountId,
       amountCents: price.dueNowCents,
       currency: org.currency,
-      productName: service.name,
+      productName: series ? `${series.name} — ${series.sessionCount} weeks` : service.name,
       productDescription:
         price.kind === 'DEPOSIT'
           ? `Deposit — balance of ${(price.balanceCents / 100).toFixed(2)} due at the studio`
@@ -195,7 +235,8 @@ export async function startCheckout(input: StartCheckoutInput) {
         holdId: hold!.id,
         organizationId: input.organizationId,
         serviceTypeId: input.serviceTypeId,
-        sessionId: input.sessionId,
+        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+        ...(series ? { courseSeriesId: series.id } : {}),
         customerEmail: input.customerEmail,
         customerName: input.customerName,
         seats: String(input.seats),
@@ -357,6 +398,22 @@ async function onCheckoutCompleted(event: WebhookEvent) {
     name: metadata.customerName ?? 'Customer',
   });
 
+  const totalCents = Number(metadata.totalCents ?? data.amount_total ?? 0);
+  const travelFeeCents = Number(metadata.travelFeeCents ?? 0);
+
+  // A course was bought as one thing and becomes an enrolment, not a booking.
+  if (metadata.courseSeriesId) {
+    await completeCourseCheckout({
+      organizationId,
+      holdId,
+      customerId: customer.id,
+      totalCents,
+      checkoutSessionId: data.id,
+      paymentIntentId: data.payment_intent ?? null,
+    });
+    return;
+  }
+
   // The hold already owns the seats, so this transfers them rather than
   // taking more. Double-incrementing here would silently shrink the class.
   const booking = await convertHold(organizationId, holdId, {
@@ -364,9 +421,6 @@ async function onCheckoutCompleted(event: WebhookEvent) {
     serviceTypeId: metadata.serviceTypeId,
     source: 'web',
   });
-
-  const totalCents = Number(metadata.totalCents ?? data.amount_total ?? 0);
-  const travelFeeCents = Number(metadata.travelFeeCents ?? 0);
 
   await prisma.booking.update({
     where: { id: booking.id },
@@ -393,6 +447,67 @@ async function onCheckoutCompleted(event: WebhookEvent) {
   });
 
   logger.info({ bookingId: booking.id }, 'Booking confirmed by payment');
+}
+
+/**
+ * Finishes a paid course purchase.
+ *
+ * Split out because a course diverges from a class in three places at once:
+ * the hold covers every week, the result is an Enrollment rather than a
+ * Booking, and the confirmation email must be sent once rather than once per
+ * week. Inlining that into `onCheckoutCompleted` would have buried the
+ * ordinary path in branches.
+ */
+async function completeCourseCheckout(input: {
+  organizationId: string;
+  holdId: string;
+  customerId: string;
+  totalCents: number;
+  checkoutSessionId: string;
+  paymentIntentId: string | null;
+}) {
+  const result = await convertSeriesHold({
+    organizationId: input.organizationId,
+    holdId: input.holdId,
+    customerId: input.customerId,
+    totalCents: input.totalCents,
+    source: 'web',
+  });
+
+  await prisma.payment.updateMany({
+    where: { providerCheckoutSessionId: input.checkoutSessionId },
+    data: {
+      enrollmentId: result.enrollment.id,
+      status: 'SUCCEEDED',
+      providerPaymentIntentId: input.paymentIntentId,
+      succeededAt: new Date(),
+    },
+  });
+
+  // A redelivered webhook already has its enrolment and its emails. Queueing
+  // again would send the student a second set of six reminders.
+  if (result.replayed) {
+    logger.info(
+      { enrollmentId: result.enrollment.id },
+      'Course checkout webhook replayed; enrolment already exists',
+    );
+    return;
+  }
+
+  const { scheduleEnrollmentNotifications } = await import(
+    '../notifications/notification.service'
+  );
+  await scheduleEnrollmentNotifications(result.enrollment.id).catch((err) => {
+    logger.error(
+      { err, enrollmentId: result.enrollment.id },
+      'Failed to queue enrolment notifications',
+    );
+  });
+
+  logger.info(
+    { enrollmentId: result.enrollment.id, weeks: result.sessionCount },
+    'Course enrolment confirmed by payment',
+  );
 }
 
 /**

@@ -68,12 +68,27 @@ export const SHIPPING_FEATURES = [
       'your own calendar blocks that slot automatically, and classes appear ' +
       'where you already look.',
   },
+  {
+    title: 'Multi-week courses that sell as one thing',
+    body:
+      'Publish a six-week course and students enrol once, for the whole run. ' +
+      'A course is only sold while every week of it has room, so nobody pays ' +
+      'for six weeks and finds week four was full.',
+  },
 ];
 
+/**
+ * Phase 2 work that is genuinely not built yet.
+ *
+ * Courses moved out of this list when W2.1 shipped, but attendance and make-up
+ * credits stayed: they are the next piece, not part of the one that landed.
+ * Splitting the old combined line matters because half-true is the shape of
+ * promise a studio signs up on and churns over.
+ */
 export const COMING_SOON = [
   'Piece tracking through the firing cycle, with a text when a piece is ready',
   'Kiln loads and firing schedules',
-  'Multi-week courses with make-up classes',
+  'Attendance registers and make-up classes for courses',
   'Waitlists and class packs',
 ];
 

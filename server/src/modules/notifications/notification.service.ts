@@ -86,6 +86,65 @@ export async function scheduleBookingNotifications(bookingId: string) {
   return { queued };
 }
 
+/**
+ * Queues messages for a whole course enrolment.
+ *
+ * ONE confirmation, then reminders before every week.
+ *
+ * The obvious implementation — call `scheduleBookingNotifications` for each of
+ * the six fanned-out bookings — sends six identical "booking confirmed" emails
+ * within a second of each other. The student bought one course; they get one
+ * receipt. Reminders are the opposite case: they genuinely want one before
+ * each Tuesday, so those do fan out.
+ */
+export async function scheduleEnrollmentNotifications(enrollmentId: string) {
+  const bookings = await prisma.booking.findMany({
+    where: { enrollmentId, status: { not: 'CANCELLED' } },
+    select: { id: true },
+    orderBy: { startsAt: 'asc' },
+  });
+
+  if (bookings.length === 0) return { queued: 0 };
+
+  let queued = 0;
+
+  // The confirmation names the first session, which is the date the student
+  // actually needs to remember.
+  const first = await loadBooking(bookings[0]!.id);
+  if (first) {
+    queued += await enqueue({
+      booking: first,
+      ctx: await buildContext(first),
+      templateKey: TemplateKey.BOOKING_CONFIRMED,
+      scheduledFor: immediately(),
+      immediate: true,
+    });
+  }
+
+  const reminders: [string, number][] = [
+    [TemplateKey.REMINDER_24H, config.REMINDER_HOURS_AHEAD],
+    [TemplateKey.REMINDER_2H, config.SECOND_REMINDER_HOURS_AHEAD],
+  ];
+
+  for (const row of bookings) {
+    const booking = await loadBooking(row.id);
+    if (!booking) continue;
+
+    const ctx = await buildContext(booking);
+
+    for (const [templateKey, hoursAhead] of reminders) {
+      const sendAt = new Date(
+        booking.startsAt.getTime() - hoursAhead * 3_600_000,
+      );
+      if (sendAt.getTime() <= Date.now()) continue;
+
+      queued += await enqueue({ booking, ctx, templateKey, scheduledFor: sendAt });
+    }
+  }
+
+  return { queued };
+}
+
 export async function notifyCancellation(
   bookingId: string,
   opts: { refundCents?: number } = {},

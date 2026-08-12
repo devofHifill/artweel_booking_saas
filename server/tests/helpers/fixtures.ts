@@ -112,6 +112,66 @@ export async function createStudio(opts?: { name?: string; timezone?: string }) 
   return { organization, location, staff, serviceType, wheels, kiln, timezone };
 }
 
+/**
+ * A cohort ready to have sessions generated for it.
+ *
+ * Deliberately does NOT generate the sessions: several tests care about what
+ * happens between creating a cohort and giving it dates, and the DST tests
+ * need to choose their own start date.
+ */
+export async function createCohort(
+  studio: StudioFixture,
+  opts?: {
+    sessionCount?: number;
+    capacity?: number;
+    priceCents?: number;
+    timezone?: string;
+    withStaff?: boolean;
+    allowLateEnrollment?: boolean;
+    durationMinutes?: number;
+  },
+) {
+  const suffix = randomUUID().slice(0, 8);
+
+  const serviceType = await prisma.serviceType.create({
+    data: {
+      organizationId: studio.organization.id,
+      name: 'Six-Week Beginner Wheel',
+      slug: `six-week-wheel-${suffix}`,
+      bookingMode: 'COURSE_SERIES',
+      durationMinutes: opts?.durationMinutes ?? 120,
+      slotGranularityMinutes: 30,
+      capacityMax: 8,
+      priceCents: 45000,
+    },
+  });
+
+  await prisma.staffService.create({
+    data: { staffId: studio.staff.id, serviceTypeId: serviceType.id },
+  });
+
+  const series = await prisma.courseSeries.create({
+    data: {
+      organizationId: studio.organization.id,
+      serviceTypeId: serviceType.id,
+      name: 'Beginner Wheel Throwing',
+      cohortLabel: 'Autumn 2026 — Tuesdays',
+      sessionCount: opts?.sessionCount ?? 6,
+      capacity: opts?.capacity ?? 8,
+      priceCents: opts?.priceCents ?? 45000,
+      timezone: opts?.timezone ?? studio.timezone,
+      // Most tests want the instructor attached, because that is what makes
+      // the staff_time_blocks exclusion constraint participate.
+      staffId: opts?.withStaff === false ? null : studio.staff.id,
+      locationId: studio.location.id,
+      allowLateEnrollment: opts?.allowLateEnrollment ?? false,
+      status: 'PUBLISHED',
+    },
+  });
+
+  return { serviceType, series };
+}
+
 export async function createCustomer(organizationId: string, label = 'c') {
   const suffix = randomUUID().slice(0, 8);
   return prisma.customer.create({

@@ -186,13 +186,28 @@ export async function convertHold(
   }, TX_OPTIONS);
 }
 
-/** Releases a single hold and returns its seats. Safe to call twice. */
+/**
+ * Releases a single hold and returns its seats. Safe to call twice.
+ *
+ * Handles both shapes of hold. A course hold reserves a seat in every week of
+ * its cohort, so releasing it gives back N seats across N sessions — and it
+ * must do so in series order, matching every other writer, or the sweep can
+ * deadlock against a concurrent enrolment.
+ *
+ * The expiry sweep calls this and needs no knowledge of courses at all.
+ */
 export async function releaseHold(organizationId: string, holdId: string) {
   return prisma.$transaction(async (tx: Tx) => {
     const rows = await tx.$queryRaw<
-      { id: string; session_id: string | null; seats: number; released_at: Date | null }[]
+      {
+        id: string;
+        session_id: string | null;
+        course_series_id: string | null;
+        seats: number;
+        released_at: Date | null;
+      }[]
     >`
-      SELECT id, session_id, seats, released_at
+      SELECT id, session_id, course_series_id, seats, released_at
       FROM booking_holds
       WHERE id = ${holdId}::uuid AND organization_id = ${organizationId}::uuid
       FOR UPDATE
@@ -202,6 +217,8 @@ export async function releaseHold(organizationId: string, holdId: string) {
     if (!hold) throw AppError.notFound('Hold not found.');
     if (hold.released_at) return { released: 0 };
 
+    let released = 0;
+
     if (hold.session_id) {
       await tx.$queryRaw`SELECT id FROM sessions WHERE id = ${hold.session_id}::uuid FOR UPDATE`;
       await tx.$executeRaw`
@@ -209,6 +226,27 @@ export async function releaseHold(organizationId: string, holdId: string) {
         SET seats_taken = GREATEST(0, seats_taken - ${hold.seats}), updated_at = now()
         WHERE id = ${hold.session_id}::uuid
       `;
+      released = hold.seats;
+    } else if (hold.course_series_id) {
+      const sessions = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM sessions
+        WHERE course_series_id = ${hold.course_series_id}::uuid
+          AND organization_id = ${organizationId}::uuid
+        ORDER BY series_index
+        FOR UPDATE
+      `;
+
+      for (const session of sessions) {
+        await tx.$executeRaw`
+          UPDATE sessions
+          SET seats_taken = GREATEST(0, seats_taken - ${hold.seats}), updated_at = now()
+          WHERE id = ${session.id}::uuid
+        `;
+      }
+
+      // One place on the course, however many weeks it spans. Reporting six
+      // here would make the sweep's totals meaningless.
+      released = sessions.length > 0 ? hold.seats : 0;
     }
 
     await tx.bookingHold.update({
@@ -216,7 +254,7 @@ export async function releaseHold(organizationId: string, holdId: string) {
       data: { releasedAt: new Date() },
     });
 
-    return { released: hold.seats };
+    return { released };
   }, TX_OPTIONS);
 }
 

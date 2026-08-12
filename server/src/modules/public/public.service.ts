@@ -4,6 +4,7 @@ import { logger } from '../../lib/logger';
 import { AppError, BookingErrorCode } from '../../lib/app-error';
 import { getAvailability } from '../../scheduling/availability/availability.service';
 import { bookSeats, bookAppointment } from '../../scheduling/booking.service';
+import { enrollInSeries } from '../../scheduling/series.service';
 import { haversineKm, type TravelFeeBand } from '../../scheduling/travel/travel';
 import { canAcceptBookings } from '../billing/plan';
 import {
@@ -465,9 +466,14 @@ async function resolveTravelFee(
  * Silence in a later booking form is not a withdrawal of consent, and
  * withdrawal has its own path.
  */
+type CustomerDetails = {
+  customer: { name: string; email: string; phone?: string };
+  smsConsent?: boolean;
+};
+
 async function upsertCustomer(
   organizationId: string,
-  input: PublicBookingInput,
+  input: CustomerDetails,
 ) {
   const email = input.customer.email.trim().toLowerCase();
 
@@ -497,6 +503,213 @@ async function upsertCustomer(
       smsConsentAt: input.smsConsent ? new Date() : null,
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Course cohorts
+// ---------------------------------------------------------------------------
+
+/**
+ * The cohorts a visitor may actually enrol on.
+ *
+ * A course is offered as a whole or not at all, so "seats left" is the seats
+ * left in its TIGHTEST week, not in its first one. Showing week one's roomy
+ * count and then failing at checkout because week four is full is the exact
+ * experience the all-or-nothing enrolment path exists to prevent, and it would
+ * be undone here by publishing a number that means something else.
+ */
+export async function getPublicCourses(slug: string) {
+  const organization = await getStudio(slug);
+  const now = new Date();
+
+  const series = await prisma.courseSeries.findMany({
+    where: {
+      organizationId: organization.id,
+      status: 'PUBLISHED',
+      sessions: { some: {} },
+    },
+    select: {
+      id: true,
+      name: true,
+      cohortLabel: true,
+      description: true,
+      sessionCount: true,
+      priceCents: true,
+      capacity: true,
+      timezone: true,
+      enrollmentClosesAt: true,
+      allowLateEnrollment: true,
+      serviceType: {
+        select: { id: true, name: true, durationMinutes: true, skillLevel: true },
+      },
+      staff: { select: { id: true, name: true } },
+      location: { select: { id: true, name: true, locationType: true, address: true } },
+      sessions: {
+        where: { status: 'SCHEDULED' },
+        orderBy: { seriesIndex: 'asc' },
+        select: {
+          id: true,
+          seriesIndex: true,
+          startsAt: true,
+          endsAt: true,
+          capacity: true,
+          seatsTaken: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return {
+    organization,
+    acceptingBookings: canAcceptBookings(organization.subscriptionStatus),
+    courses: series
+      .filter((s) => s.sessions.length > 0)
+      .map((s) => {
+        const seatsRemaining = Math.min(
+          ...s.sessions.map((session) => session.capacity - session.seatsTaken),
+        );
+        const startsAt = s.sessions[0]!.startsAt;
+        const endsAt = s.sessions[s.sessions.length - 1]!.endsAt;
+        const hasStarted = startsAt <= now;
+        const windowClosed =
+          s.enrollmentClosesAt !== null && s.enrollmentClosesAt <= now;
+
+        return {
+          id: s.id,
+          name: s.name,
+          cohortLabel: s.cohortLabel,
+          description: s.description,
+          service: s.serviceType,
+          instructor: s.staff?.name ?? null,
+          location: s.location
+            ? {
+                id: s.location.id,
+                name: s.location.name,
+                address:
+                  s.location.locationType === 'FIXED' ? s.location.address : null,
+              }
+            : null,
+          timezone: s.timezone,
+          sessionCount: s.sessions.length,
+          priceCents: s.priceCents,
+          startsAt,
+          endsAt,
+          seatsRemaining: Math.max(0, seatsRemaining),
+          /** Dates only — a student wants to check them against their diary. */
+          dates: s.sessions.map((session) => ({
+            seriesIndex: session.seriesIndex,
+            startsAt: session.startsAt,
+            endsAt: session.endsAt,
+          })),
+          enrollable:
+            seatsRemaining > 0 &&
+            !windowClosed &&
+            (!hasStarted || s.allowLateEnrollment),
+          hasStarted,
+        };
+      }),
+  };
+}
+
+/**
+ * Resolves a cohort a stranger is allowed to buy.
+ *
+ * Scoped by slug, so a series id from another studio cannot be pushed through
+ * this studio's checkout, and restricted to PUBLISHED — a draft cohort is not
+ * on sale no matter who has its id.
+ */
+export async function getPublicCourseForCheckout(
+  slug: string,
+  courseSeriesId: string,
+) {
+  const organization = await getStudio(slug);
+
+  if (!canAcceptBookings(organization.subscriptionStatus)) {
+    throw new AppError(
+      'This studio is not taking online bookings at the moment. ' +
+        'Please contact them directly.',
+      409,
+      'STUDIO_INACTIVE',
+    );
+  }
+
+  const series = await prisma.courseSeries.findFirst({
+    where: {
+      id: courseSeriesId,
+      organizationId: organization.id,
+      status: 'PUBLISHED',
+    },
+    select: { id: true, name: true, serviceTypeId: true, priceCents: true },
+  });
+  if (!series) throw AppError.notFound('Course not found.');
+
+  return { organization, series };
+}
+
+export type PublicEnrollInput = {
+  slug: string;
+  courseSeriesId: string;
+  seats?: number;
+  customer: { name: string; email: string; phone?: string };
+  smsConsent?: boolean;
+  notes?: string;
+};
+
+/**
+ * Enrols a visitor on an unpriced cohort straight from the booking page.
+ *
+ * Free taster courses, and the common ceramics case of a studio that invoices
+ * or takes a card in person. A priced cohort is refused here and goes through
+ * `POST /:slug/courses/:seriesId/checkout` instead, so that money is never
+ * taken outside the hold → Stripe → webhook sequence.
+ */
+export async function enrollPublic(input: PublicEnrollInput) {
+  const organization = await getStudio(input.slug);
+
+  if (!canAcceptBookings(organization.subscriptionStatus)) {
+    throw new AppError(
+      'This studio is not taking online bookings at the moment. ' +
+        'Please contact them directly.',
+      409,
+      'STUDIO_INACTIVE',
+    );
+  }
+
+  const series = await prisma.courseSeries.findFirst({
+    where: {
+      id: input.courseSeriesId,
+      organizationId: organization.id,
+      status: 'PUBLISHED',
+    },
+    select: { id: true, priceCents: true, name: true },
+  });
+  if (!series) throw AppError.notFound('Course not found.');
+
+  if (series.priceCents > 0) {
+    throw new AppError(
+      'This course must be paid for online. Please use the checkout.',
+      409,
+      'COURSE_REQUIRES_PAYMENT',
+    );
+  }
+
+  const customer = await upsertCustomer(organization.id, input);
+
+  const result = await enrollInSeries({
+    organizationId: organization.id,
+    courseSeriesId: series.id,
+    customerId: customer.id,
+    seats: input.seats ?? 1,
+    notes: input.notes,
+    source: 'web',
+  });
+
+  return {
+    enrollment: result!.enrollment,
+    sessionCount: result!.sessionCount,
+    courseName: series.name,
+  };
 }
 
 // ---------------------------------------------------------------------------

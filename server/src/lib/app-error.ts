@@ -58,6 +58,17 @@ export const BookingErrorCode = {
   SLOT_NOT_BOOKABLE: 'SLOT_NOT_BOOKABLE',
   HOLD_EXPIRED: 'HOLD_EXPIRED',
   OUTSIDE_NOTICE_WINDOW: 'OUTSIDE_NOTICE_WINDOW',
+
+  /**
+   * Course enrolment. COURSE_FULL is distinct from SESSION_FULL on purpose:
+   * a course is sold whole, so it is unavailable when ANY of its weeks is
+   * full, and the customer needs to be told that rather than shown a
+   * half-empty week-one and a failure at checkout.
+   */
+  COURSE_FULL: 'COURSE_FULL',
+  COURSE_NOT_ENROLLABLE: 'COURSE_NOT_ENROLLABLE',
+  COURSE_ALREADY_STARTED: 'COURSE_ALREADY_STARTED',
+  ALREADY_ENROLLED: 'ALREADY_ENROLLED',
 } as const;
 
 export type BookingErrorCode =

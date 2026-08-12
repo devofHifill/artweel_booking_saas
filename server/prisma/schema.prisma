@@ -134,6 +134,7 @@ model Organization {
   availabilityOverride AvailabilityOverride[]
   busyBlocks           BusyBlock[]
   courseSeries         CourseSeries[]
+  enrollments          Enrollment[]
   sessions             Session[]
   bookings             Booking[]
   bookingHolds         BookingHold[]
@@ -413,6 +414,7 @@ model Staff {
   busyBlocks           BusyBlock[]
   sessions             Session[]
   bookings             Booking[]
+  courseSeries         CourseSeries[]
   staffTimeBlocks      StaffTimeBlock[]
   calendarConnection   CalendarConnection?
 
@@ -457,6 +459,7 @@ model Customer {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   bookings     Booking[]
   bookingHolds BookingHold[]
+  enrollments  Enrollment[]
 
   /// Scoped per organization. The plugin deduped on `email OR phone` globally,
   /// which merges two family members who share a phone.
@@ -514,6 +517,7 @@ model Location {
   availabilityRules   AvailabilityRule[]
   sessions            Session[]
   bookings            Booking[]
+  courseSeries        CourseSeries[]
 
   @@index([organizationId, isActive])
   @@map("locations")
@@ -760,24 +764,138 @@ enum BookingStatus {
   CANCELLED
 }
 
+enum CourseSeriesStatus {
+  /// Created, sessions not yet generated or not yet on sale.
+  DRAFT
+  /// On sale. Only PUBLISHED cohorts are visible publicly or enrollable.
+  PUBLISHED
+  /// Called off. Sessions are cancelled and enrolments refunded manually.
+  CANCELLED
+}
+
+/// A cohort: one run of a multi-week course.
+///
+/// "Beginner Wheel Throwing" is a ServiceType. "Beginner Wheel Throwing,
+/// Fall 2026, Tuesdays 7pm" is a CourseSeries, and the six Tuesday evenings
+/// are its Sessions. Running the same course twice means two rows here, which
+/// is why cohort identity lives on this table rather than being inferred from
+/// a date range over sessions.
 model CourseSeries {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
   serviceTypeId  String @map("service_type_id") @db.Uuid
   name           String
   cohortLabel    String? @map("cohort_label")
+  description    String?
   sessionCount   Int    @map("session_count")
   priceCents     Int    @default(0) @map("price_cents")
+
+  status CourseSeriesStatus @default(DRAFT)
+
+  /// The cohort's wall-clock zone. Sessions are re-resolved against this per
+  /// date, so a Tuesday 7pm course stays at 7pm across a DST boundary.
+  timezone String
+
+  /// Seat count applied to every generated session. A course has one roster,
+  /// so per-session capacity variation would be meaningless.
+  capacity Int @default(1)
+
+  /// The cohort's default instructor and room, copied onto each session.
+  staffId    String? @map("staff_id") @db.Uuid
+  locationId String? @map("location_id") @db.Uuid
+
+  /// After this instant the cohort stops accepting enrolments even if seats
+  /// remain. Null means "until it starts".
+  enrollmentClosesAt DateTime? @map("enrollment_closes_at") @db.Timestamptz(3)
+
+  /**
+   * Whether someone may join after the first session has run.
+   *
+   * Defaults to false, and that default is the domain talking rather than
+   * caution: a six-week wheel course is cumulative — centring in week one,
+   * trimming in week three — so week-four arrivals are a bad experience for
+   * them and a drag on everyone else. Studios that run drop-in-shaped courses
+   * can turn it on.
+   */
+  allowLateEnrollment Boolean @default(false) @map("allow_late_enrollment")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   serviceType  ServiceType  @relation(fields: [serviceTypeId], references: [id], onDelete: Cascade)
+  staff        Staff?       @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
   sessions     Session[]
+  enrollments  Enrollment[]
+  bookingHolds BookingHold[]
 
   @@index([organizationId])
+  @@index([organizationId, status])
   @@map("course_series")
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  CANCELLED
+  COMPLETED
+}
+
+/**
+ * One customer's place in one cohort.
+ *
+ * An enrolment is the thing sold, but it is NOT the thing scheduled. It fans
+ * out into one Booking per session, and those bookings are ordinary bookings
+ * in every respect.
+ *
+ * That fan-out is the central decision here, and it is deliberately the
+ * boring one. Seat counting, cancellation, calendar sync, reminders and the
+ * per-class roster are all already correct at Booking granularity. A parallel
+ * "series booking" that occupied six sessions implicitly would force every one
+ * of those subsystems to grow a second code path — and the week-three roster,
+ * the single most-used screen in a studio, would stop being a plain query.
+ * Six rows per enrolment is a very cheap price for that.
+ *
+ * The money lives here rather than on the bookings: the customer bought a
+ * course, not six classes, and splitting the price across sessions would
+ * invent per-week revenue that nobody agreed to.
+ */
+model Enrollment {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  courseSeriesId String @map("course_series_id") @db.Uuid
+  customerId     String @map("customer_id") @db.Uuid
+
+  seats  Int              @default(1)
+  status EnrollmentStatus @default(ACTIVE)
+
+  totalCents Int @default(0) @map("total_cents")
+
+  /// 32 random bytes, same as Booking. A management link carries its own
+  /// credential and must not be derivable from the customer's email.
+  cancelToken Bytes  @unique @map("cancel_token")
+  source      String @default("web")
+  notes       String?
+
+  /// Set when enrolment happened after the cohort's first session, which is
+  /// only possible on a cohort that allows it. Recorded because it changes
+  /// what the studio owes the student.
+  joinedLate Boolean @default(false) @map("joined_late")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  courseSeries CourseSeries @relation(fields: [courseSeriesId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  bookings Booking[]
+  payments Payment[]
+
+  @@index([organizationId])
+  @@index([courseSeriesId])
+  @@index([customerId])
+  @@map("enrollments")
 }
 
 /// A concrete, bookable instance in time.
@@ -846,6 +964,11 @@ model Booking {
   /// APPOINTMENT bookings point at a staff member instead.
   staffId   String? @map("staff_id") @db.Uuid
 
+  /// Set on the per-session bookings fanned out from a course enrolment.
+  /// Null for a standalone class booking. Cancelling the enrolment cancels
+  /// every booking carrying its id.
+  enrollmentId String? @map("enrollment_id") @db.Uuid
+
   locationId String? @map("location_id") @db.Uuid
   /// Mobile bookings: the customer's address, geocoded at booking time.
   serviceAddress Json? @map("service_address")
@@ -877,6 +1000,7 @@ model Booking {
   session      Session?     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   staff        Staff?       @relation(fields: [staffId], references: [id], onDelete: SetNull)
   location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  enrollment   Enrollment?  @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
 
   resourceAllocations ResourceAllocation[]
   staffTimeBlocks     StaffTimeBlock[]
@@ -886,6 +1010,7 @@ model Booking {
 
   @@index([organizationId, startsAt])
   @@index([sessionId])
+  @@index([enrollmentId])
   @@index([staffId, startsAt])
   @@index([customerId])
   @@map("bookings")
@@ -904,6 +1029,18 @@ model BookingHold {
   staffId        String? @map("staff_id") @db.Uuid
   customerId     String? @map("customer_id") @db.Uuid
 
+  /**
+   * A hold on a whole cohort rather than one class.
+   *
+   * ONE row, holding seats in EVERY week of the course. Modelling it as N
+   * per-session holds would mean the sweep could expire week three's hold
+   * while weeks one and two stayed reserved, leaving a customer mid-payment
+   * with a course they can no longer be enrolled on.
+   *
+   * Mutually exclusive with sessionId — enforced by a CHECK constraint.
+   */
+  courseSeriesId String? @map("course_series_id") @db.Uuid
+
   seats Int @default(1)
 
   startsAt DateTime @map("starts_at") @db.Timestamptz(3)
@@ -918,12 +1055,14 @@ model BookingHold {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  session      Session?     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session      Session?      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  courseSeries CourseSeries? @relation(fields: [courseSeriesId], references: [id], onDelete: Cascade)
+  customer     Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@index([expiresAt, releasedAt])
   @@index([sessionId])
+  @@index([courseSeriesId])
   @@map("booking_holds")
 }
 
@@ -1242,6 +1381,9 @@ model Payment {
   bookingId      String? @map("booking_id") @db.Uuid
   /// Set while money is being collected but the booking does not exist yet.
   holdId         String? @map("hold_id") @db.Uuid
+  /// A course is paid for once, as a course. The payment attaches here rather
+  /// than to an arbitrarily chosen one of the six per-session bookings.
+  enrollmentId   String? @map("enrollment_id") @db.Uuid
 
   kind       PaymentKind
   amountCents Int        @map("amount_cents")
@@ -1265,10 +1407,12 @@ model Payment {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   booking      Booking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  enrollment   Enrollment?  @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
   refunds      Refund[]
 
   @@index([organizationId, createdAt])
   @@index([bookingId])
+  @@index([enrollmentId])
   @@map("payments")
 }
 
