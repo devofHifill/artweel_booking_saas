@@ -23,9 +23,9 @@ have no concept of equipment.
 ## Status
 
 **Phase 0 and Phase 1 complete and deployed to staging. Phase 2 W2.1 (course
-cohorts, including paid checkout) complete locally, not yet deployed.** 385
-tests green in the default suite, plus an isolated performance gate at 160ms
-p95. Both typechecks clean.
+cohorts, including paid checkout) and W2.2a (attendance registers) complete
+locally, not yet deployed.** 397 tests green in the default suite, plus an
+isolated performance gate under 200ms p95. Both typechecks clean.
 
 Staging is live and verified at `https://artweel.fillforge.cloud` (marketing +
 booking pages) and `https://app.artweel.fillforge.cloud` (dashboard). See
@@ -34,7 +34,7 @@ booking pages) and `https://app.artweel.fillforge.cloud` (dashboard). See
 Shipping: auth/tenancy, admin CRUD, public booking page, Stripe Connect
 payments, notifications (email + SMS outbox), Google Calendar two-way sync,
 owner dashboard, onboarding + billing, marketing site + SEO, multi-week course
-cohorts with all-or-nothing enrolment.
+cohorts with all-or-nothing enrolment, attendance registers.
 
 Phase 1 exit gate was met and browser-verified: a stranger signed up, seeded a
 studio, published, and the page took a real booking — four interactions.
@@ -92,7 +92,7 @@ under "Being built next — not available yet". A test enforces this.
 ## COMMANDS
 
 ```
-cd server && npm test              # 385 tests, ~12 min
+cd server && npm test              # 397 tests, ~15 min
 cd server && npm run test:perf     # isolated timing gate — run alone
 cd server && npm run typecheck
 cd server && npm run db:seed       # prints booking URL + login
@@ -272,11 +272,62 @@ enrolment, so cancelling a cohort still requires the studio to refund by hand �
 which `cancelSeries` already assumes deliberately, since a called-off course
 may owe full refunds, partial ones or credit.
 
-### NEXT: W2.2 — attendance + make-up credits
+### W2.2a — attendance registers (DONE, 2026-08-12)
 
-Registers per session, marking absence, and a credit a student can redeem into
-another cohort's session. The `Booking.status` enum already carries `ATTENDED`
-and `NO_SHOW`, so the register writes to rows that already exist.
+**A register belongs to a SESSION, not to a course.** Week three of a six-week
+course and a Saturday drop-in are the same thing to an instructor holding a
+phone: a list of people who should be in the room. Hanging the register off
+courses would have left drop-in classes without one and duplicated the logic
+the moment they needed it. New module at `/api/organizations/:id/sessions`:
+
+- `GET /sessions?from=&to=` — find tonight's class, with outstanding counts
+- `GET /sessions/:id/register` — the roster, plus `markable`
+- `POST /sessions/:id/register` — mark the whole class in one request
+
+Everything is `requireMember`, not `requireAdmin`. An admin-only register is a
+register nobody fills in — the instructor in the room is the person marking it.
+
+Rules that keep the record trustworthy, all in `markAttendance` so the bulk and
+single paths cannot drift:
+
+- **A future class cannot be marked.** Checked against session START, not end,
+  so a register can be taken while the class is running — which is when it
+  actually happens.
+- **A cancelled booking cannot be marked**, and does not appear on the
+  register at all. Somebody who cancelled in advance is not a no-show, and
+  conflating the two makes a student look unreliable for doing the right thing.
+- **Bulk marking is all-or-nothing.** A request naming a booking from another
+  class is rejected whole (`NOT_ON_REGISTER`), never applied in part.
+- `CONFIRMED` is the undo, for a mistapped row on a phone.
+
+The course roster now carries `attendance: { attended, missed, upcoming,
+unmarked }` per enrolment. `unmarked` is deliberately distinct from `upcoming`:
+a class that ran and never had its register filled in is a different problem
+from one that has not happened yet.
+
+**Dashboard page** at `/register` (`client/src/pages/Register.tsx`) — the first
+admin CRUD page the dashboard has. Built for a phone in an apron pocket: marks
+are held locally and submitted as ONE request, tapping the same button twice
+clears it, and a not-yet-started class renders no save controls at all. Verified
+against a real database, not just typechecked.
+
+> **Gap found while testing this, NOT fixed: there is no admin endpoint to
+> create a standalone class session.** The seeded classes come from `seed.ts`
+> calling `createSession` directly, and sessions are otherwise only reachable
+> through course generation. So a studio can take a drop-in class's register but
+> cannot schedule the class through the API. Pre-existing, and odd enough now
+> that it deserves its own piece of work.
+
+### NEXT: W2.2b — make-up credits
+
+Deliberately NOT built with the register, and this is the decision to revisit
+rather than inherit. A credit needs answers this codebase cannot supply: how
+many does an absence earn, do they expire, can they be redeemed into a
+different cohort, do they survive the course ending. That is studio policy, and
+`attendance.missed` above is already the input it needs — so the expensive half
+was postponed without blocking anything.
+
+**Interview studios before building this.** See open decision 2.
 
 Phase 2 exit gate: a studio runs a full six-week course (enrolment, attendance,
 one absence, a redeemed make-up credit) and a full firing cycle (piece created →

@@ -277,7 +277,15 @@ export async function cancelCourseSeries(organizationId: string, id: string) {
   return cancelSeries(organizationId, id);
 }
 
-/** The roster: who is on the course, not who turned up on a given week. */
+/**
+ * The roster, with how each student is tracking through the course.
+ *
+ * The attendance breakdown is the thing a studio actually looks at mid-course:
+ * who has missed weeks. It is also precisely the data a make-up credit will be
+ * computed from later — counting absences is the cheap, uncontroversial half
+ * of that feature, and it is worth having on its own before any decision about
+ * how credits should behave.
+ */
 export async function listRoster(organizationId: string, id: string) {
   const series = await prisma.courseSeries.findFirst({
     where: { id, organizationId },
@@ -285,13 +293,48 @@ export async function listRoster(organizationId: string, id: string) {
   });
   if (!series) throw AppError.notFound('Course series not found.');
 
-  return prisma.enrollment.findMany({
+  const enrollments = await prisma.enrollment.findMany({
     where: { courseSeriesId: id },
     include: {
       customer: { select: { id: true, name: true, email: true, phone: true } },
       _count: { select: { bookings: true } },
+      bookings: {
+        select: { id: true, status: true, startsAt: true },
+        orderBy: { startsAt: 'asc' },
+      },
     },
     orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
+  });
+
+  const now = new Date();
+
+  return enrollments.map((enrollment) => {
+    const attended = enrollment.bookings.filter(
+      (b) => b.status === 'ATTENDED',
+    ).length;
+    const missed = enrollment.bookings.filter(
+      (b) => b.status === 'NO_SHOW',
+    ).length;
+    // Weeks still to come. Distinct from "not yet marked", which is a class
+    // that has run and whose register was never filled in.
+    const upcoming = enrollment.bookings.filter(
+      (b) => b.status !== 'CANCELLED' && b.startsAt > now,
+    ).length;
+    const unmarked = enrollment.bookings.filter(
+      (b) =>
+        b.startsAt <= now &&
+        b.status !== 'ATTENDED' &&
+        b.status !== 'NO_SHOW' &&
+        b.status !== 'CANCELLED',
+    ).length;
+
+    // The booking list itself is an implementation detail of the counts.
+    const { bookings: _bookings, ...rest } = enrollment;
+
+    return {
+      ...rest,
+      attendance: { attended, missed, upcoming, unmarked },
+    };
   });
 }
 

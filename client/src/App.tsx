@@ -9,6 +9,7 @@ import Today from './pages/Today';
 import Bookings from './pages/Bookings';
 import CalendarPage from './pages/Calendar';
 import Customers from './pages/Customers';
+import Register from './pages/Register';
 import CustomerDetail from './pages/CustomerDetail';
 import Billing from './pages/Billing';
 
@@ -65,6 +66,7 @@ export default function App() {
           <NavLink to="/" end>Today</NavLink>
           <NavLink to="/calendar">Calendar</NavLink>
           <NavLink to="/bookings">Bookings</NavLink>
+          <NavLink to="/register">Register</NavLink>
           <NavLink to="/customers">Customers</NavLink>
           <NavLink to="/billing">Plan</NavLink>
         </nav>
@@ -100,6 +102,7 @@ export default function App() {
           <Route path="/setup" element={<SetupRoute />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/bookings" element={<Bookings />} />
+          <Route path="/register" element={<Register />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/customers/:customerId" element={<CustomerDetail />} />
           <Route path="/billing" element={<Billing />} />

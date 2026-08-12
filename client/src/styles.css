@@ -208,3 +208,46 @@ tr:hover td { background: var(--clay-lt); }
 .slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 6px; margin-top: 8px; }
 .slot-grid button { padding: 8px 4px; font-size: .82rem; }
 .day-label { font-weight: 600; font-size: .85rem; margin: 14px 0 2px; }
+
+/* --- Register ------------------------------------------------------------ */
+/*
+ * Sized for a phone held in one hand in a studio. Touch targets stay at 40px
+ * even on desktop: the person using this has clay on their fingers.
+ */
+.list { display: flex; flex-direction: column; gap: 10px; }
+
+.row-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 0; background: none; border: none;
+  text-align: left; color: inherit; cursor: pointer; font: inherit;
+}
+.row-head:hover { background: none; }
+
+.counts { font-size: .82rem; color: var(--muted); white-space: nowrap; }
+.done { color: var(--ok); font-weight: 600; font-size: .82rem; }
+
+.register { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+
+.register-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line);
+}
+.register-row:last-of-type { border-bottom: none; }
+
+.marks { display: flex; gap: 6px; flex-shrink: 0; }
+.marks button {
+  min-width: 76px; min-height: 40px; font-size: .82rem;
+  background: var(--card); color: var(--ink); border: 1px solid var(--line);
+}
+/* The marked state has to read at a glance from arm's length. */
+.marks button.on { background: var(--clay); border-color: var(--clay); color: #fff; }
+.marks button:disabled { opacity: .45; cursor: not-allowed; }
+
+.register-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.register-actions .spacer { flex: 1; }
+
+@media (max-width: 560px) {
+  .register-row { flex-wrap: wrap; }
+  .marks { width: 100%; }
+  .marks button { flex: 1; }
+}

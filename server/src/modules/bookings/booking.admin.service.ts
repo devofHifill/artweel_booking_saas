@@ -455,7 +455,24 @@ export async function rescheduleBooking(
   }
 }
 
-/** Attendance, which becomes make-up credits in Phase 2. */
+/**
+ * Records whether someone turned up.
+ *
+ * `CONFIRMED` is the undo: it puts a booking back to "expected", which is what
+ * a studio needs after tapping the wrong row on a phone.
+ *
+ * Two things are refused, both because the alternative silently corrupts the
+ * record a make-up credit will later be computed from:
+ *
+ *   A FUTURE CLASS. Nobody has attended or missed a class that has not
+ *   started. The check is against the START, not the end, so a register can
+ *   be marked while the class is running — which is when instructors actually
+ *   do it.
+ *
+ *   A CANCELLED BOOKING. Somebody who cancelled in advance is not a no-show;
+ *   they are not on the register at all. Conflating the two would make a
+ *   student look unreliable for doing exactly the right thing.
+ */
 export async function markAttendance(
   organizationId: string,
   bookingId: string,
@@ -465,6 +482,20 @@ export async function markAttendance(
     where: { id: bookingId, organizationId },
   });
   if (!booking) throw AppError.notFound('Booking not found.');
+
+  if (booking.status === 'CANCELLED') {
+    throw AppError.conflict(
+      'This booking was cancelled, so there is no attendance to record.',
+      'BOOKING_CANCELLED',
+    );
+  }
+
+  if (booking.startsAt > new Date()) {
+    throw AppError.conflict(
+      'This class has not started yet.',
+      'SESSION_NOT_STARTED',
+    );
+  }
 
   return prisma.booking.update({
     where: { id: bookingId },

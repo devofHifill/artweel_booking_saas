@@ -75,20 +75,27 @@ export const SHIPPING_FEATURES = [
       'A course is only sold while every week of it has room, so nobody pays ' +
       'for six weeks and finds week four was full.',
   },
+  {
+    title: 'Take the register from the studio floor',
+    body:
+      'Mark a whole class present or absent in one tap, on the phone in your ' +
+      'apron pocket. Course rosters show who has missed which week, so you ' +
+      'know who is falling behind before they quietly stop coming.',
+  },
 ];
 
 /**
  * Phase 2 work that is genuinely not built yet.
  *
- * Courses moved out of this list when W2.1 shipped, but attendance and make-up
- * credits stayed: they are the next piece, not part of the one that landed.
- * Splitting the old combined line matters because half-true is the shape of
- * promise a studio signs up on and churns over.
+ * This list has been split twice now, each time a piece of it shipped: courses
+ * left when W2.1 landed, attendance registers when W2.2a did. Keep doing that.
+ * Half-true is the shape of promise a studio signs up on and churns over, and
+ * it costs nothing to move a line.
  */
 export const COMING_SOON = [
   'Piece tracking through the firing cycle, with a text when a piece is ready',
   'Kiln loads and firing schedules',
-  'Attendance registers and make-up classes for courses',
+  'Make-up classes for a missed week',
   'Waitlists and class packs',
 ];
 
