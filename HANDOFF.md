@@ -23,9 +23,10 @@ have no concept of equipment.
 ## Status
 
 **Phase 0 and Phase 1 complete and deployed to staging. Phase 2 W2.1 (course
-cohorts, including paid checkout) and W2.2a (attendance registers) complete
-locally, not yet deployed.** 397 tests green in the default suite, plus an
-isolated performance gate under 200ms p95. Both typechecks clean.
+cohorts, including paid checkout), W2.2a (attendance registers) and W2.2c
+(scheduling drop-in classes) complete locally, not yet deployed.** 413 tests
+green in the default suite, plus an isolated performance gate at 174ms p95.
+Both typechecks clean.
 
 Staging is live and verified at `https://artweel.fillforge.cloud` (marketing +
 booking pages) and `https://app.artweel.fillforge.cloud` (dashboard). See
@@ -81,7 +82,8 @@ under "Being built next — not available yet". A test enforces this.
 |---|---|
 | Postgres port | **Fixed — everything is on 15432 now.** A native Postgres owns `0.0.0.0:5433` and beats Docker's proxy for IPv4 localhost (symptom: "invalid credentials" while the container is healthy). 5434 failed for a different reason: Windows reserves blocks of ephemeral ports and **re-rolls them on every reboot** — `5434–5533` was reserved on 2026-08-12 and no longer is. Symptom when it lands on you is `bind: An attempt was made to access a socket in a way forbidden by its access permissions` with nothing showing as a listener. Chasing it a few ports at a time just waits for the next reboot. 15432 is above the range these are drawn from. Inspect with `netsh int ipv4 show excludedportrange protocol=tcp`. |
 | Test database | `prisma migrate deploy` only touches `booking_dev`. The test DB is separate and needs its own run, or every suite fails with "column does not exist": `DATABASE_URL="postgresql://booking:booking@localhost:15432/booking_test?schema=public" npx prisma migrate deploy` |
-| Docker | Desktop frequently isn't running. Start `"C:\Program Files\Docker\Docker\Docker Desktop.exe"`, poll `docker info`, then `docker compose up -d`. |
+| Docker | Desktop frequently isn't running, and it also **shuts itself down mid-session**. Start `"C:\Program Files\Docker\Docker\Docker Desktop.exe"`, poll `docker info`, then `docker compose up -d`. |
+| Postgres crash recovery | When Docker dies with Postgres running, the container comes back up but **rejects connections for ~40s** while it fsyncs the data directory. `docker compose ps` says "running" the whole time, so a test run started too early fails with `Can't reach database server` and looks like a code fault. Poll `docker exec booking-postgres pg_isready -U booking -d booking_dev` until it says *accepting connections*. |
 | Migrations | `prisma migrate dev` needs a TTY and fails here. Use `prisma migrate diff --from-migrations … --script` into a temp file, write it to a new `prisma/migrations/<timestamp>_name/migration.sql`, then `prisma migrate deploy`. |
 | PowerShell + .NET | `[System.IO.File]::WriteAllText` uses the *process* CWD, not `Set-Location`. Always pass absolute paths. |
 | Perf suite | Must run **alone**: `npm run test:perf`. It is excluded from `npm test`. Running it alongside anything else inflates p95 and produces a false failure. |
@@ -92,7 +94,7 @@ under "Being built next — not available yet". A test enforces this.
 ## COMMANDS
 
 ```
-cd server && npm test              # 397 tests, ~15 min
+cd server && npm test              # 413 tests, ~14 min
 cd server && npm run test:perf     # isolated timing gate — run alone
 cd server && npm run typecheck
 cd server && npm run db:seed       # prints booking URL + login
@@ -311,12 +313,35 @@ are held locally and submitted as ONE request, tapping the same button twice
 clears it, and a not-yet-started class renders no save controls at all. Verified
 against a real database, not just typechecked.
 
-> **Gap found while testing this, NOT fixed: there is no admin endpoint to
-> create a standalone class session.** The seeded classes come from `seed.ts`
-> calling `createSession` directly, and sessions are otherwise only reachable
-> through course generation. So a studio can take a drop-in class's register but
-> cannot schedule the class through the API. Pre-existing, and odd enough now
-> that it deserves its own piece of work.
+### W2.2c — scheduling drop-in classes (DONE, 2026-08-12)
+
+Found while testing the register: sessions could only be created by generating
+a cohort or by `seed.ts` calling `createSession` directly, so a studio could
+take a register for a class it had no way to schedule. Now `POST`, `PATCH` and
+`DELETE` on `/sessions`, admin-only — putting a class on the calendar is a
+different authority from marking who turned up.
+
+**A course and a term of drop-ins fail differently, and that is the point.**
+Cohort generation rolls back whole, because a course with a hole in week four
+is broken — students bought the run. Twelve independent Saturdays are not: if
+the instructor is busy on one, the other eleven are still worth having. So a
+repeat SKIPS the clashing date and reports it in `skipped[]`, and only fails
+outright (`ALL_DATES_UNAVAILABLE`) when nothing could be scheduled.
+
+- Times arrive as wall-clock intent; the instant is derived. A repeat across
+  the November transition holds its advertised hour.
+- A `COURSE_SERIES` service cannot take a loose session — that would be a
+  seventh week nobody enrolled in and nobody could sell.
+- Capacity cannot drop below `seatsTaken`. Allowing it would leave the CHECK
+  constraint permanently violated for that row, so every later booking and
+  cancellation on the class would start failing.
+- **Instructor swaps are refused, not half-done.** The time block is what the
+  exclusion constraint compares against, so a swap must move block and session
+  together and be rejected whole if the new instructor is busy. That is a
+  scheduling operation, not a field edit. `STAFF_CHANGE_UNSUPPORTED` says so
+  rather than silently leaving the old instructor blocked and the new one free.
+- Cancelling cancels every booking first (returning seats, clearing blocks),
+  then the session. Refunds stay manual, as with cohorts.
 
 ### NEXT: W2.2b — make-up credits
 

@@ -251,3 +251,30 @@ tr:hover td { background: var(--clay-lt); }
   .marks { width: 100%; }
   .marks button { flex: 1; }
 }
+
+/* --- Scheduling a class --------------------------------------------------- */
+.schedule { margin-bottom: 16px; }
+.schedule h2 { font-size: 1rem; margin-bottom: 12px; }
+
+.fields {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.fields label, .repeat label { display: flex; flex-direction: column; gap: 4px; font-size: .82rem; color: var(--muted); }
+.fields input, .fields select { font-size: .9rem; }
+
+.check { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 14px 0 0; font-size: .88rem; }
+.check input { width: auto; }
+
+.repeat { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.days { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.days button {
+  min-width: 48px; min-height: 38px; font-size: .8rem;
+  background: var(--card); color: var(--ink); border: 1px solid var(--line);
+}
+.days button.on { background: var(--clay); border-color: var(--clay); color: #fff; }
+.repeat label { max-width: 140px; }
+
+.result { margin-top: 12px; }
+.result ul { margin: 6px 0 0 18px; font-size: .84rem; }
+.counts .link.danger { margin-left: 10px; color: var(--danger); }

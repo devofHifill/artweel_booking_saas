@@ -1,10 +1,15 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../lib/async-handler';
 import { validateBody, validateQuery } from '../../middleware/validate';
-import { requireMember } from '../../middleware/authenticate';
+import { requireAdmin, requireMember } from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import * as sessions from './session.admin.service';
-import { listSessionsQuerySchema, markRegisterSchema } from './session.schema';
+import {
+  createSessionSchema,
+  listSessionsQuerySchema,
+  markRegisterSchema,
+  updateSessionSchema,
+} from './session.schema';
 
 /**
  * Mounted under /api/organizations/:organizationId/sessions.
@@ -40,6 +45,70 @@ sessionAdminRouter.get(
         },
       ),
     });
+  }),
+);
+
+/**
+ * Scheduling is an owner/admin decision, unlike taking the register. An
+ * instructor marking who turned up is not the same authority as one putting a
+ * new class on the studio's calendar.
+ */
+sessionAdminRouter.post(
+  '/',
+  requireAdmin,
+  validateBody(createSessionSchema),
+  asyncHandler(async (req, res) => {
+    const result = await sessions.createClass(
+      req.tenant!.organizationId,
+      req.body,
+    );
+
+    // DST landings are surfaced rather than buried, same as cohort generation.
+    const dstAffected = result.created.filter((s) => s.resolution !== 'exact');
+
+    res.status(201).json({
+      ...result,
+      ...(dstAffected.length > 0
+        ? {
+            warnings: dstAffected.map((s) => ({
+              localDate: s.localDate,
+              resolution: s.resolution,
+              message:
+                s.resolution === 'shifted'
+                  ? 'This date falls in a daylight-saving gap; the class was moved forward to the first real time.'
+                  : 'This local time occurs twice on this date; the earlier one was used.',
+            })),
+          }
+        : {}),
+    });
+  }),
+);
+
+sessionAdminRouter.patch(
+  '/:sessionId',
+  requireAdmin,
+  validateBody(updateSessionSchema),
+  asyncHandler(async (req, res) => {
+    res.json({
+      session: await sessions.updateClass(
+        req.tenant!.organizationId,
+        id(req, 'sessionId'),
+        req.body,
+      ),
+    });
+  }),
+);
+
+sessionAdminRouter.delete(
+  '/:sessionId',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    res.json(
+      await sessions.cancelClass(
+        req.tenant!.organizationId,
+        id(req, 'sessionId'),
+      ),
+    );
   }),
 );
 
