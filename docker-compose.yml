@@ -8,10 +8,25 @@
 #                  important constraint in the system cannot be created.
 #
 # Ports are shifted well off the defaults so this never fights with anything
-# already running on the host. Note 5433 is NOT safe here: this machine has a
-# native Windows Postgres bound to 0.0.0.0:5433, and it wins the race for IPv4
-# localhost over Docker's port proxy — clients silently connect to the wrong
-# server and fail authentication. 5434 is clear.
+# already running on the host, and deliberately far off them.
+#
+# 5433 is NOT safe: this machine has a native Windows Postgres bound to
+# 0.0.0.0:5433, and it wins the race for IPv4 localhost over Docker's port
+# proxy — clients silently connect to the wrong server and fail authentication.
+#
+# 5434 is not safe either, for a different and less obvious reason. Windows
+# reserves blocks of ephemeral ports (Hyper-V/WSL, which Docker Desktop itself
+# needs) and RE-ROLLS THOSE BLOCKS ON REBOOT. On 2026-08-12 the reserved set
+# included 5434–5533; the next day it did not. When a reservation lands on the
+# port, Docker cannot bind and the error names permissions, not reservation:
+#   bind: An attempt was made to access a socket in a way forbidden by its
+#   access permissions
+# — with nothing showing as a listener, so it reads like a phantom. Chasing it
+# by moving a few ports up just waits for the next reboot to re-roll onto you.
+#
+# 15432 is above the ephemeral range these reservations are drawn from, so it
+# is stable across reboots. Inspect the current set with:
+#   netsh int ipv4 show excludedportrange protocol=tcp
 
 services:
   postgres:
@@ -23,7 +38,7 @@ services:
       POSTGRES_PASSWORD: booking
       POSTGRES_DB: booking_dev
     ports:
-      - "5434:5432"
+      - "15432:5432"
     volumes:
       - booking_pgdata:/var/lib/postgresql/data
       - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
