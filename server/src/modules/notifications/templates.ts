@@ -19,6 +19,19 @@ export const TemplateKey = {
   BOOKING_RESCHEDULED: 'booking.rescheduled',
   REMINDER_24H: 'reminder.24h',
   REMINDER_2H: 'reminder.2h',
+  /**
+   * "Your work is ready."
+   *
+   * The one message in the system a customer is actively waiting for, and the
+   * reason piece tracking earns its keep — a studio otherwise fields the same
+   * phone call from twelve people a week.
+   */
+  PIECE_READY: 'piece.ready',
+  /**
+   * "A place has opened up." Time-limited by nature — the message has to say
+   * so, or somebody replies three days later expecting the seat to be there.
+   */
+  WAITLIST_OFFER: 'waitlist.offer',
 } as const;
 
 export type TemplateKey = (typeof TemplateKey)[keyof typeof TemplateKey];
@@ -114,6 +127,47 @@ Where: {{locationLine}}
 Manage this booking: {{manageUrl}}
 
 {{studioName}}`,
+    },
+  },
+
+  [TemplateKey.PIECE_READY]: {
+    EMAIL: {
+      subject: 'Your work is ready to collect',
+      body: `Hi {{customerName}},
+
+{{pieceLabel}} is out of the kiln and ready to collect.
+
+{{shelfLine}}
+{{holdLine}}
+
+{{studioName}}`,
+    },
+    SMS: {
+      // Kept short deliberately: this is the one message most likely to be
+      // read on a phone in a supermarket queue.
+      body: '{{studioName}}: your work ({{pieceLabel}}) is ready to collect. {{holdLine}}',
+    },
+  },
+
+  [TemplateKey.WAITLIST_OFFER]: {
+    EMAIL: {
+      subject: 'A place has opened — {{serviceName}} on {{dateShort}}',
+      body: `Hi {{customerName}},
+
+A place has come free in {{serviceName}}.
+
+When: {{dateLong}} at {{time}} ({{timezoneLabel}})
+Where: {{locationLine}}
+
+It is being held for you until {{offerExpiry}}. After that it goes to the
+next person on the list.
+
+Take it: {{claimUrl}}
+
+{{studioName}}`,
+    },
+    SMS: {
+      body: '{{studioName}}: a place opened in {{serviceName}} on {{dateShort}}. Held for you until {{offerExpiry}}: {{claimUrl}}',
     },
   },
 };

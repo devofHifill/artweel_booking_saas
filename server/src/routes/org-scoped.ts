@@ -6,6 +6,11 @@ import { locationRouter } from '../modules/locations/location.route';
 import { resourceRouter } from '../modules/resources/resource.route';
 import { courseRouter } from '../modules/courses/course.route';
 import { sessionAdminRouter } from '../modules/sessions/session.admin.route';
+import { creditRouter } from '../modules/credits/credit.route';
+import { pieceRouter } from '../modules/pieces/piece.route';
+import { firingRouter } from '../modules/firings/firing.route';
+import { waitlistRouter } from '../modules/waitlists/waitlist.route';
+import { packRouter } from '../modules/packs/pack.route';
 import { scheduleRouter } from '../modules/schedules/schedule.route';
 import { policyRouter } from '../modules/policies/policy.route';
 import { paymentRouter } from '../modules/payments/payment.route';
@@ -70,7 +75,15 @@ orgScopedRouter.use('/staff', staffRouter);
 orgScopedRouter.use('/locations', locationRouter);
 orgScopedRouter.use('/resources', resourceRouter);
 orgScopedRouter.use('/courses', courseRouter);
+// Waitlists hang off a session, so they mount on the same prefix. Declared
+// BEFORE the sessions router so `/:sessionId/waitlist` is not swallowed by
+// its `/:sessionId` routes.
+orgScopedRouter.use('/sessions', waitlistRouter);
 orgScopedRouter.use('/sessions', sessionAdminRouter);
+orgScopedRouter.use('/credits', creditRouter);
+orgScopedRouter.use('/packs', packRouter);
+orgScopedRouter.use('/pieces', pieceRouter);
+orgScopedRouter.use('/firings', firingRouter);
 orgScopedRouter.use('/schedules', scheduleRouter);
 orgScopedRouter.use('/cancellation-policies', policyRouter);
 orgScopedRouter.use('/payments', paymentRouter);

@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
 import { AppError, BookingErrorCode } from '../lib/app-error';
 import { translateSchedulingError } from './pg-error';
 
@@ -242,6 +243,43 @@ export async function bookAppointment(input: BookAppointmentInput) {
  * depend on that.
  */
 export async function cancelBooking(organizationId: string, bookingId: string) {
+  const cancelled = await releaseSeats(organizationId, bookingId);
+
+  /**
+   * A freed seat is offered to whoever is waiting for it.
+   *
+   * Hooked HERE rather than at each caller, deliberately. Seats are returned
+   * from at least five places — the studio cancelling, the customer cancelling
+   * by token, a reschedule, a failed credit redemption rolling back — and
+   * wiring each one separately is how the fifth gets forgotten and a queue
+   * silently stops working.
+   *
+   * The import is dynamic because this is the scheduling layer reaching up
+   * into a module, which is the wrong direction. That inversion is the price
+   * of the guarantee above, and it is worth it: a waitlist that only fires on
+   * some cancellations is worse than none, because nobody can tell which.
+   *
+   * Fire-and-forget. A cancellation must never fail because the queue behind
+   * it is having trouble — the seat is already free either way.
+   */
+  if (cancelled.sessionId && cancelled.status === 'CANCELLED') {
+    void (async () => {
+      try {
+        const { offerNextSeat } = await import('../modules/waitlists/waitlist.service');
+        await offerNextSeat(organizationId, cancelled.sessionId!);
+      } catch (err) {
+        logger.error(
+          { err, sessionId: cancelled.sessionId },
+          'Failed to offer freed seat to the waitlist',
+        );
+      }
+    })();
+  }
+
+  return cancelled;
+}
+
+async function releaseSeats(organizationId: string, bookingId: string) {
   return prisma.$transaction(async (tx: Tx) => {
     const booking = await tx.booking.findFirst({
       where: { id: bookingId, organizationId },

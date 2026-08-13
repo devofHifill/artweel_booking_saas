@@ -198,6 +198,62 @@ publicRouter.post(
   }),
 );
 
+// --- Waitlists ------------------------------------------------------------
+
+/** The alternative to a dead end when a class is full. */
+publicRouter.post(
+  '/:slug/sessions/:sessionId/waitlist',
+  writeLimit,
+  validateBody(
+    z.object({
+      seats: z.number().int().min(1).max(50).default(1),
+      customer: z.object({
+        name: z.string().min(1).max(120),
+        email: z.string().email().max(255),
+        phone: z.string().max(32).optional(),
+      }),
+      smsConsent: z.boolean().default(false),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const result = await service.joinWaitlistPublic({
+      ...req.body,
+      slug: param(req, 'slug'),
+      sessionId: param(req, 'sessionId'),
+    });
+
+    res.status(201).json({
+      /** "You are third." The number that decides whether they keep waiting. */
+      place: result.place,
+      seats: result.entry.seats,
+      status: result.entry.status,
+    });
+  }),
+);
+
+/**
+ * The offer link from the email.
+ *
+ * Read and claim are separate so the link opens a page describing what is on
+ * offer rather than silently booking somebody the moment they tap it from a
+ * notification.
+ */
+publicRouter.get(
+  '/waitlist/:token/claim',
+  readLimit,
+  asyncHandler(async (req, res) => {
+    res.json(await service.getWaitlistOffer(param(req, 'token')));
+  }),
+);
+
+publicRouter.post(
+  '/waitlist/:token/claim',
+  writeLimit,
+  asyncHandler(async (req, res) => {
+    res.status(201).json(await service.claimWaitlistOffer(param(req, 'token')));
+  }),
+);
+
 // --- Course cohorts -------------------------------------------------------
 
 publicRouter.get(

@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { logger } from '../../lib/logger';
 import { AppError } from '../../lib/app-error';
 import { markAttendance } from '../bookings/booking.admin.service';
 import { createSession, cancelSession } from '../../scheduling/session.service';
@@ -474,5 +475,33 @@ export async function markRegister(
     await markAttendance(organizationId, entry.bookingId, entry.status);
   }
 
-  return getRegister(organizationId, sessionId);
+  /**
+   * Marking somebody absent is what mints a make-up credit, under whatever
+   * policy the studio has set. Issuance is idempotent — a partial unique index
+   * on the source booking — so saving the same register twice cannot mint two.
+   *
+   * Deliberately not fatal. A register that failed to save because the credit
+   * ledger hiccuped would be a bad trade: the attendance record is the thing
+   * the instructor is standing there to capture, and a missing credit can be
+   * granted by hand.
+   */
+  const { issueCreditForBooking } = await import('../credits/credit.service');
+  const creditsIssued: string[] = [];
+
+  for (const entry of entries) {
+    if (entry.status !== 'NO_SHOW') continue;
+
+    try {
+      const result = await issueCreditForBooking(organizationId, entry.bookingId);
+      if (result.issued && result.creditId) creditsIssued.push(result.creditId);
+    } catch (err) {
+      logger.error(
+        { err, bookingId: entry.bookingId },
+        'Failed to issue make-up credit',
+      );
+    }
+  }
+
+  const register = await getRegister(organizationId, sessionId);
+  return { ...register, creditsIssued: creditsIssued.length };
 }

@@ -284,6 +284,14 @@ Migrations run before the new containers start, so any migration written from
 Phase 2 onward must be safe against the *old* code still serving requests for
 those few seconds — additive columns, no destructive rename in a single step.
 
+> **Index builds are the other half of that rule, and easier to miss.** A plain
+> `CREATE INDEX` takes a lock that blocks writes to the table while it builds.
+> The Phase 2 migrations do exactly that on `bookings`, which was free on
+> staging because the table is small. Against real booking volume it would
+> stall the public booking page for the duration. Any future index on
+> `bookings`, `sessions` or `payments` wants `CREATE INDEX CONCURRENTLY` in its
+> own migration — Prisma will not generate that for you.
+
 ---
 
 ## Operations

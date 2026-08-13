@@ -96,6 +96,36 @@ model Organization {
   onboardingSteps  Json?     @map("onboarding_steps")
   onboardingDoneAt DateTime? @map("onboarding_done_at") @db.Timestamptz(3)
 
+  // --- Studio policy -----------------------------------------------------
+  //
+  // These exist as SETTINGS rather than as code because nobody has yet asked
+  // three ceramics studios how they actually run. Every default below is a
+  // considered guess, not an observed fact, and each is the kind of thing a
+  // studio will have a firm and different opinion about. Keeping them in data
+  // means changing one's mind is an UPDATE, not a migration plus a rewrite.
+
+  /// Whether missing a class earns anything at all. Off by default: a studio
+  /// that has never offered make-up classes should not start silently.
+  makeUpCreditsEnabled Boolean @default(false) @map("make_up_credits_enabled")
+  /// Days before an unused credit lapses. Zero means never.
+  makeUpCreditDays Int @default(90) @map("make_up_credit_days")
+  /**
+   * Whether a credit requires warning the studio in advance.
+   *
+   * Defaults to true, and this is the guess I am least sure of. It rewards the
+   * student who texts "can't make Tuesday" over the one who simply does not
+   * appear, which is the behaviour a studio wants — but a studio that finds it
+   * harsh will turn it off, and that is a one-field change.
+   */
+  makeUpRequiresNotice Boolean @default(true) @map("make_up_requires_notice")
+  makeUpNoticeHours    Int     @default(24) @map("make_up_notice_hours")
+  /// Whether a credit can be spent on any class, or only within its own cohort.
+  makeUpCrossCohort    Boolean @default(true) @map("make_up_cross_cohort")
+
+  /// Days a finished piece is held before the studio may dispose of it. The
+  /// pickup reminder and the "uncollected" report both read this.
+  pieceHoldDays Int @default(30) @map("piece_hold_days")
+
   /**
    * Where this studio came from — the one marketing number that matters.
    *
@@ -135,6 +165,12 @@ model Organization {
   busyBlocks           BusyBlock[]
   courseSeries         CourseSeries[]
   enrollments          Enrollment[]
+  classCredits         ClassCredit[]
+  classPacks           ClassPack[]
+  packPurchases        ClassPackPurchase[]
+  pieces               Piece[]
+  firings              Firing[]
+  waitlistEntries      WaitlistEntry[]
   sessions             Session[]
   bookings             Booking[]
   bookingHolds         BookingHold[]
@@ -332,6 +368,7 @@ model ServiceType {
   serviceLocations ServiceLocation[]
   serviceResources ServiceResource[]
   courseSeries     CourseSeries[]
+  classPacks       ClassPack[]
   sessions         Session[]
   bookings         Booking[]
 
@@ -457,9 +494,13 @@ model Customer {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  bookings     Booking[]
-  bookingHolds BookingHold[]
-  enrollments  Enrollment[]
+  bookings      Booking[]
+  bookingHolds  BookingHold[]
+  enrollments   Enrollment[]
+  classCredits    ClassCredit[]
+  packPurchases   ClassPackPurchase[]
+  pieces          Piece[]
+  waitlistEntries WaitlistEntry[]
 
   /// Scoped per organization. The plugin deduped on `email OR phone` globally,
   /// which merges two family members who share a phone.
@@ -593,6 +634,7 @@ model Resource {
 
   serviceResources ServiceResource[]
   allocations      ResourceAllocation[]
+  firings          Firing[]
 
   @@index([organizationId, isActive])
   @@map("resources")
@@ -889,8 +931,9 @@ model Enrollment {
   courseSeries CourseSeries @relation(fields: [courseSeriesId], references: [id], onDelete: Cascade)
   customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  bookings Booking[]
-  payments Payment[]
+  bookings      Booking[]
+  payments      Payment[]
+  classCredits  ClassCredit[]
 
   @@index([organizationId])
   @@index([courseSeriesId])
@@ -946,11 +989,418 @@ model Session {
   resourceAllocations ResourceAllocation[]
   staffTimeBlocks     StaffTimeBlock[]
   calendarEventLinks  CalendarEventLink[]
+  pieces              Piece[]
+  waitlistEntries     WaitlistEntry[]
 
   @@index([organizationId, startsAt])
   @@index([serviceTypeId, startsAt])
   @@index([courseSeriesId, seriesIndex])
   @@map("sessions")
+}
+
+enum WaitlistStatus {
+  /// In the queue, nothing reserved.
+  WAITING
+  /// A seat is being held for them and the clock is running.
+  OFFERED
+  /// They took it. `bookingId` says what they got.
+  CLAIMED
+  /// The offer window ran out. The seat went to the next person.
+  EXPIRED
+  /// They withdrew, or the studio removed them.
+  CANCELLED
+}
+
+/**
+ * Somebody who wanted a place and could not have one.
+ *
+ * The one point in the product where demand arrives, is refused, and would
+ * otherwise leave no trace. A studio whose Saturday class fills every week
+ * cannot currently answer "how many people did I turn away", which is exactly
+ * the number that justifies opening a second session.
+ */
+model WaitlistEntry {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  sessionId      String @map("session_id") @db.Uuid
+  customerId     String @map("customer_id") @db.Uuid
+
+  seats  Int            @default(1)
+  status WaitlistStatus @default(WAITING)
+
+  /**
+   * Queue order, assigned on joining and never renumbered.
+   *
+   * Gaps are fine and expected — somebody withdrawing leaves a hole rather
+   * than shuffling everyone up. Renumbering a queue under concurrent writes
+   * is a lock-ordering problem nobody needs, and "you are third" only has to
+   * be true relative to the others.
+   */
+  position Int
+
+  /// The seat being held for them while they decide. Released on expiry.
+  holdId String? @map("hold_id") @db.Uuid
+
+  offeredAt DateTime? @map("offered_at") @db.Timestamptz(3)
+  /// When the offer lapses and the seat passes to the next person.
+  offerExpiresAt DateTime? @map("offer_expires_at") @db.Timestamptz(3)
+  notifiedAt     DateTime? @map("notified_at") @db.Timestamptz(3)
+
+  /// What they ended up with, once claimed.
+  bookingId String? @unique @map("booking_id") @db.Uuid
+
+  /// Their own credential for claiming, in a link. 32 random bytes, same as
+  /// a booking's cancel token — there is no customer login to fall back on.
+  claimToken Bytes @unique @map("claim_token")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session      Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, status, position])
+  @@index([organizationId])
+  @@index([offerExpiresAt, status])
+  @@map("waitlist_entries")
+}
+
+enum ClassCreditStatus {
+  AVAILABLE
+  REDEEMED
+  EXPIRED
+  /// Revoked by the studio, or voided because the absence was reversed.
+  CANCELLED
+}
+
+/// Where an entitlement came from. The redemption path does not care.
+enum ClassCreditSource {
+  /// Missed a class on a course.
+  ABSENCE
+  /// Bought as part of a class pack.
+  PACK
+  /// The studio squaring something up by hand.
+  GRANT
+}
+
+/**
+ * ONE seat, owed to a customer, redeemable against a class.
+ *
+ * The single entitlement currency in the system, deliberately. A missed course
+ * session and a prepaid class pack produce exactly the same thing — a seat the
+ * customer is owed — and the moment they are separate tables there are two
+ * redemption paths, two double-spend guards, and a customer who cannot see one
+ * balance. `source` records where it came from; nothing about spending it
+ * cares.
+ *
+ * Modelled per-credit rather than as a counter because the questions a studio
+ * asks are per-credit: when does this lapse, what did it come from, which
+ * class was it spent on. A running total answers none of those and cannot
+ * expire.
+ *
+ * ASSUMPTION, UNVALIDATED: a credit buys one seat in one class. A studio that
+ * runs "three misses and you repeat the term" thinks in a different currency.
+ *
+ * For ABSENCE credits, one-per-absence is enforced by a partial unique index
+ * on `source_booking_id` rather than left to code — that is what makes
+ * issuance idempotent when a register is saved twice.
+ */
+model ClassCredit {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  customerId     String @map("customer_id") @db.Uuid
+
+  source ClassCreditSource @default(ABSENCE)
+
+  /// ABSENCE credits: where it came from. Both kept so a studio sees the story.
+  enrollmentId    String? @map("enrollment_id") @db.Uuid
+  sourceBookingId String? @map("source_booking_id") @db.Uuid
+
+  /// PACK credits: which purchase minted it.
+  packPurchaseId String? @map("pack_purchase_id") @db.Uuid
+
+  status ClassCreditStatus @default(AVAILABLE)
+
+  /// Null means it never lapses, matching `makeUpCreditDays = 0`.
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
+
+  redeemedAt        DateTime? @map("redeemed_at") @db.Timestamptz(3)
+  redeemedBookingId String?   @unique @map("redeemed_booking_id") @db.Uuid
+
+  /// Why it was issued, in words, for the studio's own records.
+  reason String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  enrollment   Enrollment?        @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  packPurchase ClassPackPurchase? @relation(fields: [packPurchaseId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([customerId, status])
+  @@index([packPurchaseId])
+  @@map("class_credits")
+}
+
+/**
+ * What a studio sells: "ten classes for £400, valid six months".
+ *
+ * A product definition, not a purchase. Deactivating one must not disturb the
+ * packs people already bought, which is why price and validity are COPIED onto
+ * the purchase rather than read through — a studio raising its prices cannot
+ * retroactively change what somebody already paid, and shortening validity
+ * must not shorten a credit already in somebody's hands.
+ */
+model ClassPack {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  name        String
+  description String?
+
+  /// How many seats it is worth.
+  creditCount Int @map("credit_count")
+  priceCents  Int @map("price_cents")
+
+  /// Days the credits stay usable. Zero means they never lapse.
+  validityDays Int @default(365) @map("validity_days")
+
+  /**
+   * Optional restriction to one kind of class.
+   *
+   * A studio selling "ten wheel classes" does not want them spent on a
+   * £200 mobile party. Null means any class.
+   */
+  serviceTypeId String? @map("service_type_id") @db.Uuid
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serviceType  ServiceType? @relation(fields: [serviceTypeId], references: [id], onDelete: SetNull)
+
+  purchases ClassPackPurchase[]
+
+  @@index([organizationId, isActive])
+  @@map("class_packs")
+}
+
+enum PackPurchaseStatus {
+  /// Checkout started, money not confirmed. No credits exist yet.
+  PENDING
+  /// Paid, and its credits have been issued.
+  ACTIVE
+  /// Refunded or withdrawn; unspent credits cancelled with it.
+  REFUNDED
+}
+
+/// Somebody bought a pack. Its credits hang off this row.
+model ClassPackPurchase {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  classPackId    String @map("class_pack_id") @db.Uuid
+  customerId     String @map("customer_id") @db.Uuid
+
+  status PackPurchaseStatus @default(PENDING)
+
+  /// Snapshotted from the pack at purchase, never read through. See ClassPack.
+  creditCount   Int     @map("credit_count")
+  pricePaidCents Int    @map("price_paid_cents")
+  validityDays  Int     @map("validity_days")
+  serviceTypeId String? @map("service_type_id") @db.Uuid
+
+  /// Set when payment lands and the credits are minted.
+  issuedAt  DateTime? @map("issued_at") @db.Timestamptz(3)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  classPack    ClassPack    @relation(fields: [classPackId], references: [id], onDelete: Restrict)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  credits  ClassCredit[]
+  payments Payment[]
+
+  @@index([organizationId, status])
+  @@index([customerId])
+  @@map("class_pack_purchases")
+}
+
+/**
+ * The lifecycle a pot goes through.
+ *
+ * ASSUMPTION, UNVALIDATED: two firings, bisque then glaze, in that order. That
+ * is the common studio path and matches the Phase 2 exit gate, but it is not
+ * universal — single-fire, raku, and multiple glaze firings all exist. The
+ * enum is ordered so that adding a state later is additive rather than a
+ * renumbering.
+ */
+enum PieceStatus {
+  /// Made, still drying. Cannot be fired yet.
+  GREENWARE
+  /// Dry and queued for its first firing.
+  AWAITING_BISQUE
+  /// In a kiln load that is firing now.
+  BISQUE_FIRING
+  /// First firing done, waiting to be glazed by its maker.
+  BISQUED
+  /// Glazed and queued for its second firing.
+  AWAITING_GLAZE
+  GLAZE_FIRING
+  /// Finished and collectable. This is the state that texts the customer.
+  FINISHED
+  COLLECTED
+  /// Lost — cracked in the kiln, dropped, or written off.
+  BROKEN
+}
+
+/// A single piece of work, tracked from wet clay to the customer's hands.
+model Piece {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  customerId     String @map("customer_id") @db.Uuid
+
+  /// Which class it was made in, when that is known. Optional because a
+  /// member throwing on open-studio time has no session.
+  sessionId    String? @map("session_id") @db.Uuid
+  enrollmentId String? @map("enrollment_id") @db.Uuid
+
+  /**
+   * What the studio writes on the bottom of the pot.
+   *
+   * Free text, not a generated code. Studios already have a system — initials,
+   * a number, a coloured dot — and a product that insists on its own scheme
+   * makes staff maintain two.
+   */
+  label       String
+  description String?
+  /// Where it physically is. The single most-asked question in a studio.
+  shelfLocation String? @map("shelf_location")
+
+  status PieceStatus @default(GREENWARE)
+
+  /// Set when it reaches FINISHED; the hold period counts from here.
+  readyAt     DateTime? @map("ready_at") @db.Timestamptz(3)
+  collectedAt DateTime? @map("collected_at") @db.Timestamptz(3)
+  /// Set once the "your piece is ready" message has been queued, so a second
+  /// status write cannot text the customer twice.
+  notifiedAt  DateTime? @map("notified_at") @db.Timestamptz(3)
+
+  /// Which load it is in right now, if any.
+  firingId String? @map("firing_id") @db.Uuid
+
+  notes String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  session      Session?     @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  firing       Firing?      @relation(fields: [firingId], references: [id], onDelete: SetNull)
+
+  events PieceEvent[]
+
+  @@index([organizationId, status])
+  @@index([customerId])
+  @@index([firingId])
+  @@map("pieces")
+}
+
+/**
+ * Every status change, kept forever.
+ *
+ * "Where is my mug" is answerable from `pieces.status`. "You said it was ready
+ * three weeks ago" is not, and that is the conversation a studio actually
+ * needs the record for.
+ */
+model PieceEvent {
+  id      String @id @default(uuid()) @db.Uuid
+  pieceId String @map("piece_id") @db.Uuid
+
+  fromStatus PieceStatus? @map("from_status")
+  toStatus   PieceStatus  @map("to_status")
+  note       String?
+  /// The membership that made the change, where a person made it.
+  actorUserId String? @map("actor_user_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  piece Piece @relation(fields: [pieceId], references: [id], onDelete: Cascade)
+
+  @@index([pieceId, createdAt])
+  @@map("piece_events")
+}
+
+enum FiringType {
+  BISQUE
+  GLAZE
+}
+
+enum FiringStatus {
+  /// Booked into the kiln, not yet packed.
+  SCHEDULED
+  /// Being packed.
+  LOADING
+  FIRING
+  COOLING
+  COMPLETE
+  CANCELLED
+}
+
+/**
+ * A kiln load.
+ *
+ * The kiln itself is already an exclusive Resource from Phase 0, and a firing
+ * takes a ResourceAllocation over its whole span — so two firings cannot claim
+ * one kiln, and the EXCLUDE constraint enforces that rather than application
+ * code. This is why kilns were modelled as exclusive resources long before
+ * firings existed.
+ *
+ * The span covers COOLING as well as FIRING, deliberately: a kiln full of
+ * cooling work is not available, and a studio that books over that opens it
+ * early and cracks the load.
+ */
+model Firing {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  /// The kiln. An exclusive Resource.
+  resourceId     String @map("resource_id") @db.Uuid
+
+  firingType FiringType   @map("firing_type")
+  status     FiringStatus @default(SCHEDULED)
+
+  /// Includes cooling. See the note above.
+  startsAt DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
+
+  /// Cone number as written on the schedule, e.g. "04" or "6". Text because
+  /// "04" and "4" are different cones and both are valid.
+  cone String?
+
+  /// The allocation holding the kiln, so cancelling a firing can release it.
+  resourceAllocationId String? @unique @map("resource_allocation_id") @db.Uuid
+
+  notes String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  resource     Resource     @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+
+  pieces Piece[]
+
+  @@index([organizationId, startsAt])
+  @@index([resourceId, startsAt])
+  @@map("firings")
 }
 
 model Booking {
@@ -1384,6 +1834,8 @@ model Payment {
   /// A course is paid for once, as a course. The payment attaches here rather
   /// than to an arbitrarily chosen one of the six per-session bookings.
   enrollmentId   String? @map("enrollment_id") @db.Uuid
+  /// A class pack is bought outright, against no booking at all.
+  packPurchaseId String? @map("pack_purchase_id") @db.Uuid
 
   kind       PaymentKind
   amountCents Int        @map("amount_cents")
@@ -1408,11 +1860,13 @@ model Payment {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   booking      Booking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   enrollment   Enrollment?  @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  packPurchase ClassPackPurchase? @relation(fields: [packPurchaseId], references: [id], onDelete: SetNull)
   refunds      Refund[]
 
   @@index([organizationId, createdAt])
   @@index([bookingId])
   @@index([enrollmentId])
+  @@index([packPurchaseId])
   @@map("payments")
 }
 

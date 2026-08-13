@@ -506,6 +506,118 @@ async function upsertCustomer(
 }
 
 // ---------------------------------------------------------------------------
+// Waitlists
+// ---------------------------------------------------------------------------
+
+export type PublicWaitlistInput = {
+  slug: string;
+  sessionId: string;
+  seats?: number;
+  customer: { name: string; email: string; phone?: string };
+  smsConsent?: boolean;
+};
+
+/**
+ * Joins the queue for a full class, from the booking page.
+ *
+ * The only place in the product where a refusal is turned into a record. What
+ * the customer gets back is their position, because "you are third" is the
+ * difference between waiting and giving up.
+ */
+export async function joinWaitlistPublic(input: PublicWaitlistInput) {
+  const organization = await getStudio(input.slug);
+
+  if (!canAcceptBookings(organization.subscriptionStatus)) {
+    throw new AppError(
+      'This studio is not taking bookings at the moment.',
+      409,
+      'STUDIO_INACTIVE',
+    );
+  }
+
+  const session = await prisma.session.findFirst({
+    where: { id: input.sessionId, organizationId: organization.id },
+    select: { id: true },
+  });
+  if (!session) throw AppError.notFound('Class not found.');
+
+  const customer = await upsertCustomer(organization.id, input);
+
+  const { joinWaitlist } = await import('../waitlists/waitlist.service');
+
+  const entry = await joinWaitlist({
+    organizationId: organization.id,
+    sessionId: input.sessionId,
+    customerId: customer.id,
+    seats: input.seats ?? 1,
+  });
+
+  // Position is the raw queue number and may have gaps; what a customer wants
+  // is how many people are actually ahead of them.
+  const ahead = await prisma.waitlistEntry.count({
+    where: {
+      sessionId: input.sessionId,
+      status: { in: ['WAITING', 'OFFERED'] },
+      position: { lt: entry.position },
+    },
+  });
+
+  return { entry, place: ahead + 1 };
+}
+
+/** Reads an offer from its link, so the page can show what is on the table. */
+export async function getWaitlistOffer(token: string) {
+  const entry = await prisma.waitlistEntry.findUnique({
+    where: { claimToken: decodeToken(token) },
+    include: {
+      session: {
+        include: {
+          serviceType: { select: { name: true } },
+          location: { select: { name: true, address: true, locationType: true } },
+        },
+      },
+      organization: { select: { name: true, slug: true } },
+    },
+  });
+
+  if (!entry) throw AppError.notFound('That link is not valid.');
+
+  return {
+    studio: entry.organization.name,
+    service: entry.session.serviceType.name,
+    startsAt: entry.session.startsAt,
+    endsAt: entry.session.endsAt,
+    timezone: entry.session.timezone,
+    location:
+      entry.session.location?.locationType === 'FIXED'
+        ? entry.session.location.address
+        : (entry.session.location?.name ?? null),
+    seats: entry.seats,
+    status: entry.status,
+    offerExpiresAt: entry.offerExpiresAt,
+    claimable:
+      entry.status === 'OFFERED' &&
+      (!entry.offerExpiresAt || entry.offerExpiresAt > new Date()),
+  };
+}
+
+export async function claimWaitlistOffer(token: string) {
+  const { claimOffer } = await import('../waitlists/waitlist.service');
+  const result = await claimOffer(decodeToken(token));
+
+  return {
+    booking: {
+      id: result.booking.id,
+      startsAt: result.booking.startsAt,
+      endsAt: result.booking.endsAt,
+      seats: result.booking.seats,
+      status: result.booking.status,
+    },
+    manageToken: encodeToken(result.booking.cancelToken),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Course cohorts
 // ---------------------------------------------------------------------------
 

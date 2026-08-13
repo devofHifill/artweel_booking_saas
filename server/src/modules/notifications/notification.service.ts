@@ -145,6 +145,239 @@ export async function scheduleEnrollmentNotifications(enrollmentId: string) {
   return { queued };
 }
 
+/**
+ * "Your work is ready to collect."
+ *
+ * Written directly rather than through `enqueue`, because every other message
+ * in the outbox hangs off a booking and this one hangs off a piece. Forcing a
+ * piece to masquerade as a booking to reuse that path would have been the
+ * worse trade — the dedupe key, the destination and the template values are
+ * all different.
+ *
+ * SMS consent is checked with the same helper the booking path uses, so a
+ * customer who replied STOP is honoured here too. That must never be allowed
+ * to drift: opt-out is a legal obligation, not a preference.
+ */
+export async function schedulePieceReadyNotification(pieceId: string) {
+  const piece = await prisma.piece.findUnique({
+    where: { id: pieceId },
+    include: {
+      customer: true,
+      organization: {
+        select: { id: true, name: true, timezone: true, pieceHoldDays: true },
+      },
+    },
+  });
+
+  if (!piece) return { queued: 0 };
+
+  const holdLine =
+    piece.organization.pieceHoldDays > 0
+      ? `Please collect within ${piece.organization.pieceHoldDays} days.`
+      : '';
+
+  const values: Record<string, string> = {
+    customerName: piece.customer.name,
+    studioName: piece.organization.name,
+    pieceLabel: piece.label,
+    shelfLine: piece.shelfLocation ? `Shelf: ${piece.shelfLocation}` : '',
+    holdLine,
+  };
+
+  let queued = 0;
+
+  const write = async (
+    channel: Channel,
+    destination: string,
+    payload: Prisma.InputJsonValue,
+    status: 'PENDING' | 'SKIPPED' = 'PENDING',
+  ) => {
+    try {
+      await prisma.notification.create({
+        data: {
+          organizationId: piece.organizationId,
+          customerId: piece.customerId,
+          channel,
+          templateKey: TemplateKey.PIECE_READY,
+          destination,
+          payload,
+          scheduledFor: immediately(),
+          status,
+          // Keyed on the piece, so a refired piece becoming ready again does
+          // produce a fresh message while a retry does not.
+          dedupeKey: `piece:${piece.id}:${TemplateKey.PIECE_READY}:${channel}:${piece.readyAt?.getTime() ?? 0}`,
+        },
+      });
+      if (status === 'PENDING') queued += 1;
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        return;
+      }
+      throw err;
+    }
+  };
+
+  const emailTemplate = await resolveTemplate(
+    piece.organizationId,
+    TemplateKey.PIECE_READY,
+    'EMAIL',
+  );
+
+  if (emailTemplate && piece.customer.email) {
+    await write('EMAIL', piece.customer.email, {
+      subject: render(emailTemplate.subject ?? '', values),
+      body: render(emailTemplate.body, values),
+      fromName: piece.organization.name,
+    });
+  }
+
+  const smsTemplate = await resolveTemplate(
+    piece.organizationId,
+    TemplateKey.PIECE_READY,
+    'SMS',
+  );
+
+  if (smsTemplate) {
+    const skip = smsSkipReason(piece.customer);
+
+    if (skip) {
+      await write(
+        'SMS',
+        piece.customer.phone ?? '',
+        { skipReason: skip },
+        'SKIPPED',
+      );
+    } else {
+      await write('SMS', piece.customer.phone!, {
+        body: render(smsTemplate.body, values),
+      });
+    }
+  }
+
+  return { queued };
+}
+
+/**
+ * "A place has opened up."
+ *
+ * Sent immediately and never queued behind quiet hours. The offer has a clock
+ * on it, so holding the message until 8am would burn hours of a window the
+ * customer never knew had started — the one case where waking somebody is
+ * kinder than the alternative.
+ */
+export async function scheduleWaitlistOffer(entryId: string) {
+  const entry = await prisma.waitlistEntry.findUnique({
+    where: { id: entryId },
+    include: {
+      customer: true,
+      organization: { select: { id: true, name: true, timezone: true } },
+      session: {
+        include: {
+          serviceType: { select: { name: true } },
+          location: { select: { name: true, address: true, locationType: true } },
+        },
+      },
+    },
+  });
+
+  if (!entry) return { queued: 0 };
+
+  const zone = entry.session.timezone;
+  const start = DateTime.fromJSDate(entry.session.startsAt, { zone });
+  const expiry = entry.offerExpiresAt
+    ? DateTime.fromJSDate(entry.offerExpiresAt, { zone })
+    : null;
+
+  const values: Record<string, string> = {
+    customerName: entry.customer.name,
+    studioName: entry.organization.name,
+    serviceName: entry.session.serviceType.name,
+    dateShort: start.toFormat('d LLL'),
+    dateLong: start.toFormat('cccc d LLLL'),
+    time: start.toFormat('h:mm a'),
+    timezoneLabel: start.toFormat('ZZZZ'),
+    locationLine:
+      entry.session.location?.locationType === 'FIXED'
+        ? (entry.session.location.address ?? entry.session.location.name)
+        : (entry.session.location?.name ?? 'See booking'),
+    offerExpiry: expiry ? expiry.toFormat('cccc d LLLL, h:mm a') : 'shortly',
+    claimUrl: `${config.PUBLIC_URL}/public/waitlist/${encodeToken(entry.claimToken)}/claim`,
+  };
+
+  let queued = 0;
+
+  const write = async (
+    channel: Channel,
+    destination: string,
+    payload: Prisma.InputJsonValue,
+    status: 'PENDING' | 'SKIPPED' = 'PENDING',
+  ) => {
+    try {
+      await prisma.notification.create({
+        data: {
+          organizationId: entry.organizationId,
+          customerId: entry.customerId,
+          channel,
+          templateKey: TemplateKey.WAITLIST_OFFER,
+          destination,
+          payload,
+          scheduledFor: immediately(),
+          status,
+          // Keyed on the offer, so a place offered again after expiring and
+          // coming back round does send a fresh message.
+          dedupeKey: `waitlist:${entry.id}:${entry.offeredAt?.getTime() ?? 0}:${channel}`,
+        },
+      });
+      if (status === 'PENDING') queued += 1;
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        return;
+      }
+      throw err;
+    }
+  };
+
+  const emailTemplate = await resolveTemplate(
+    entry.organizationId,
+    TemplateKey.WAITLIST_OFFER,
+    'EMAIL',
+  );
+
+  if (emailTemplate && entry.customer.email) {
+    await write('EMAIL', entry.customer.email, {
+      subject: render(emailTemplate.subject ?? '', values),
+      body: render(emailTemplate.body, values),
+      fromName: entry.organization.name,
+    });
+  }
+
+  const smsTemplate = await resolveTemplate(
+    entry.organizationId,
+    TemplateKey.WAITLIST_OFFER,
+    'SMS',
+  );
+
+  if (smsTemplate) {
+    const skip = smsSkipReason(entry.customer);
+
+    if (skip) {
+      await write('SMS', entry.customer.phone ?? '', { skipReason: skip }, 'SKIPPED');
+    } else {
+      await write('SMS', entry.customer.phone!, {
+        body: render(smsTemplate.body, values),
+      });
+    }
+  }
+
+  return { queued };
+}
+
 export async function notifyCancellation(
   bookingId: string,
   opts: { refundCents?: number } = {},

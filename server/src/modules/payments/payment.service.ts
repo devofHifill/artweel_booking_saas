@@ -281,6 +281,107 @@ export async function startCheckout(input: StartCheckoutInput) {
   }
 }
 
+/**
+ * Checkout for a class pack.
+ *
+ * Its own entry point rather than a third branch inside `startCheckout`,
+ * because a pack shares almost nothing with a booking: no seat, no hold, no
+ * session, no service, no deposit. Forcing them together would leave
+ * `startCheckout` full of null-guards and about nothing in particular.
+ *
+ * There is no hold because there is nothing to reserve. Two people buying the
+ * last pack is not a thing — a pack is not scarce.
+ */
+export async function startPackCheckout(input: {
+  organizationId: string;
+  purchaseId: string;
+  customerEmail: string;
+  customerName: string;
+  successUrl: string;
+  cancelUrl: string;
+}) {
+  const provider = getPaymentProvider();
+
+  const org = await prisma.organization.findUniqueOrThrow({
+    where: { id: input.organizationId },
+  });
+
+  if (!org.stripeAccountId || !org.stripeChargesEnabled) {
+    throw AppError.conflict(
+      'This studio is not set up to take payments yet.',
+      'PAYMENTS_NOT_ENABLED',
+    );
+  }
+
+  const purchase = await prisma.classPackPurchase.findFirst({
+    where: { id: input.purchaseId, organizationId: input.organizationId },
+    include: { classPack: { select: { name: true } } },
+  });
+  if (!purchase) throw AppError.notFound('Purchase not found.');
+
+  if (purchase.status !== 'PENDING') {
+    throw AppError.conflict(
+      'This pack has already been paid for.',
+      'PURCHASE_NOT_PENDING',
+    );
+  }
+
+  // The snapshotted price, not the pack's current one — see startPurchase.
+  if (purchase.pricePaidCents <= 0) {
+    throw AppError.badRequest(
+      'This pack does not require payment.',
+      'NO_PAYMENT_REQUIRED',
+    );
+  }
+
+  const checkout = await provider.createCheckoutSession({
+    connectedAccountId: org.stripeAccountId,
+    amountCents: purchase.pricePaidCents,
+    currency: org.currency,
+    productName: `${purchase.classPack.name} — ${purchase.creditCount} classes`,
+    customerEmail: input.customerEmail,
+    successUrl: input.successUrl,
+    cancelUrl: input.cancelUrl,
+    metadata: {
+      organizationId: input.organizationId,
+      packPurchaseId: purchase.id,
+      customerEmail: input.customerEmail,
+      customerName: input.customerName,
+      totalCents: String(purchase.pricePaidCents),
+    },
+    /**
+     * An hour, rather than the ten minutes a seat checkout gets.
+     *
+     * That window exists to stop an abandoned cart starving a popular class.
+     * A pack starves nobody — nothing is held — so the only reason to expire
+     * it at all is to stop stale links working forever.
+     */
+    expiresAt: new Date(Date.now() + 60 * 60_000),
+    idempotencyKey: `pack_${purchase.id}`,
+  });
+
+  const payment = await prisma.payment.create({
+    data: {
+      organizationId: input.organizationId,
+      packPurchaseId: purchase.id,
+      kind: 'FULL',
+      amountCents: purchase.pricePaidCents,
+      currency: org.currency,
+      status: 'PENDING',
+      provider: provider.name,
+      providerCheckoutSessionId: checkout.id,
+      providerAccountId: org.stripeAccountId,
+    },
+  });
+
+  return {
+    checkoutUrl: checkout.url,
+    paymentId: payment.id,
+    purchaseId: purchase.id,
+    amountCents: purchase.pricePaidCents,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Webhooks
 // ---------------------------------------------------------------------------
@@ -383,13 +484,30 @@ async function onCheckoutCompleted(event: WebhookEvent) {
   const holdId = metadata.holdId;
   const organizationId = metadata.organizationId;
 
-  if (!holdId || !organizationId) {
-    logger.warn({ sessionId: data.id }, 'Checkout completed without metadata');
+  if (data.payment_status !== 'paid') {
+    logger.warn({ sessionId: data.id }, 'Checkout completed but not paid');
     return;
   }
 
-  if (data.payment_status !== 'paid') {
-    logger.warn({ sessionId: data.id }, 'Checkout completed but not paid');
+  /**
+   * A class pack is handled before the hold check, because it has no hold —
+   * nothing was reserved, so there is nothing to convert. It mints credits
+   * instead.
+   */
+  if (metadata.packPurchaseId && organizationId) {
+    const { completePackCheckout } = await import('../packs/pack.service');
+
+    await completePackCheckout({
+      organizationId,
+      purchaseId: metadata.packPurchaseId,
+      checkoutSessionId: data.id,
+      paymentIntentId: data.payment_intent ?? null,
+    });
+    return;
+  }
+
+  if (!holdId || !organizationId) {
+    logger.warn({ sessionId: data.id }, 'Checkout completed without metadata');
     return;
   }
 

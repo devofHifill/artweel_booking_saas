@@ -40,6 +40,17 @@ const EnvSchema = z.object({
    */
   BOOKING_HOLD_TTL_MINUTES: z.coerce.number().int().positive().default(10),
 
+  /**
+   * How long a waitlisted place is held for the person being offered it.
+   *
+   * Deliberately far longer than a checkout hold, because the two are waiting
+   * on different things. A checkout hold waits on someone already typing their
+   * card in; this one waits on someone who has to notice an email. Ten minutes
+   * would expire before most people look at their phone, and the seat would
+   * cycle through the whole queue unclaimed while the class showed as full.
+   */
+  WAITLIST_OFFER_TTL_MINUTES: z.coerce.number().int().positive().default(720),
+
   // --- Auth --------------------------------------------------------------
   // Separate secrets for access and refresh tokens. One secret for both means
   // a leaked access token can be replayed as a refresh token.
