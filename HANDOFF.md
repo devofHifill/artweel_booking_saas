@@ -22,11 +22,24 @@ have no concept of equipment.
 
 ## Status
 
-**Phase 0 and Phase 1 complete and deployed to staging. Phase 2 W2.1 (course
-cohorts, including paid checkout), W2.2a (attendance registers) and W2.2c
-(scheduling drop-in classes) complete locally, not yet deployed.** 413 tests
-green in the default suite, plus an isolated performance gate at 174ms p95.
-Both typechecks clean.
+**Phase 0 and Phase 1 complete and deployed. Phase 2 is code-complete except
+class packs.** 475 tests green in the default suite, plus an isolated
+performance gate under 200ms p95. Both typechecks clean.
+
+Deployed to staging on 2026-08-12: W2.1 (course cohorts + paid checkout),
+W2.2a (attendance registers) and W2.2c (drop-in class scheduling).
+
+**NOT deployed** — built after that deploy: W2.2b make-up credits, W2.3 piece
+tracking, W2.4 kiln firings, W2.6a waitlists, W2.7 widget + WordPress plugin.
+These carry two migrations (`..._credits_pieces_firings`, `..._waitlists`) and
+one new config value (`WAITLIST_OFFER_TTL_MINUTES`, which has a default and so
+needs no `.env.production` edit).
+
+The Phase 2 deploy applied migrations `..._course_series_enrollments` and
+`..._course_holds` cleanly against the live database, and health reports
+`database`, `postgis` and `btreeGist` all ok. No new environment variables and
+no new Stripe event types were needed — paid courses reuse
+`checkout.session.completed` with different metadata.
 
 Staging is live and verified at `https://artweel.fillforge.cloud` (marketing +
 booking pages) and `https://app.artweel.fillforge.cloud` (dashboard). See
@@ -35,7 +48,9 @@ booking pages) and `https://app.artweel.fillforge.cloud` (dashboard). See
 Shipping: auth/tenancy, admin CRUD, public booking page, Stripe Connect
 payments, notifications (email + SMS outbox), Google Calendar two-way sync,
 owner dashboard, onboarding + billing, marketing site + SEO, multi-week course
-cohorts with all-or-nothing enrolment, attendance registers.
+cohorts with all-or-nothing enrolment, attendance registers, make-up credits,
+piece tracking through the firing cycle, kiln firings, waitlists, and an
+embeddable booking widget with a WordPress plugin.
 
 Phase 1 exit gate was met and browser-verified: a stranger signed up, seeded a
 studio, published, and the page took a real booking — four interactions.
@@ -87,6 +102,7 @@ under "Being built next — not available yet". A test enforces this.
 | Migrations | `prisma migrate dev` needs a TTY and fails here. Use `prisma migrate diff --from-migrations … --script` into a temp file, write it to a new `prisma/migrations/<timestamp>_name/migration.sql`, then `prisma migrate deploy`. |
 | PowerShell + .NET | `[System.IO.File]::WriteAllText` uses the *process* CWD, not `Set-Location`. Always pass absolute paths. |
 | Perf suite | Must run **alone**: `npm run test:perf`. It is excluded from `npm test`. Running it alongside anything else inflates p95 and produces a false failure. |
+| Suite length vs edits | The suite now takes ~25 minutes, which is long enough that editing source while it runs is easy to do by accident — and the result then describes code that no longer exists. It happened once here and produced two false failures. **Never run two suites at once either**: they share `booking_test` and truncate tables between tests, so they corrupt each other. Kill a run you have invalidated rather than reading its output. |
 | Test plan defaults | `signUpStudio` defaults orgs to plan `PRO` so plan limits don't interfere with unrelated suites. Billing tests pass `plan: 'SOLO'` explicitly. |
 
 ---
@@ -94,7 +110,7 @@ under "Being built next — not available yet". A test enforces this.
 ## COMMANDS
 
 ```
-cd server && npm test              # 413 tests, ~14 min
+cd server && npm test              # 475 tests, ~25 min — see the warning below
 cd server && npm run test:perf     # isolated timing gate — run alone
 cd server && npm run typecheck
 cd server && npm run db:seed       # prints booking URL + login
@@ -343,17 +359,225 @@ outright (`ALL_DATES_UNAVAILABLE`) when nothing could be scheduled.
 - Cancelling cancels every booking first (returning seats, clearing blocks),
   then the session. Refunds stay manual, as with cohorts.
 
-### NEXT: W2.2b — make-up credits
+### W2.2b / W2.3 / W2.4 — credits, pieces, firings (DONE, 2026-08-12)
 
-Deliberately NOT built with the register, and this is the decision to revisit
-rather than inherit. A credit needs answers this codebase cannot supply: how
-many does an absence earn, do they expire, can they be redeemed into a
-different cohort, do they survive the course ending. That is studio policy, and
-`attendance.missed` above is already the input it needs — so the expensive half
-was postponed without blocking anything.
+Built **without studio interviews**, on Suren's explicit instruction, accepting
+rework. The engineering response to that was to put every uncertain judgement
+into DATA rather than code — see ASSUMPTIONS below, which is the list to take
+into an interview.
 
-**Interview studios before building this.** See open decision 2.
+**Make-up credits.** A missed course session mints a credit; a credit buys a
+seat in another class. Policy (on/off, expiry days, notice required, notice
+hours, cross-cohort) lives on `organizations`. Two things are enforced in
+Postgres rather than trusted to code, because both are what a retried request
+or two staff on two phones would otherwise break:
 
-Phase 2 exit gate: a studio runs a full six-week course (enrolment, attendance,
-one absence, a redeemed make-up credit) and a full firing cycle (piece created →
-both firings → collected, with the pickup notification delivered).
+- **one absence, at most one credit** — partial unique index on
+  `source_booking_id`, which is what makes issuance idempotent when a register
+  is saved twice
+- **one credit, at most one seat** — the row is locked `FOR UPDATE`, and the
+  seat is claimed through the ordinary `bookSeats` path BEFORE the credit is
+  marked spent, so a full class leaves the credit intact. Losing a race gives
+  the seat back.
+
+**Pieces.** `GREENWARE → AWAITING_BISQUE → BISQUE_FIRING → BISQUED →
+AWAITING_GLAZE → GLAZE_FIRING → FINISHED → COLLECTED`, plus `BROKEN` from
+anywhere. Transitions are a table, not branches. Every move is kept in
+`piece_events` — "where is my mug" needs the status, "you said it was ready
+three weeks ago" needs the history. Reaching FINISHED queues the pickup
+message once, guarded by `notified_at` stamped *before* queueing: a missed
+message beats a repeated one.
+
+**Firings.** Almost no new correctness code, because a kiln was already an
+exclusive `Resource` from Phase 0 — a firing takes a `ResourceAllocation` and
+the `EXCLUDE` constraint refuses the second load. Firings that are not
+exclusive resources are rejected outright (`KILN_NOT_EXCLUSIVE`), since a
+"kiln" with quantity 8 would silently accept eight simultaneous firings. The
+allocation covers **cooling**, not just the elements-on hours. Completing a
+glaze load advances every piece in it, which is what notifies the owners.
+
+Firing status transitions are deliberately **advisory, not a gate** — a studio
+that fired on Saturday and opened the app on Monday can mark a load complete
+without walking it through loading/firing/cooling. Only the terminal states
+are enforced.
+
+> **ASSUMPTIONS TO TEST WITH A STUDIO.** Each is a guess, and each is cheap to
+> change because it is a setting or a table:
+>
+> 1. One absence = one credit. A studio running "three misses and you repeat
+>    the term" thinks in a different currency. Changing this means dropping the
+>    partial unique index and adding an ordinal.
+> 2. Credits require advance notice by default. This rewards the student who
+>    warns you over the one who vanishes — but may read as harsh.
+> 3. Credits default to spendable on any class, not just the same cohort.
+> 4. 90-day credit expiry, 30-day piece hold. Both invented.
+> 5. Two firings, bisque then glaze, in that order. Single-fire, raku and
+>    multiple glaze firings all break this; the transition table is where to
+>    widen it.
+> 6. Firings are scheduled in advance like a class. Some studios instead fill
+>    a kiln opportunistically and fire when full — a queue, not a calendar.
+>    That model keeps the table and drops the times.
+> 7. Piece labels are free text, because studios already have a system
+>    (initials, a number, a coloured dot) and software that insists on its own
+>    makes staff maintain two.
+
+### W2.6a — waitlists (DONE, 2026-08-12)
+
+The one place in the product where demand arrived, was refused, and left no
+trace. A studio whose Saturday class fills every week could not answer "how
+many did I turn away" — which is the number that justifies a second session,
+and is now `seatsWanted` on the studio view.
+
+**The mechanism is an OFFER, not a broadcast.** When a seat frees it is held
+for exactly one person for a window (`WAITLIST_OFFER_TTL_MINUTES`, default 12
+hours) and they are emailed a claim link. Broadcasting would be simpler and is
+wrong twice: the fastest email-checker wins rather than the longest waiter, and
+everyone else follows a link to a failure.
+
+The hold is the **same `BookingHold` as Stripe checkout** — identical problem
+shape, a seat reserved for somebody who has not committed yet. A second
+reservation mechanism would have meant two things that can each believe a seat
+is theirs.
+
+- **The trigger lives inside `cancelBooking`**, not at its callers. Seats come
+  back from at least five places (studio cancel, token cancel, reschedule,
+  failed credit redemption rollback, course cancellation) and wiring each is
+  how the fifth gets missed. This means `scheduling/` dynamically imports a
+  module — the wrong direction, taken deliberately, because a waitlist that
+  fires on *some* cancellations is worse than none.
+- **Offer TTL is 12 hours, not 10 minutes.** A checkout hold waits on somebody
+  already typing a card in; this waits on somebody noticing an email. Ten
+  minutes would cycle the seat through the whole queue unclaimed while the
+  class showed full.
+- Somebody wanting 2 seats is **skipped, not blocking**, when only 1 frees —
+  but keeps their position, so a later double cancellation still reaches them
+  first.
+- Turning an offer down passes the seat on **immediately** rather than waiting
+  out the window.
+- A failed offer email **revokes the offer** and returns the person to the
+  queue. A seat held for somebody who was never told is the worst state
+  available: the class shows full for nobody.
+
+Constraints in Postgres, not code: one live queue place per customer per class
+(partial unique index), an OFFERED row must have both a hold and an expiry, and
+a CLAIMED row must name its booking.
+
+**Not built:** class packs — the other half of W2.6. Prepaid bundles are a
+money construct closer to billing than to queueing.
+
+### W2.7 — embeddable widget + WordPress plugin (DONE, 2026-08-12)
+
+Two lines on a studio's own site:
+
+```html
+<div data-studio="clay-and-co"></div>
+<script src="https://artweel.fillforge.cloud/embed.js" async></script>
+```
+
+**The whole risk of this feature is the framing header, and it is why the
+tests are mostly about what must still REFUSE to be framed.** Helmet sets
+`frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN` globally.
+`allowEmbedding` undoes both, for `/public/*` only. Relaxing helmet globally
+instead would make the dashboard clickjackable — an attacker overlays an
+invisible copy and an owner clicks something they cannot see. Four tests assert
+the API, marketing site, authenticated endpoints and webhooks still refuse.
+A future blanket relaxation fails there, loudly.
+
+`frame-ancestors *` rather than a per-studio allowlist: a booking page is
+public, there is no session or cookie in it, and the only credential in the
+whole surface arrives by email. An allowlist would be configuration protecting
+nothing.
+
+> **Two bugs found by driving a real browser that every header assertion
+> missed.** Both are now pinned by tests:
+>
+> 1. **`Cross-Origin-Resource-Policy`.** Helmet defaults it to `same-origin`,
+>    which blocks `embed.js` from loading on anybody else's site —
+>    `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin`. CORS does not cover this: a
+>    classic `<script src>` is a no-cors request, so
+>    `Access-Control-Allow-Origin` is never consulted and CORP decides alone.
+>    Every header looked right and nothing appeared.
+> 2. **Height measured with `scrollHeight`.** Inside an iframe the viewport IS
+>    the frame, so scrollHeight is bounded below by the frame's current height
+>    — a 900px frame around 683px of content reports 900 forever and can never
+>    shrink. Now measured from the body's own box.
+
+The **WordPress plugin** (`wordpress-plugin/`) is a shortcode, a block and a
+settings page, and deliberately contains no booking logic at all. Duplicating
+seat arithmetic onto hundreds of shared-host installs you cannot patch is
+precisely the mistake the original WP Booking Flow plugin made. It renders a
+div; the flow improves without studios updating anything. Not syntax-checked —
+no PHP on the Windows box.
+
+### W2.6b — class packs (DONE, 2026-08-12)
+
+"Ten classes for £400, valid six months." A purchase that books nothing —
+which is the only genuinely new thing in it, since every other payment in the
+system attaches to a session or a cohort.
+
+**The structural decision: there is now ONE entitlement currency.**
+`MakeUpCredit` was renamed to `ClassCredit` with a `source`
+(`ABSENCE | PACK | GRANT`). A missed class and a prepaid pack produce the same
+thing — a seat the customer is owed — and separate tables would have meant two
+redemption paths, two double-spend guards, and a customer looking at two
+balances. Spending a pack credit reuses `redeemCredit` unchanged: it already
+locks the row `FOR UPDATE`, claims the seat through `bookSeats` before marking
+it spent, and hands the seat back on a lost race.
+
+> **The migration RENAMES rather than dropping.** Prisma's generated diff would
+> `DROP TABLE make_up_credits`, discarding every credit a studio currently owes
+> its students — which is money. The hand-written migration renames the table,
+> the type, all five indexes and all four constraints, then widens it. Worth
+> remembering the next time a model is renamed: `migrate diff` will always
+> propose the destructive version.
+
+- **Price, credit count and validity are snapshotted onto the purchase**, never
+  read through to the pack. A studio raising prices cannot retroactively charge
+  somebody more, and shortening validity cannot expire a credit already in a
+  customer's hands.
+- **Issuance is idempotent via the status transition**, not a count.
+  `updateMany ... where status = 'PENDING'` wins once or reports zero rows;
+  counting existing credits instead would let two webhook deliveries both count
+  nine and both mint the tenth.
+- **Over-the-counter sale** (`POST /packs/:id/sell`) issues immediately without
+  payment. The studio took cash in the room; the software's job is to record
+  it, not insist on processing the card.
+- **Refunds cancel only UNSPENT credits.** Somebody who used four of ten keeps
+  those four — clawing them back would mean un-booking them from classes they
+  have already attended. Whether the cash refund should be partial is the
+  studio's call.
+- Packs get their own `startPackCheckout` rather than a third branch in
+  `startCheckout`: no seat, no hold, no session, no service, no deposit. Its
+  Stripe session lives an hour rather than ten minutes, because nothing is
+  reserved and so nothing is starved.
+
+**Phase 2 is complete.**
+
+### NEXT: what is left
+
+Every Phase 2 workstream is built. What remains is unfinished edges, not
+missing features:
+
+- **Dashboard pages** for courses, credits, pieces, firings, waitlists and
+  packs. Only Classes and Register have screens; the rest is API-only. This is
+  now the largest gap in the product — a studio cannot use most of Phase 2
+  without curl.
+- **Refunds for a cancelled course enrolment.** `refundForCancellation` is
+  booking-shaped and course money sits on the enrolment.
+- **The WordPress plugin has never been run.** No PHP on the Windows box, so
+  it has not even been syntax-checked. It wants a real WordPress install
+  before anyone trusts it.
+- **Deploying everything after W2.2c** — five workstreams, three migrations.
+- **Phase 3**, which the spec scopes as public API + webhooks, Outlook/Apple
+  calendar, reporting, gift cards, memberships and a second vertical.
+
+**Phase 2 exit gate:** a studio runs a full six-week course (enrolment,
+attendance, one absence, a redeemed make-up credit) and a full firing cycle
+(piece created → both firings → collected, with the pickup notification
+delivered).
+
+Both halves are now covered by tests — the course half across
+`tests/admin/credits`, the firing half by "takes a pot from wet clay to
+collected, notifying its owner once" in `tests/admin/pieces-firings`. What has
+NOT happened is a real studio running either one, which is what the gate
+actually asks for.

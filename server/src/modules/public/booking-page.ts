@@ -1,4 +1,5 @@
 import { clientScript } from './booking-page.client';
+import { EMBED_HEIGHT_SCRIPT } from './embed';
 
 /**
  * The public booking page, rendered on the server.
@@ -263,6 +264,7 @@ window.__BOOKING__ = ${jsonForScript({
   })};
 </script>
 <script>${clientScript}</script>
+<script>${EMBED_HEIGHT_SCRIPT}</script>
 </body>
 </html>`;
 }

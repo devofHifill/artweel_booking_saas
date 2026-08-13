@@ -8,6 +8,7 @@ import { authRouter } from './modules/auth/auth.route';
 import { organizationRouter } from './modules/organizations/organization.route';
 import { orgScopedRouter } from './routes/org-scoped';
 import { publicRouter } from './modules/public/public.route';
+import { allowEmbedding, embedRouter } from './modules/public/embed';
 import { webhookRouter } from './modules/payments/webhook.route';
 import { marketingRouter } from './modules/marketing/marketing.route';
 import { inboundRouter } from './modules/notifications/inbound.route';
@@ -80,7 +81,20 @@ export function createApp() {
   // inside this router, so no child module can forget them.
   app.use('/api/organizations/:organizationId', orgScopedRouter);
   // Unauthenticated, rate limited, and the only surface a stranger can reach.
-  app.use('/public', publicRouter);
+  /**
+   * The booking page, and the only thing in this app that may be framed.
+   *
+   * `allowEmbedding` runs before the router rather than inside it, so every
+   * public route inherits it and a new one cannot be added that forgets. The
+   * dashboard, the API and the marketing site all keep helmet's default
+   * refusal — see the comment on `allowEmbedding` for why that separation is
+   * load-bearing rather than tidiness.
+   */
+  app.use('/public', allowEmbedding, publicRouter);
+
+  // The widget loader. Served from the root because a studio pastes an
+  // absolute URL into their own site.
+  app.use(embedRouter);
 
   /**
    * The marketing site sits at the root and is mounted LAST.
