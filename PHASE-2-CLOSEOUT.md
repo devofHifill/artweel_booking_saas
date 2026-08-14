@@ -11,15 +11,19 @@ thing broke.
 
 ## Decision — settled 2026-08-14
 
-**The product keeps the name "Studio Bookings".** "Artweel" was only ever the
-repo name and the staging hostnames; the application has said Studio Bookings
-throughout. So the application copy stands and the *infrastructure* moves to
-match it, which is C3.
+**The product is called Artweel.** The repo, the staging hostnames, the
+WordPress plugin and the `embed.js` postMessage protocol already say so; the
+only holdout was the marketing footer and two JSON-LD fields. So the
+infrastructure stands and the application copy moves to match it.
 
-One piece of luck in the timing: staging is served with `X-Robots-Tag: noindex,
-nofollow`, so nothing is indexed under the old hostname and changing it costs no
-SEO at all. Doing this after that middleware comes off would be a different
-conversation.
+(This reverses a decision made and reverted the same day. The Artweel direction
+is the cheaper one by a wide margin: no DNS change, no ACME re-issuance, no
+re-pointing the two Stripe destinations, no prefix rename across the WordPress
+plugin, and no change to the embed wire protocol — all of which the other
+direction required.)
+
+Timing is free either way while staging carries `X-Robots-Tag: noindex,
+nofollow`: nothing is indexed under any name yet.
 
 ---
 
@@ -182,7 +186,34 @@ how three uncalled functions went unnoticed.
 
 ---
 
-## C3 — retire the "artweel" name (half a day to a day)
+## C3 — DONE 2026-08-14 (20 minutes, not the hour or the day estimated)
+
+The scope was far smaller than either earlier version of this section claimed.
+"Studio Bookings" appeared in exactly **three** places that were product
+branding, all in `marketing/render.ts`: the footer copyright, the
+`SoftwareApplication` JSON-LD `name`, and the Article `author.name`. All three
+now say Artweel. `client/index.html` gained a real title too.
+
+**Two things that look like the rename but are not, and must not be touched:**
+
+`tests/admin/dashboard.test.ts:379` reads
+`it('never returns another studio bookings', …)`. That is "another studio's
+bookings" — a tenant-isolation test, not the product name. A find-and-replace
+across the repo silently corrupts it into nonsense.
+
+`notification.service.ts` sets `fromName` from `organization.name` and
+`ctx.studioName`. That is the *studio's* name on its own customer emails, which
+is correct and per-tenant. Earlier versions of this plan listed "notification
+sender names" as part of the rename; they were wrong.
+
+Also checked and needing nothing: package names are `booking-saas-server` /
+`booking-saas-client`, neither of which is brand-facing, and every marketing
+page title is descriptive with no brand embedded.
+
+<details>
+<summary>The abandoned direction, kept for the reasoning</summary>
+
+## C3-alt — retire the "artweel" name (half a day to a day)
 
 The decision keeps the application copy as it is, so none of the marketing
 titles, JSON-LD or notification templates change. What changes is everything
@@ -238,6 +269,8 @@ throughout.
 
 **Order:** hostname decided → code and plugin rename → DNS → deploy → re-point
 Stripe → verify certificates issued and webhooks return 200.
+
+</details>
 
 ---
 

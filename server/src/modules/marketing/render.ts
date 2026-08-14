@@ -113,7 +113,7 @@ function footer(): string {
   return `
 <footer>
   <div class="wrap">
-    <span>&copy; ${new Date().getFullYear()} Studio Bookings</span>
+    <span>&copy; ${new Date().getFullYear()} Artweel</span>
     <a href="/pricing">Pricing</a>
     <a href="/alternatives/momence">vs Momence</a>
     <a href="/alternatives/punchpass">vs Punchpass</a>
@@ -165,7 +165,7 @@ function structuredData(page: Page, canonical: string): string {
     blocks.push({
       '@context': 'https://schema.org',
       '@type': 'SoftwareApplication',
-      name: 'Studio Bookings',
+      name: 'Artweel',
       applicationCategory: 'BusinessApplication',
       operatingSystem: 'Web',
       description: page.description,
@@ -186,7 +186,7 @@ function structuredData(page: Page, canonical: string): string {
       description: page.description,
       datePublished: page.article.published,
       mainEntityOfPage: canonical,
-      author: { '@type': 'Organization', name: 'Studio Bookings' },
+      author: { '@type': 'Organization', name: 'Artweel' },
     });
   }
 
