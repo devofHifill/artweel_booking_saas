@@ -290,16 +290,35 @@ Follow the existing conventions: `client/src/lib/api.ts` for calls,
 `useOrgBase()` for the org-scoped prefix, a `pages/` component per screen, a
 `NavLink` + `Route` pair in `App.tsx`.
 
-### C4.1 — Waitlists into the existing Classes screen (2 days)
+### C4.1 — Waitlists into the existing Classes screen — DONE 2026-08-14
 
-Not a new page. `Classes.tsx` already lists sessions; a full session grows a
-waitlist panel showing the queue in order, with "offer next" and "remove entry".
+A panel inside `Classes.tsx`, not a new page. Loaded per session on expand
+rather than alongside the list: a month of classes is thirty rows, and thirty
+waitlist queries to render badges almost none of them need is a bad trade.
 
-Endpoints already there: `GET/POST/DELETE
-/sessions/:sessionId/waitlist[/offer|/:entryId]`.
+The toggle sits on every class rather than only full ones. After a sweep
+releases a seat with nobody left in the queue, a class is no longer full but its
+lapsed entries are still the most useful demand signal a studio has — "three
+people wanted this and all of them gave up" is worth seeing.
 
-Smallest chunk, touches a file that already exists, and proves the API/UI
-pattern before the larger screens. Start here.
+**One real finding, fixed.** `listWaitlist` orders by `status ASC, position
+ASC`, and the enum declares WAITING before OFFERED. So the one person actually
+holding a seat rendered BELOW everyone merely waiting behind them — position 1
+last, under 2 and 3, with its number hidden. Whoever is next is the entire point
+of the panel. The client now sorts live entries (WAITING, OFFERED) first by
+position, with finished ones settling underneath as history. Fixed in the UI
+rather than the API because the API's order is defensible for a machine reader
+and changing it would have meant touching a shipped endpoint.
+
+**Verified against real data in a browser**, not mocked: filled a class, queued
+three people, cancelled a booking to trigger a real offer, then removed the
+holder. The queue passed the seat to the *third* person rather than the second,
+because the second wanted two seats and only one came free — and the class
+stayed 8/8 throughout, so the freed seat was never publicly bookable in between.
+That is the behaviour `tests/gate/waitlist.test.ts` asserts, seen end to end
+through the UI.
+
+Offer expiry renders in the studio's timezone (22:19 UTC → 6:19 PM New York).
 
 ### C4.2 — Courses (4 days, largest)
 

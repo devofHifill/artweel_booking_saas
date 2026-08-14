@@ -164,6 +164,32 @@ tr:hover td { background: var(--clay-lt); }
 .tag.CANCELLED { color: var(--muted); }
 .tag.ATTENDED { color: var(--clay); border-color: currentColor; }
 .tag.NO_SHOW { color: var(--danger); border-color: currentColor; }
+.tag.WAITING { color: var(--muted); }
+/* An offer is holding a seat right now, which is why it reads as live. */
+.tag.OFFERED { color: var(--warn); border-color: currentColor; }
+.tag.CLAIMED { color: var(--ok); border-color: currentColor; }
+.tag.EXPIRED { color: var(--muted); }
+
+/* --- The waitlist panel inside a class row -------------------------------- */
+.waitlist { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
+.queue { list-style: none; margin: 8px 0 0; padding: 0; }
+.queue li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+.queue li:first-child { border-top: none; }
+.queue .pos {
+  flex: 0 0 22px;
+  text-align: center;
+  color: var(--muted);
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+}
+.queue .who { flex: 1 1 auto; min-width: 0; }
+.queue .who .sub { display: block; }
 
 .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
 

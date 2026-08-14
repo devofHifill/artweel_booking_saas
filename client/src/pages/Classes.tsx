@@ -36,6 +36,22 @@ type SessionRow = {
 type Created = { id: string; localDate: string };
 type Skipped = { localDate: string; reason: string };
 
+type WaitlistEntry = {
+  id: string;
+  status: 'WAITING' | 'OFFERED' | 'CLAIMED' | 'EXPIRED' | 'CANCELLED';
+  position: number;
+  seats: number;
+  offerExpiresAt: string | null;
+  customer: { id: string; name: string; email: string; phone: string | null };
+};
+
+type WaitlistResponse = {
+  session: { id: string; capacity: number; seatsTaken: number };
+  waitingCount: number;
+  seatsWanted: number;
+  entries: WaitlistEntry[];
+};
+
 const WEEKDAYS = [
   ['MO', 'Mon'],
   ['TU', 'Tue'],
@@ -45,6 +61,27 @@ const WEEKDAYS = [
   ['SA', 'Sat'],
   ['SU', 'Sun'],
 ] as const;
+
+/** Still in the running: holding a seat, or in line for one. */
+const LIVE = new Set(['WAITING', 'OFFERED']);
+
+/**
+ * Queue order, not status order.
+ *
+ * The API sorts by status first, which puts the one person actually holding a
+ * seat BELOW everyone merely waiting behind them — position 1 rendering last,
+ * under positions 2 and 3. Whoever is next is the whole point of the panel, so
+ * live entries come first in position order and finished ones settle
+ * underneath as history.
+ */
+function orderedQueue(entries: WaitlistEntry[]): WaitlistEntry[] {
+  return [...entries].sort((a, b) => {
+    const aLive = LIVE.has(a.status);
+    const bLive = LIVE.has(b.status);
+    if (aLive !== bLive) return aLive ? -1 : 1;
+    return a.position - b.position;
+  });
+}
 
 function todayIn(timezone: string): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -187,6 +224,101 @@ export default function Classes() {
       setError(err instanceof Error ? err.message : 'Could not cancel.');
     } finally {
       setBusy(false);
+    }
+  }
+
+  // --- The waitlist panel ----------------------------------------------------
+  //
+  // Loaded per session on expand rather than alongside the list. A month of
+  // classes is thirty rows, and thirty waitlist queries to render badges almost
+  // none of them need is a bad trade.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [waitlist, setWaitlist] = useState<WaitlistResponse | null>(null);
+  const [wlBusy, setWlBusy] = useState(false);
+  const [wlError, setWlError] = useState<string | null>(null);
+
+  const loadWaitlist = useCallback(
+    async (sessionId: string) => {
+      setWlBusy(true);
+      setWlError(null);
+      try {
+        setWaitlist(
+          await api.get<WaitlistResponse>(
+            `${base}/sessions/${sessionId}/waitlist`,
+          ),
+        );
+      } catch (err) {
+        setWaitlist(null);
+        setWlError(
+          err instanceof Error ? err.message : 'Could not load the waitlist.',
+        );
+      } finally {
+        setWlBusy(false);
+      }
+    },
+    [base],
+  );
+
+  function toggleWaitlist(sessionId: string) {
+    if (openId === sessionId) {
+      setOpenId(null);
+      setWaitlist(null);
+      setWlError(null);
+      return;
+    }
+    setOpenId(sessionId);
+    setWaitlist(null);
+    void loadWaitlist(sessionId);
+  }
+
+  /**
+   * Offering holds the seat, so the class stays full while the offer stands.
+   * Said plainly here because the opposite guess — that offering merely sends
+   * an email and the seat is still up for grabs — leads an owner to offer it to
+   * three people at once.
+   */
+  async function offerNext(sessionId: string) {
+    if (
+      !confirm(
+        'Offer the next free seat to the first person waiting?\n\n' +
+          'The seat is held for them until the offer runs out, so the class ' +
+          'stays full in the meantime.',
+      )
+    )
+      return;
+
+    setWlBusy(true);
+    try {
+      const res = await api.post<{ offered: boolean }>(
+        `${base}/sessions/${sessionId}/waitlist/offer`,
+        {},
+      );
+      if (!res.offered) {
+        setWlError('Nothing to offer — no free seat, or nobody waiting for one.');
+      }
+      await loadWaitlist(sessionId);
+      await load();
+    } catch (err) {
+      setWlError(err instanceof Error ? err.message : 'Could not offer a seat.');
+      setWlBusy(false);
+    }
+  }
+
+  async function removeEntry(sessionId: string, entry: WaitlistEntry) {
+    const held =
+      entry.status === 'OFFERED'
+        ? '\n\nThey currently hold a seat; removing them frees it for the next person.'
+        : '';
+    if (!confirm(`Remove ${entry.customer.name} from the waitlist?${held}`)) return;
+
+    setWlBusy(true);
+    try {
+      await api.del(`${base}/sessions/${sessionId}/waitlist/${entry.id}`);
+      await loadWaitlist(sessionId);
+      await load();
+    } catch (err) {
+      setWlError(err instanceof Error ? err.message : 'Could not remove them.');
+      setWlBusy(false);
     }
   }
 
@@ -390,6 +522,12 @@ export default function Classes() {
 
               <div className="counts">
                 {session.seatsTaken}/{session.capacity} booked
+                <button
+                  className="link"
+                  onClick={() => toggleWaitlist(session.id)}
+                >
+                  {openId === session.id ? 'Hide waitlist' : 'Waitlist'}
+                </button>
                 {isAdmin && (
                   <button
                     className="link danger"
@@ -401,6 +539,71 @@ export default function Classes() {
                 )}
               </div>
             </div>
+
+            {openId === session.id && (
+              <div className="waitlist">
+                {wlError && <div className="err">{wlError}</div>}
+                {wlBusy && !waitlist && <p className="sub">Loading…</p>}
+
+                {waitlist && waitlist.entries.length === 0 && (
+                  <p className="sub">Nobody has joined this waitlist.</p>
+                )}
+
+                {waitlist && waitlist.entries.length > 0 && (
+                  <>
+                    <div className="row-head" style={{ cursor: 'default' }}>
+                      <div className="sub">
+                        {waitlist.waitingCount} waiting for{' '}
+                        {waitlist.seatsWanted} seat
+                        {waitlist.seatsWanted === 1 ? '' : 's'}
+                      </div>
+                      {isAdmin && (
+                        <button
+                          className="link"
+                          onClick={() => void offerNext(session.id)}
+                          disabled={wlBusy || waitlist.waitingCount === 0}
+                        >
+                          Offer next seat
+                        </button>
+                      )}
+                    </div>
+
+                    <ul className="queue">
+                      {orderedQueue(waitlist.entries).map((entry) => (
+                        <li key={entry.id}>
+                          <span className="pos">
+                            {LIVE.has(entry.status) ? entry.position : '·'}
+                          </span>
+                          <span className="who">
+                            {entry.customer.name}
+                            <span className="sub">
+                              {entry.customer.email}
+                              {entry.seats > 1 ? ` · ${entry.seats} seats` : ''}
+                            </span>
+                          </span>
+                          <span className={`tag ${entry.status}`}>
+                            {entry.status === 'OFFERED' && entry.offerExpiresAt
+                              ? `held until ${timeIn(entry.offerExpiresAt, timezone)}`
+                              : entry.status.toLowerCase()}
+                          </span>
+                          {isAdmin &&
+                            (entry.status === 'WAITING' ||
+                              entry.status === 'OFFERED') && (
+                              <button
+                                className="link danger"
+                                onClick={() => void removeEntry(session.id, entry)}
+                                disabled={wlBusy}
+                              >
+                                Remove
+                              </button>
+                            )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
