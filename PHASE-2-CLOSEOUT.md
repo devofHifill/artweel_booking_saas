@@ -9,18 +9,17 @@ thing broke.
 
 ---
 
-## Decision gate — settle before C3
+## Decision — settled 2026-08-14
 
-**The product name.** The repo is `artweel_booking_saas`; the code says "Studio
-Bookings" in marketing titles, JSON-LD, notification sender names and package
-names. This has to be decided before the dashboard pages are written, or six new
-screens are born with the wrong name baked in and the rename gets bigger.
+**The product keeps the name "Studio Bookings".** "Artweel" was only ever the
+repo name and the staging hostnames; the application has said Studio Bookings
+throughout. So the application copy stands and the *infrastructure* moves to
+match it, which is C3.
 
-It also gets more expensive with every day staging is indexed, because
-`PUBLIC_URL` is baked into the SEO output and re-indexing later is costly.
-
-This is Suren's call. The mechanical work is C3 and takes under an hour once the
-name exists.
+One piece of luck in the timing: staging is served with `X-Robots-Tag: noindex,
+nofollow`, so nothing is indexed under the old hostname and changing it costs no
+SEO at all. Doing this after that middleware comes off would be a different
+conversation.
 
 ---
 
@@ -44,16 +43,17 @@ than no status doc.
 ## C2 — deploy the five undeployed workstreams (half a day)
 
 Staging is current through W2.2c. Not on it: make-up credits, piece tracking,
-kiln firings, waitlists, widget + WordPress plugin.
+kiln firings, waitlists, class packs, widget + WordPress plugin.
 
-Carries two migrations — `..._credits_pieces_firings` and `..._waitlists` — and
-one new config value, `WAITLIST_OFFER_TTL_MINUTES`, which has a default and so
-needs no `.env.production` edit.
+Carries three migrations — `20260812190000_credits_pieces_firings`,
+`20260812210000_waitlists` and `20260812230000_class_packs` — and one new config
+value, `WAITLIST_OFFER_TTL_MINUTES`, which has a default and so needs no
+`.env.production` edit.
 
 **Steps**
 
-1. Back up the staging database before touching it. Two migrations at once on a
-   live box is exactly when you want a restore point.
+1. Back up the staging database before touching it. Three migrations at once on
+   a live box is exactly when you want a restore point.
 2. Deploy per `DEPLOY.md`, with `docker compose -f docker-compose.prod.yml` —
    never bare `docker compose`.
 3. Verify `/api/health` reports `database`, `postgis` and `btreeGist` ok.
@@ -69,17 +69,175 @@ staging box that actually has the tables.
 notifications. Confirm it drains on staging rather than assuming — a queue that
 silently does nothing looks identical to a quiet queue.
 
+### Migration audit (done 2026-08-14, before deploying)
+
+All three read line by line against the redeploy rule in `DEPLOY.md` — that a
+migration must be safe against the *old* code still serving requests, because
+`migrate deploy` runs before `up -d`.
+
+`..._credits_pieces_firings` — **clean.** Every table is new, so its indexes and
+constraints build on empty relations. The only change to an existing table is
+`organizations` gaining six `NOT NULL DEFAULT` columns, which does not rewrite
+the table on PG 11+ and would be trivial regardless at that row count.
+
+`..._waitlists` — **clean.** One new table, nothing else touched.
+
+`..._class_packs` — **two things worth knowing.**
+
+**1. It renames a table, and its own comment overstates why that is safe.** The
+comment says the rename "is also what makes the rollout safe against the old
+code still running during a deploy". That conflates two different properties.
+The rename does preserve data — no credit a studio owes is destroyed, which was
+the real point and is correct. But old code asking for `make_up_credits` after
+the rename gets `relation does not exist`. Data safety is not rollout safety.
+
+It is genuinely safe *here* only because both migrations land in the same
+`migrate deploy` run: one creates `make_up_credits`, the next renames it, and
+staging has never seen either. Had the earlier plan of deploying "two
+migrations" now and packs later been followed, the rename would have broken the
+running API for the seconds between migrating and the new containers starting.
+Deploy all three together, and do not split them.
+
+**2. It builds a plain index on `payments`, which is the exact case `DEPLOY.md`
+warns about.** Line 115: `CREATE INDEX "payments_pack_purchase_id_idx" ON
+"payments"("pack_purchase_id")`. The runbook says any index on `bookings`,
+`sessions` or `payments` wants `CREATE INDEX CONCURRENTLY` in its own migration,
+because a plain build locks writes for its duration. Free on staging, where
+`payments` is nearly empty. A stalled checkout path against real volume.
+
+**Do not edit the migration to fix this.** Two reasons: Prisma records a
+checksum per migration and rewriting an applied one puts the local database into
+drift, and `CREATE INDEX CONCURRENTLY` cannot run inside a transaction, which is
+how Prisma wraps every migration — it would fail outright.
+
+The fix is a later, separate migration that drops and rebuilds that index
+concurrently, needed before production volume, not before staging. Logged here
+rather than done now because it is a production-readiness item and this phase is
+about closing Phase 2.
+
 ---
 
-## C3 — the rename (1 hour, gated on the decision above)
+## C2.1 — schedule the three sweeps (1 day) — **do this first**
 
-Find-and-replace "Studio Bookings" across marketing titles, JSON-LD,
-notification sender, package names. Check `PUBLIC_URL` and the sitemap. Re-run
-the marketing copy test that enforces "no unshipped features" — it touches the
-same files.
+Found while verifying the C2 deploy on 2026-08-14. Grepping the API logs for
+waitlist/outbox/queue activity returned nothing, which turned out not to be a
+quiet queue.
 
-**Touches:** `server/src/modules/marketing/**`, notification templates,
-`package.json` names, `client/index.html`
+`server.ts` starts exactly two workers — `startNotificationWorker()` and
+`startCalendarWorker()`. Three sweep functions exist, are tested, and are
+described in their own docstrings as running on a schedule. **Nothing calls
+them outside the test suite.**
+
+| Sweep | Defined | Only caller |
+|---|---|---|
+| `sweepExpiredOffers` | `waitlists/waitlist.service.ts:356` | `tests/gate/waitlist.test.ts` |
+| `sweepExpiredSubscriptions` | `billing/billing.service.ts:344` | `tests/billing/billing.test.ts` |
+| `sweepExpiredHolds` | `scheduling/hold.service.ts:272` | `tests/gate/holds.test.ts` |
+
+`sweepExpiredHolds` even carries the comment "Runs on a queue in Phase 1". It
+does not.
+
+**In severity order:**
+
+**1. Waitlist offers leak seats permanently.** `createHold` increments
+`sessions.seats_taken` immediately (`hold.service.ts:84`), so an offered seat is
+a really-held seat. Trace every path that releases one: the claim path
+(`waitlist.service.ts:306`) *rejects* an expired offer and throws rather than
+releasing, and withdrawal only releases if the customer withdraws. A customer
+who is offered a place and simply ignores the email holds that seat forever, and
+the queue never advances past them. This is precisely the failure the
+`..._waitlists` migration comment describes — "an OFFERED row without an expiry
+would hold a seat forever, which is worse than never offering it" — and the
+`CHECK` constraint added there enforces that the expiry *timestamp exists*, not
+that anything ever acts on it. W2.6a went live today, so this is live now.
+
+**2. Trials never end.** Without `sweepExpiredSubscriptions`, no trial ever
+reaches SUSPENDED and no grace period ever lapses. The entire W1.8 lapse policy
+is unreachable in production. Every trial studio stays on trial indefinitely.
+
+**3. Abandoned checkouts lose their backstop.** Less severe than it first looks:
+`checkout.session.expired` is a subscribed Stripe event and `onCheckoutExpired`
+does release the hold (`payment.service.ts:642`), so the normal path works. The
+sweep is the safety net for a webhook that never arrives. Degraded resilience
+rather than an active leak — but it is the only thing standing behind a missed
+delivery.
+
+**The fix** is small: one interval worker in the same shape as
+`notifications/worker.ts`, started from `server.ts` and stopped in `shutdown`.
+All three sweeps are already idempotent by design — `released_at IS NULL`,
+`status = 'OFFERED'`, and `updateMany ... where status = 'PENDING'` respectively
+— so concurrent or repeated runs are safe, and no locking work is needed.
+
+**BUILT 2026-08-14** — `src/workers/sweep.worker.ts`, wired into `server.ts`,
+covered by `tests/gate/sweeps.test.ts`. 495 tests green, typecheck clean.
+**Not yet deployed.**
+
+Two notes on how it was built. Offers are swept before holds: a waitlist offer
+holds its seat through a booking hold created with the *offer's* TTL, so both
+fall due at the same instant, and going offers-first lets the coordinated path
+mark EXPIRED, release the seat and pass it to the next person before the blunt
+hold sweep can touch it. And the tests drive the worker rather than the sweeps —
+every sweep already had a passing test that called it directly, which is exactly
+how three uncalled functions went unnoticed.
+
+---
+
+## C3 — retire the "artweel" name (half a day to a day)
+
+The decision keeps the application copy as it is, so none of the marketing
+titles, JSON-LD or notification templates change. What changes is everything
+around them. "artweel" survives in nine files, and they are not all docs.
+
+### The part that is a real code change
+
+**`server/src/modules/public/embed.ts` — this is a wire protocol, not a label.**
+The embed script and the iframe talk to each other using the postMessage type
+`artweel:height`, the DOM property `__artweelFrame`, and the `artweelMounted`
+guard flag. Both halves must agree, and the WordPress plugin is the other half.
+
+Rename it now and it costs nothing, because the plugin has never been installed
+anywhere (C6) and no page on the internet embeds this. Rename it after a studio
+has the old script cached and the iframe silently stops resizing. This is the
+cheapest it will ever be.
+
+`server/tests/public/embed.test.ts` asserts on `artweel:height` and moves with
+it.
+
+**`wordpress-plugin/` — a full prefix rename.** The plugin has no namespace;
+the `artweel_` prefix *is* the namespacing. It touches the filename, `Plugin
+Name`, `Plugin URI`, text domain, the `ARTWEEL_*` constants, every
+`artweel_*` function, the `artweel_origin` / `artweel_slug` option keys, the
+`artweel-booking` CSS class and the `artweel` shortcode.
+
+Two of those are not just a find-and-replace. The **shortcode name** is what a
+site owner types into a page, and the **option keys** are where their settings
+live — changing either strands an existing install. Nobody has one yet, so this
+is free today and a migration path later. Do it before C6, not after.
+
+### The part that is infrastructure
+
+- **DNS** — two new A records; pick the hostname first.
+- **`docker-compose.prod.yml`** — container names (`artweel-api`,
+  `artweel-client`, `artweel-postgres`) and the Traefik router labels and rules.
+- **`deploy/env.production.example`** and the live `server/.env.production` —
+  `PUBLIC_URL` and `APP_URL`.
+- **Traefik certificates** — new hostnames mean new ACME issuance. Watch for the
+  pre-existing `fdgsms.filldesigngroup.cloud` ACME failures on the same shared
+  account; accumulated Let's Encrypt failures can rate-limit a legitimate new
+  issuance.
+- **Both Stripe event destinations** point at
+  `https://artweel.fillforge.cloud/webhooks/stripe` and must be re-pointed.
+  Editing a destination's URL does not roll its signing secret, so
+  `STRIPE_WEBHOOK_SECRET` stays as it is.
+- **The repo name** on GitHub — Suren's step.
+
+### Docs
+
+`DEPLOY.md`, `HANDOFF.md` and this file all reference the old hostnames
+throughout.
+
+**Order:** hostname decided → code and plugin rename → DNS → deploy → re-point
+Stripe → verify certificates issued and webhooks return 200.
 
 ---
 
@@ -218,8 +376,8 @@ studio owner would, and write down every place the UI fights back.
 ## Order of work
 
 ```
-C1  docs             ──►  C2  deploy  ──►  C3  rename
-                                              │
+C1 docs ─► C2 deploy ─► C2.1 sweeps ─► C3 rename
+   (done)     (done)                     │
                                               ▼
                           C4.1 waitlists ──► C4.2 courses ──► C5 refunds
                                               │

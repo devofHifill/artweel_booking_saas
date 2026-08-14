@@ -22,18 +22,33 @@ have no concept of equipment.
 
 ## Status
 
-**Phase 0 and Phase 1 complete and deployed. Phase 2 is code-complete except
-class packs.** 475 tests green in the default suite, plus an isolated
-performance gate under 200ms p95. Both typechecks clean.
+**Phases 0, 1 and 2 are all code-complete, and every workstream is now deployed
+to staging.** 495 tests green in the default suite, plus an isolated performance
+gate under 200ms p95. Both typechecks clean.
+
+What is left is unfinished edges rather than missing features, and the plan for
+closing them is `PHASE-2-CLOSEOUT.md`. The largest item is that six Phase 2
+modules have no dashboard screens at all.
 
 Deployed to staging on 2026-08-12: W2.1 (course cohorts + paid checkout),
 W2.2a (attendance registers) and W2.2c (drop-in class scheduling).
 
-**NOT deployed** — built after that deploy: W2.2b make-up credits, W2.3 piece
-tracking, W2.4 kiln firings, W2.6a waitlists, W2.7 widget + WordPress plugin.
-These carry two migrations (`..._credits_pieces_firings`, `..._waitlists`) and
-one new config value (`WAITLIST_OFFER_TTL_MINUTES`, which has a default and so
-needs no `.env.production` edit).
+Deployed 2026-08-14: W2.2b make-up credits, W2.3 piece tracking, W2.4 kiln
+firings, W2.6a waitlists, W2.6b class packs, W2.7 widget + WordPress plugin.
+All three migrations — `..._credits_pieces_firings`, `..._waitlists` and
+`..._class_packs` — applied cleanly, with no half-applied or rolled-back rows,
+and all seven new tables verified present.
+
+Those three had to go together and must never be split: `..._class_packs`
+renames `make_up_credits` to `class_credits`, and old code asking for the old
+name gets `relation does not exist`. Since `migrate deploy` runs before the new
+containers start, splitting them would break the live API in that window. The
+migration's own comment claims the rename makes the rollout safe; it makes the
+*data* safe, which is not the same thing.
+
+**Awaiting deploy:** the sweep worker (`src/workers/sweep.worker.ts`). Until it
+ships, waitlist offers on staging hold their seats permanently — see
+`PHASE-2-CLOSEOUT.md` C2.1.
 
 The Phase 2 deploy applied migrations `..._course_series_enrollments` and
 `..._course_holds` cleanly against the live database, and health reports
@@ -556,7 +571,8 @@ it spent, and hands the seat back on a lost race.
 ### NEXT: what is left
 
 Every Phase 2 workstream is built. What remains is unfinished edges, not
-missing features:
+missing features. These are sequenced, with reasoning, in
+`PHASE-2-CLOSEOUT.md`; the list below is the raw inventory:
 
 - **Dashboard pages** for courses, credits, pieces, firings, waitlists and
   packs. Only Classes and Register have screens; the rest is API-only. This is

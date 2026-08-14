@@ -10,6 +10,7 @@ import {
   startCalendarWorker,
   stopCalendarWorker,
 } from './modules/calendar/calendar.worker';
+import { startSweepWorker, stopSweepWorker } from './workers/sweep.worker';
 
 const app = createApp();
 
@@ -31,6 +32,13 @@ startNotificationWorker();
 startCalendarWorker();
 
 /**
+ * Expiry. Without this nothing in the system ever notices that a deadline
+ * passed — trials run forever and an ignored waitlist offer holds its seat
+ * indefinitely, because the seat is really taken the moment the offer is made.
+ */
+startSweepWorker();
+
+/**
  * Graceful shutdown: stop accepting connections, let in-flight requests
  * finish, then close the database pool. A booking write killed mid-transaction
  * is exactly the kind of thing that produces phantom reservations.
@@ -39,6 +47,7 @@ async function shutdown(signal: string) {
   logger.info({ signal }, 'Shutting down');
   stopNotificationWorker();
   stopCalendarWorker();
+  stopSweepWorker();
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);
