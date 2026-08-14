@@ -320,18 +320,47 @@ through the UI.
 
 Offer expiry renders in the studio's timezone (22:19 UTC → 6:19 PM New York).
 
-### C4.2 — Courses (4 days, largest)
+### C4.2 — Courses — DONE 2026-08-14
 
-New `Courses.tsx` plus a `CourseDetail.tsx`. List series, create one, generate
-its sessions, view the roster, enrol someone, cancel an enrolment.
+`Courses.tsx` (list + create) and `CourseDetail.tsx` (weeks, roster, enrol,
+cancel), with a `Courses` nav entry and a `/courses/:seriesId` route.
 
-Endpoints: `GET/POST /courses`, `GET/PATCH/DELETE /courses/:seriesId`,
-`POST /courses/:seriesId/sessions`, `GET/POST /courses/:seriesId/enrollments`,
-`DELETE /courses/:seriesId/enrollments/:enrollmentId`.
+Creation deliberately does not ask for dates, and the new cohort routes straight
+to its own screen where the only useful action is picking them. The two are
+different kinds of decision: what a course costs is editable all week, but the
+dates are fixed the moment students hold them, and the API already splits them
+for that reason.
 
-The all-or-nothing enrolment rule has to be visible in the UI, not just enforced
-in the service — if a six-week enrolment fails because week four is full, the
-screen must say which week.
+**The all-or-nothing rule is shown, not just enforced.** Every week is listed
+with its own fill, the limiting week is marked "limits the course", and a
+sentence above the list says what it means: *"Full — week 4 has no seats left,
+so no one else can take the whole course."* A failed enrolment surfaces the
+API's message verbatim, which already names the week — "This course is full
+(week 4 has no seats left)." Without that, an owner has six weeks to check by
+hand to find the one blocking a sale.
+
+**Two findings from verifying, both fixed.**
+
+The service dropdown offered every service, but only a `COURSE_SERIES` one can
+back a cohort — the API rejects the rest. `Classes.tsx` already filters those
+same services OUT for the mirror-image reason; `Courses.tsx` now filters them
+IN, and says so plainly when a studio has none set up yet.
+
+The "limiting week" was named even when every week was identical. `reduce`
+returns the first element on a tie, so a freshly generated six-week cohort
+claimed "week 1 is the limit" when all six were empty. `tightestWeek` now
+returns null unless one week is genuinely tighter than another, and the sentence
+drops the week reference in that case.
+
+**Verified end to end in a browser**: created the cohort, generated six weekly
+Tuesdays, filled week 4 with drop-ins, watched the enrolment refuse and name
+week 4, freed one seat, then enrolled successfully — and saw the enrolment take
+a seat in all six weeks at once (every week 0/3 → 1/3), which is the
+all-or-nothing rule doing its job.
+
+**Note for whoever runs this locally:** courses are gated to the Studio plan and
+the seed creates the studio on Solo, so the create call fails with a plan
+message until the org is upgraded. Worth knowing before assuming it is broken.
 
 ### C4.3 — The studio floor: pieces + firings (4 days)
 

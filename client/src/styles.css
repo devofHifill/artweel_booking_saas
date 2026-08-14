@@ -191,6 +191,53 @@ tr:hover td { background: var(--clay-lt); }
 .queue .who { flex: 1 1 auto; min-width: 0; }
 .queue .who .sub { display: block; }
 
+/* --- Courses --------------------------------------------------------------- */
+.tag.DRAFT { color: var(--muted); }
+.tag.PUBLISHED { color: var(--ok); border-color: currentColor; }
+.tag.ACTIVE { color: var(--ok); border-color: currentColor; }
+.tag.warn-tag { color: var(--warn); border-color: currentColor; }
+
+.weeks { list-style: none; margin: 10px 0 0; padding: 0; }
+.weeks li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+.weeks li:first-child { border-top: none; }
+.weeks .pos {
+  flex: 0 0 22px;
+  text-align: center;
+  color: var(--muted);
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+}
+.weeks .who { flex: 1 1 auto; min-width: 0; }
+.weeks .who .sub { display: block; }
+
+/*
+ * The week that decides whether the course can take anyone else. Marked
+ * because a full cohort usually looks like five roomy weeks and one that is
+ * not, and the roomy ones are the misleading part.
+ */
+.weeks li.limit { background: var(--clay-lt); }
+.limit-full { color: var(--danger); font-weight: 600; }
+
+.enroll { margin: 10px 0; }
+.enroll input { width: 100%; }
+.matches { list-style: none; margin: 6px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; }
+.matches li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--line);
+}
+.matches li:first-child { border-top: none; }
+.matches .who .sub { display: block; }
+
 .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
 
 .empty { color: var(--muted); text-align: center; padding: 40px 0; }

@@ -11,6 +11,8 @@ import CalendarPage from './pages/Calendar';
 import Customers from './pages/Customers';
 import Register from './pages/Register';
 import Classes from './pages/Classes';
+import Courses from './pages/Courses';
+import CourseDetail from './pages/CourseDetail';
 import CustomerDetail from './pages/CustomerDetail';
 import Billing from './pages/Billing';
 
@@ -68,6 +70,7 @@ export default function App() {
           <NavLink to="/calendar">Calendar</NavLink>
           <NavLink to="/bookings">Bookings</NavLink>
           <NavLink to="/classes">Classes</NavLink>
+          <NavLink to="/courses">Courses</NavLink>
           <NavLink to="/register">Register</NavLink>
           <NavLink to="/customers">Customers</NavLink>
           <NavLink to="/billing">Plan</NavLink>
@@ -105,6 +108,8 @@ export default function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/bookings" element={<Bookings />} />
           <Route path="/classes" element={<Classes />} />
+          <Route path="/courses" element={<Courses />} />
+          <Route path="/courses/:seriesId" element={<CourseDetail />} />
           <Route path="/register" element={<Register />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/customers/:customerId" element={<CustomerDetail />} />
