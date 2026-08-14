@@ -209,6 +209,57 @@ export function timeIn(iso: string, timezone: string): string {
   }).format(new Date(iso));
 }
 
+/**
+ * A wall-clock time the user typed, read as the STUDIO's clock.
+ *
+ * The mirror image of `timeIn`, and needed for the same reason. A
+ * `datetime-local` input hands back "2026-08-14T20:00" with no zone attached,
+ * and `new Date(...)` on that resolves it against the BROWSER's zone. An owner
+ * scheduling a kiln for 8pm from a laptop set to another timezone would book
+ * it for a different eight hours than the one they meant.
+ *
+ * Endpoints that take wall-clock parts (`startLocalDate` + `localStartTime`)
+ * do not need this — the server resolves those against the studio's zone
+ * already. It is for the ones that take an absolute instant.
+ *
+ * Two passes: the first finds the zone's offset near the target instant, the
+ * second re-checks it at the corrected instant, which matters when the two
+ * land on opposite sides of a daylight-saving change.
+ */
+export function zonedToInstant(local: string, timezone: string): Date {
+  const naive = new Date(`${local}:00Z`).getTime();
+
+  const offsetAt = (instant: number): number => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).formatToParts(new Date(instant));
+
+    const at = (type: string) =>
+      Number(parts.find((p) => p.type === type)?.value ?? 0);
+
+    // "24" appears at midnight in some locales; Date.UTC handles 0 correctly.
+    const shown = Date.UTC(
+      at('year'),
+      at('month') - 1,
+      at('day'),
+      at('hour') % 24,
+      at('minute'),
+      at('second'),
+    );
+    return shown - instant;
+  };
+
+  const firstPass = naive - offsetAt(naive);
+  return new Date(naive - offsetAt(firstPass));
+}
+
 export function dateIn(iso: string, timezone: string): string {
   return new Intl.DateTimeFormat('en-US', {
     weekday: 'short',

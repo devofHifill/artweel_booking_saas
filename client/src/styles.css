@@ -238,6 +238,31 @@ tr:hover td { background: var(--clay-lt); }
 .matches li:first-child { border-top: none; }
 .matches .who .sub { display: block; }
 
+/* --- The studio floor ------------------------------------------------------ */
+.subnav { display: flex; gap: 14px; margin: -6px 0 14px; }
+.subnav a { font-size: .9rem; color: var(--muted); text-decoration: none; padding-bottom: 4px; }
+.subnav a.on { color: var(--clay); border-bottom: 2px solid var(--clay); font-weight: 600; }
+
+.queue-counts { display: flex; gap: 32px; }
+.queue-counts strong { font-size: 1.6rem; display: block; line-height: 1.1; }
+
+.pack { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
+.pack .check { display: flex; align-items: center; gap: 8px; }
+
+/* Where a pot is in the cycle. Only the two that need acting on are coloured:
+   ready-to-collect, and broken. The rest are just progress. */
+.tag.FINISHED { color: var(--ok); border-color: currentColor; }
+.tag.BROKEN { color: var(--danger); border-color: currentColor; }
+.tag.COLLECTED { color: var(--muted); }
+.tag.GREENWARE, .tag.BISQUED { color: var(--muted); }
+.tag.AWAITING_BISQUE, .tag.AWAITING_GLAZE { color: var(--warn); border-color: currentColor; }
+.tag.BISQUE_FIRING, .tag.GLAZE_FIRING { color: var(--clay); border-color: currentColor; }
+
+.tag.BISQUE, .tag.GLAZE { color: var(--clay); border-color: currentColor; }
+.tag.SCHEDULED { color: var(--muted); }
+.tag.LOADING, .tag.FIRING, .tag.COOLING { color: var(--warn); border-color: currentColor; }
+.tag.COMPLETE { color: var(--ok); border-color: currentColor; }
+
 .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
 
 .empty { color: var(--muted); text-align: center; padding: 40px 0; }

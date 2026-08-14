@@ -13,6 +13,8 @@ import Register from './pages/Register';
 import Classes from './pages/Classes';
 import Courses from './pages/Courses';
 import CourseDetail from './pages/CourseDetail';
+import Pieces from './pages/Pieces';
+import Firings from './pages/Firings';
 import CustomerDetail from './pages/CustomerDetail';
 import Billing from './pages/Billing';
 
@@ -72,6 +74,7 @@ export default function App() {
           <NavLink to="/classes">Classes</NavLink>
           <NavLink to="/courses">Courses</NavLink>
           <NavLink to="/register">Register</NavLink>
+          <NavLink to="/studio">Studio floor</NavLink>
           <NavLink to="/customers">Customers</NavLink>
           <NavLink to="/billing">Plan</NavLink>
         </nav>
@@ -111,6 +114,9 @@ export default function App() {
           <Route path="/courses" element={<Courses />} />
           <Route path="/courses/:seriesId" element={<CourseDetail />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/studio" element={<Navigate to="/studio/pieces" replace />} />
+          <Route path="/studio/pieces" element={<Pieces />} />
+          <Route path="/studio/firings" element={<Firings />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/customers/:customerId" element={<CustomerDetail />} />
           <Route path="/billing" element={<Billing />} />

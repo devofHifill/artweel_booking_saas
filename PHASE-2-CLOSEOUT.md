@@ -362,7 +362,60 @@ all-or-nothing rule doing its job.
 the seed creates the studio on Solo, so the create call fails with a plan
 message until the org is upgraded. Worth knowing before assuming it is broken.
 
-### C4.3 — The studio floor: pieces + firings (4 days)
+### C4.3 — The studio floor — DONE 2026-08-14
+
+`Pieces.tsx` and `Firings.tsx` under a `Studio floor` nav entry, sharing a
+sub-nav, at `/studio/pieces` and `/studio/firings`.
+
+**Consequences are stated before they happen, and stated differently.**
+Completing a GLAZE firing marks its pots FINISHED, which texts every owner;
+completing a BISQUE firing is invisible to customers. The confirmation says
+which of those is about to occur rather than carrying one generic warning,
+because a generic warning on both is a warning nobody reads on either. Marking a
+single piece FINISHED by hand carries the same warning, naming the customer.
+
+Batch logging is a class picker plus a count per attendee, pulled from that
+class's register — the realistic capture moment. It looks back three weeks,
+since pots come from classes that have already run.
+
+**Three findings from verifying, all fixed.**
+
+**A real timezone bug.** The firing form used a `datetime-local` input and
+`new Date(value)`, which resolves against the BROWSER's zone. Entering 20:00
+produced a firing displayed at 10:30 AM. Everything else in this codebase is
+careful here — `api.ts` says times render in the studio's zone "never the
+browser's", and `Classes.tsx` avoids it by sending wall-clock parts the server
+resolves. The firing endpoint takes an absolute instant, so the client has to do
+the conversion: `zonedToInstant()` in `lib/api.ts`, the mirror of `timeIn`. Two
+passes, so a time near a daylight-saving change resolves against the offset that
+actually applies. The field is labelled with the studio's zone.
+
+**The uncollected panel claimed more than it showed.** It was headed "Waiting to
+be collected", but `listUncollected` returns only work past the studio's hold
+period — the list worth chasing, not everything finished. Now "On the shelf too
+long", with the hold period named.
+
+**Finished pieces read "in a glaze firing"** in the present tense after that
+firing had completed. Now "from a".
+
+**Verified end to end in a browser** — the firing half of the Phase 2 exit gate,
+driven entirely through the UI: logged six pots across three students from a
+real class, moved them to awaiting-bisque, scheduled and loaded a bisque firing,
+completed it (six to BISQUED, no customer contact), moved them to awaiting-glaze,
+ran a glaze firing, and completed that. Result in the database: **six
+`piece.ready` notifications, one per piece** — EMAIL sent, SMS correctly SKIPPED
+because those customers have no SMS consent.
+
+**Still worth doing:** the studio conversation this chunk was supposed to follow.
+Nothing here invents domain behaviour — the workflow, the transition table and
+the notification trigger are all the API's — but the layout, the wording and the
+choice of what to put on one screen are guesses that a morning in a real studio
+would correct cheaply.
+
+<details>
+<summary>Original plan for this chunk</summary>
+
+### C4.3-plan — The studio floor: pieces + firings (4 days)
 
 One new section, two views, because they are one workflow: a pot moves through
 statuses, and a firing is a batch of pots moving together.
@@ -375,6 +428,8 @@ statuses, and a firing is a batch of pots moving together.
 
 Reaching `FINISHED` is what texts the customer, so the status control needs to
 make that consequence obvious before it is clicked.
+
+</details>
 
 ### C4.4 — Credits and packs onto the customer (3 days)
 
