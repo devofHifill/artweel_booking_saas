@@ -118,11 +118,24 @@ add_shortcode( 'artweel', 'artweel_render' );
  *
  * Registered server-side and rendered by the same function, so the block and
  * the shortcode cannot drift apart.
+ *
+ * The `editor_script` is not optional decoration. Server-side registration
+ * alone gives a block that RENDERS but cannot be INSERTED — the inserter is
+ * built entirely from client-side registration, so without `block.js` the
+ * block is invisible to the person trying to add it.
  */
 function artweel_register_block() {
 	if ( ! function_exists( 'register_block_type' ) ) {
 		return;
 	}
+
+	wp_register_script(
+		'artweel-block',
+		plugins_url( 'block.js', __FILE__ ),
+		array( 'wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n' ),
+		ARTWEEL_VERSION,
+		true
+	);
 
 	register_block_type(
 		'artweel/booking',
@@ -132,6 +145,7 @@ function artweel_register_block() {
 			'category'        => 'embed',
 			'icon'            => 'calendar-alt',
 			'description'     => __( "Your studio's booking page, embedded.", 'artweel-booking' ),
+			'editor_script'   => 'artweel-block',
 			'attributes'      => array(
 				'slug'   => array(
 					'type'    => 'string',

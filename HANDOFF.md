@@ -23,8 +23,12 @@ have no concept of equipment.
 ## Status
 
 **Phases 0, 1 and 2 are all code-complete, and every workstream is now deployed
-to staging.** 495 tests green in the default suite, plus an isolated performance
+to staging.** 499 tests green in the default suite, plus an isolated performance
 gate under 200ms p95. Both typechecks clean.
+
+The dashboard now covers every Phase 2 module — waitlists, courses, pieces,
+firings, credits and packs all have screens. See `PHASE-2-CLOSEOUT.md` for what
+remains.
 
 What is left is unfinished edges rather than missing features, and the plan for
 closing them is `PHASE-2-CLOSEOUT.md`. The largest item is that six Phase 2

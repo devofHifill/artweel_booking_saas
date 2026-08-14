@@ -527,17 +527,52 @@ Do it after C4.2 so there is a screen to trigger it from.
 
 ---
 
-## C6 — run the WordPress plugin for the first time (1 day)
+## C6 — run the WordPress plugin for the first time — DONE 2026-08-14
 
-`wordpress-plugin/artweel-booking.php` — 238 lines of PHP that have never been
-executed, or even syntax-checked, because there is no PHP on this box.
+Run under the official `wordpress:6-php8.2-apache` image with MariaDB and
+wp-cli, the plugin bind-mounted **read-only** so nothing WordPress did could
+alter the source under test. The rig lives outside the repo; it is a test
+harness, not a deliverable.
 
-Use the official `wordpress` Docker image; Docker is already here for Postgres.
-Install the plugin, add the shortcode to a page, confirm the embed loads against
-staging, then `php -l` everything for good measure.
+**It works.** `php -l` clean — the first time it has ever been parsed. Activates
+without error. Zero PHP notices, warnings or deprecations in `debug.log` across
+every render, with `WP_DEBUG` on.
 
-Until this happens the plugin is an untested claim, and it is currently the only
-Phase 2 deliverable with zero verification of any kind.
+Verified behaviour:
+
+| | |
+|---|---|
+| Shortcode with no slug, visitor | renders nothing |
+| Shortcode with no slug, editor | renders the "set your studio address" prompt |
+| Shortcode with the option set | `data-studio="clay-and-co" data-height="900"` + one script tag |
+| `slug="Some Studio Name"` | sanitised to `some-studio-name` |
+| `height="99999"` | clamped to 900 |
+| Block markup in content | renders with its own attributes (height 700) |
+
+The origin guard holds against everything thrown at it — `javascript:`, `data:`,
+an attribute-breakout attempt and `ftp:` all fall back to the default, while
+`http://localhost:4000` and a trailing-slash URL are accepted and normalised.
+
+**One real defect, found and fixed.** The block was registered server-side with
+`render_callback` and no `editor_script`, and the plugin shipped **no JavaScript
+at all**. That produces a block which renders when its markup already exists but
+can never be *inserted*: the inserter is built entirely from client-side
+registration. The file's own comment claimed "the same thing as a block, so the
+editor is not a hostile place", and the readme advertised block support — both
+untrue in practice, and invisible without running it. Added `block.js`,
+deliberately plain ES5 with `createElement` rather than JSX so the plugin still
+needs no build step, plus an editor placeholder with slug and height controls.
+The editor shows a placeholder rather than the live iframe, so nobody takes a
+booking by accident while writing the page.
+
+Confirmed in a browser: `wp.blocks.getBlockType('artweel/booking')` now resolves
+client-side, the block inserts, its placeholder renders with the studio slug,
+and the console is clean.
+
+**Not covered:** the iframe never actually loaded, because the local API was
+down while the test suite held the database. The plugin's job ends at emitting
+the div and the script tag, and both are correct — but "customer completes a
+booking inside WordPress" is still unproven, and belongs with C7.
 
 ---
 
