@@ -351,6 +351,16 @@ export async function grantCredit(
       organizationId,
       customerId: input.customerId,
       status: 'AVAILABLE',
+      /**
+       * Explicitly GRANT, not the column's ABSENCE default.
+       *
+       * A credit the studio hands over is not a missed class, and the two are
+       * different questions — "how many classes did we give away" against "how
+       * many did people miss". Leaving it to the default answered both with
+       * the same number, and a row written wrong cannot be reclassified later
+       * because nothing else records which it was.
+       */
+      source: 'GRANT',
       expiresAt: days > 0 ? new Date(Date.now() + days * 86_400_000) : null,
       reason: input.reason ?? 'Granted by the studio',
     },

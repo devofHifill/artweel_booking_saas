@@ -344,6 +344,28 @@ describe('managing credits by hand', () => {
     expect(res.status).toBe(201);
     expect(res.body.credit.status).toBe('AVAILABLE');
     expect(res.body.credit.reason).toBe('Kiln broke, class abandoned');
+
+    /**
+     * GRANT, not the column's ABSENCE default. A credit the studio hands over
+     * is not a missed class, and once a row is written with the wrong source
+     * nothing else records which it really was.
+     */
+    expect(res.body.credit.source).toBe('GRANT');
+  });
+
+  it('separates given credits from missed ones in the balance', async () => {
+    await request(app)
+      .post(`${studio.base}/credits`)
+      .set(studio.headers)
+      .send({ customerId, reason: 'Goodwill' });
+
+    const balance = await request(app)
+      .get(`${studio.base}/packs/balance/${customerId}`)
+      .set(studio.headers);
+
+    expect(balance.status).toBe(200);
+    expect(balance.body.bySource.GRANT).toBe(1);
+    expect(balance.body.bySource.ABSENCE).toBeUndefined();
   });
 
   it('withdraws an unused credit', async () => {
