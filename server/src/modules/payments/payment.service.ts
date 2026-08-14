@@ -735,8 +735,6 @@ export async function refundForCancellation(
   bookingId: string,
   opts: { reason?: string; hoursOfNotice?: number } = {},
 ) {
-  const provider = getPaymentProvider();
-
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, organizationId },
     include: { payments: true },
@@ -777,30 +775,79 @@ export async function refundForCancellation(
     };
   }
 
+  const issued = await issueRefunds({
+    succeeded,
+    refundCents: outcome.refundCents,
+    creditCents: outcome.creditCents,
+    scopeKey: booking.id,
+    reason: opts.reason,
+  });
+
+  logger.info(
+    { bookingId, refundedCents: outcome.refundCents },
+    'Cancellation refund issued',
+  );
+
+  return {
+    refundedCents: outcome.refundCents,
+    creditCents: outcome.creditCents,
+    refunds: issued,
+  };
+}
+
+type RefundablePayment = {
+  id: string;
+  amountCents: number;
+  refundedCents: number;
+  succeededAt: Date | null;
+  providerPaymentIntentId: string | null;
+  providerAccountId: string | null;
+};
+
+/**
+ * Splits a refund across the charges that actually happened, and issues it.
+ *
+ * Shared by bookings and course enrolments because the mechanics are identical
+ * once the amount is decided — a deposit and a balance are two charges, and
+ * "refund 50%" has to be apportioned between them whichever kind of thing is
+ * being cancelled. Only the questions BEFORE this point differ: which payments
+ * belong to the thing, and how much notice was given.
+ *
+ * `scopeKey` seeds the idempotency key, so it must identify the thing being
+ * cancelled — a booking id or an enrolment id. A retried cancellation then
+ * cannot refund the same money twice.
+ */
+async function issueRefunds(params: {
+  succeeded: RefundablePayment[];
+  refundCents: number;
+  creditCents: number;
+  scopeKey: string;
+  reason?: string;
+}) {
+  const provider = getPaymentProvider();
+
   const allocations = allocateRefund(
-    succeeded.map((p) => ({
+    params.succeeded.map((p) => ({
       id: p.id,
       amountCents: p.amountCents,
       refundedCents: p.refundedCents,
       succeededAt: p.succeededAt,
     })),
-    outcome.refundCents,
+    params.refundCents,
   );
 
   const issued: { paymentId: string; amountCents: number; refundId: string }[] = [];
 
   for (const allocation of allocations) {
-    const payment = succeeded.find((p) => p.id === allocation.paymentId)!;
+    const payment = params.succeeded.find((p) => p.id === allocation.paymentId)!;
     if (!payment.providerPaymentIntentId || !payment.providerAccountId) continue;
 
     const refund = await provider.createRefund({
       connectedAccountId: payment.providerAccountId,
       paymentIntentId: payment.providerPaymentIntentId,
       amountCents: allocation.amountCents,
-      reason: opts.reason ?? 'requested_by_customer',
-      // Deterministic per payment per booking: a retried cancellation cannot
-      // refund the same money twice.
-      idempotencyKey: `refund_${booking.id}_${payment.id}`,
+      reason: params.reason ?? 'requested_by_customer',
+      idempotencyKey: `refund_${params.scopeKey}_${payment.id}`,
     });
 
     const refundedTotal = payment.refundedCents + allocation.amountCents;
@@ -810,8 +857,8 @@ export async function refundForCancellation(
         data: {
           paymentId: payment.id,
           amountCents: allocation.amountCents,
-          creditCents: outcome.creditCents,
-          reason: opts.reason,
+          creditCents: params.creditCents,
+          reason: params.reason,
           providerRefundId: refund.id,
           status: refund.status,
         },
@@ -833,9 +880,88 @@ export async function refundForCancellation(
     });
   }
 
+  return issued;
+}
+
+/**
+ * Refunds a cancelled COURSE enrolment.
+ *
+ * A course is paid for once, as a course, so the money hangs off the enrolment
+ * rather than off one arbitrarily chosen session booking — which is why the
+ * booking-shaped refund above could never find it. Cancelling an enrolment
+ * previously released six seats and kept the money silently.
+ *
+ * Notice is measured against the FIRST session, because that is when the thing
+ * being cancelled starts. A student pulling out in week four therefore gets
+ * whatever the studio's policy grants for zero notice, which is usually
+ * nothing. Pro-rating the unused weeks would be kinder and is what some
+ * studios do, but it is a policy the cancellation tiers cannot express, so
+ * inventing it here would put a rule in code that a studio cannot see or
+ * change. Left as a product decision.
+ */
+export async function refundForEnrollmentCancellation(
+  organizationId: string,
+  enrollmentId: string,
+  opts: { reason?: string; hoursOfNotice?: number } = {},
+) {
+  const enrollment = await prisma.enrollment.findFirst({
+    where: { id: enrollmentId, organizationId },
+    include: {
+      payments: true,
+      courseSeries: { select: { serviceTypeId: true } },
+    },
+  });
+  if (!enrollment) throw AppError.notFound('Enrolment not found.');
+
+  const succeeded = enrollment.payments.filter(
+    (p) => p.status === 'SUCCEEDED' || p.status === 'PARTIALLY_REFUNDED',
+  );
+
+  const collected = collectedCents(succeeded);
+  if (collected <= 0) {
+    return { refundedCents: 0, creditCents: 0, refunds: [] };
+  }
+
+  const policy = await resolvePolicyForService(
+    organizationId,
+    enrollment.courseSeries.serviceTypeId,
+  );
+
+  let hoursOfNotice = opts.hoursOfNotice;
+  if (hoursOfNotice === undefined) {
+    const first = await prisma.booking.findFirst({
+      where: { enrollmentId: enrollment.id },
+      orderBy: { startsAt: 'asc' },
+      select: { startsAt: true },
+    });
+    hoursOfNotice = first
+      ? Math.max(0, (first.startsAt.getTime() - Date.now()) / 3_600_000)
+      : 0;
+  }
+
+  const outcome = policy
+    ? evaluatePolicy(
+        policy.tiers as unknown as PolicyTier[],
+        collected,
+        hoursOfNotice,
+      )
+    : { refundCents: collected, creditCents: 0, tier: null };
+
+  if (outcome.refundCents <= 0) {
+    return { refundedCents: 0, creditCents: outcome.creditCents, refunds: [] };
+  }
+
+  const issued = await issueRefunds({
+    succeeded,
+    refundCents: outcome.refundCents,
+    creditCents: outcome.creditCents,
+    scopeKey: enrollment.id,
+    reason: opts.reason,
+  });
+
   logger.info(
-    { bookingId, refundedCents: outcome.refundCents },
-    'Cancellation refund issued',
+    { enrollmentId, refundedCents: outcome.refundCents },
+    'Course cancellation refund issued',
   );
 
   return {

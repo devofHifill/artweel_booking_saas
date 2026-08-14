@@ -274,11 +274,12 @@ Stripe → verify certificates issued and webhooks return 200.
 
 ---
 
-## C4 — the dashboard, in four chunks (the bulk of the work, ~2 weeks)
+## C4 — the dashboard — ALL FOUR CHUNKS DONE 2026-08-14
 
-This is the real gap. `client/src/pages/` has 11 screens; six Phase 2 modules
-have none. A studio cannot run courses, credits, pieces, firings, waitlists or
-packs without curl.
+Was the real gap: six Phase 2 modules with no screens at all, unusable without
+curl. Now covered by a waitlist panel on Classes, `Courses` + `CourseDetail`,
+`Pieces` + `Firings` under Studio floor, a credits-and-packs panel on
+`CustomerDetail`, and a `Packs` catalogue.
 
 **Do not build "six new pages."** The API shapes say otherwise. Waitlists mount
 at `/sessions/:sessionId/waitlist` — they are a session sub-resource, not a
@@ -431,11 +432,39 @@ make that consequence obvious before it is clicked.
 
 </details>
 
-### C4.4 — Credits and packs onto the customer (3 days)
+### C4.4 — Credits and packs onto the customer — DONE 2026-08-14
 
-Mostly panels on `CustomerDetail.tsx`: credits held and their expiry, packs
-bought and sessions remaining, redeem, and an owner-only pack catalogue screen
-for defining what's for sale and at what price.
+A "Credits and packs" panel on `CustomerDetail.tsx` — balance, what is held and
+when it lapses, packs bought, sell, grant, withdraw, refund — plus `Packs.tsx`
+at `/packs` for the catalogue. Selling lives on the customer because that is
+where the question gets asked; the catalogue screen only decides what is on the
+menu.
+
+**A server bug, found by using the screen.** `grantCredit` never set `source`,
+so it fell to the column's `ABSENCE` default and every credit a studio handed
+over was recorded as a missed class — despite `GRANT` existing in the enum for
+exactly this. It corrupts the `bySource` breakdown, and permanently: nothing
+else records what a row really was, so it cannot be reclassified afterwards.
+Fixed in `credit.service.ts`, with two tests — one on the source, one asserting
+the balance separates given from missed. The screen shows the damage plainly: a
+credit granted before the fix still reads "missed class" next to one granted
+after that reads "given".
+
+**Two UI findings, fixed.**
+
+Ten credits from one pack rendered as ten identical lines saying "one class".
+They now collapse by source, reason and expiry date into "10 classes · pack ·
+lapses Aug 14, 2027". Withdraw is offered only on a single credit — undoing a
+block of ten is what the pack refund is for, and it does the right thing with
+credits already spent.
+
+`dateIn` omits the year, which is correct for a schedule and wrong for an
+expiry: a credit lapsing in August 2027 rendered as "Sat, Aug 14",
+indistinguishable from one lapsing today. Added `expiryIn` alongside it.
+
+**Verified in a browser**: created a pack, sold it (10 credits issued, balance
+10), refunded it (10 withdrawn, balance 0, purchase marked refunded), and
+granted a credit by hand with a reason.
 
 Endpoints: `GET/POST /credits`, `POST /credits/:creditId/redeem`,
 `DELETE /credits/:creditId`, and the `/packs` router.
@@ -448,7 +477,41 @@ that 403.
 
 ---
 
-## C5 — refunds for a cancelled course enrolment (2 days)
+## C5 — refunds for a cancelled course enrolment — DONE 2026-08-14
+
+Cancelling a place released six seats and silently kept the money. The
+booking-shaped `refundForCancellation` could not find it: a course is paid for
+once, so the payment hangs off the enrolment and no booking claims it.
+
+`refundForEnrollmentCancellation` fills that in, and the shared tail — splitting
+a refund across the charges that actually happened, issuing it, recording it —
+is now one `issueRefunds` helper both paths call. Only the questions *before*
+that point differ: which payments belong to the thing, and how much notice was
+given. The idempotency key is seeded per scope, so a retried cancellation still
+cannot refund the same money twice.
+
+**Notice is measured against the FIRST session**, because that is when the thing
+being cancelled starts. A student pulling out in week four therefore gets
+whatever the policy grants for zero notice, usually nothing.
+
+**A product decision deliberately not taken:** pro-rating the unused weeks would
+be kinder and is what some studios do, but the cancellation tiers cannot express
+it. Building it here would put a rule in code that a studio can neither see nor
+change, which is the opposite of how the rest of the cancellation system works
+("cancellation terms are data, not code"). Worth asking a real studio.
+
+Cancelling refunds by default; `?refund=false` covers the studio that has
+already settled up off-platform, and the seats are released either way — the
+place must never wait on the money.
+
+Three tests: the refund happens and every week's seat comes back; `refund=false`
+leaves the payment alone but still frees the place; a retried cancellation
+refunds once. 15/15 in that file.
+
+<details>
+<summary>Original note</summary>
+
+## C5-plan — refunds for a cancelled course enrolment (2 days)
 
 `refundForCancellation` in `payments/payment.service.ts:733` takes a
 `bookingId`. Course money sits on the enrolment, so cancelling an enrolment
@@ -459,6 +522,8 @@ somebody actual cash. It needs its own tests, following the existing pattern of
 the fake provider that signs real HMACs.
 
 Do it after C4.2 so there is a screen to trigger it from.
+
+</details>
 
 ---
 

@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
+import { logger } from '../../lib/logger';
 import { requireFeature, type PlanId } from '../billing/plan';
 import {
   cancelSeries,
@@ -286,6 +287,44 @@ export async function cancelCourseSeries(organizationId: string, id: string) {
  * of that feature, and it is worth having on its own before any decision about
  * how credits should behave.
  */
+/**
+ * Cancels a place on a course and settles the money for it.
+ *
+ * Same shape as cancelling a booking: release the seats first, then refund,
+ * and never let a refund failure leave the place still occupied. The seats are
+ * the thing a studio needs back immediately; the money can be chased.
+ */
+export async function cancelEnrollmentAsStudio(
+  organizationId: string,
+  enrollmentId: string,
+  opts: { refund?: boolean; reason?: string } = {},
+) {
+  const { cancelEnrollment } = await import('../../scheduling/series.service');
+  const enrollment = await cancelEnrollment(organizationId, enrollmentId);
+
+  let refundedCents = 0;
+
+  if (opts.refund !== false) {
+    const { refundForEnrollmentCancellation } = await import(
+      '../payments/payment.service'
+    );
+    const refund = await refundForEnrollmentCancellation(
+      organizationId,
+      enrollmentId,
+      { reason: opts.reason ?? 'cancelled_by_studio' },
+    ).catch((err) => {
+      logger.error(
+        { err, enrollmentId },
+        'Course cancellation refund failed',
+      );
+      return { refundedCents: 0, creditCents: 0, refunds: [] };
+    });
+    refundedCents = refund.refundedCents;
+  }
+
+  return { enrollment, refundedCents };
+}
+
 export async function listRoster(organizationId: string, id: string) {
   const series = await prisma.courseSeries.findFirst({
     where: { id, organizationId },

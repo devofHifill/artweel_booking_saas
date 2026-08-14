@@ -174,6 +174,89 @@ describe('course checkout', () => {
     expect(payment.bookingId).toBeNull();
   });
 
+  /**
+   * Cancelling a place used to release six seats and keep the money.
+   *
+   * The booking-shaped refund could not see it: a course is paid for once, so
+   * the payment hangs off the enrolment and no booking claims it.
+   */
+  it('refunds the course when a place is cancelled', async () => {
+    await enablePayments();
+    await startCourseCheckout();
+
+    const csid = (await prisma.payment.findFirstOrThrow({}))
+      .providerCheckoutSessionId!;
+    await deliverWebhook(provider.payCheckout(csid));
+
+    const enrollment = await prisma.enrollment.findFirstOrThrow({});
+
+    const res = await request(app)
+      .delete(`${studio.base}/courses/${seriesId}/enrollments/${enrollment.id}`)
+      .set(studio.headers);
+
+    expect(res.status).toBe(200);
+    expect(res.body.enrollment.status).toBe('CANCELLED');
+    // No policy configured, so the whole 450.00 goes back.
+    expect(res.body.refundedCents).toBe(45000);
+
+    const payment = await prisma.payment.findFirstOrThrow({});
+    expect(payment.status).toBe('REFUNDED');
+    expect(payment.refundedCents).toBe(45000);
+
+    // And the seats came back in every week, not just the first.
+    const sessions = await sessionsOf();
+    expect(sessions.every((s) => s.seatsTaken === 0)).toBe(true);
+  });
+
+  it('leaves the money alone when the studio has already settled it', async () => {
+    await enablePayments();
+    await startCourseCheckout();
+
+    const csid = (await prisma.payment.findFirstOrThrow({}))
+      .providerCheckoutSessionId!;
+    await deliverWebhook(provider.payCheckout(csid));
+
+    const enrollment = await prisma.enrollment.findFirstOrThrow({});
+
+    const res = await request(app)
+      .delete(
+        `${studio.base}/courses/${seriesId}/enrollments/${enrollment.id}?refund=false`,
+      )
+      .set(studio.headers);
+
+    expect(res.status).toBe(200);
+    expect(res.body.refundedCents).toBe(0);
+
+    const payment = await prisma.payment.findFirstOrThrow({});
+    expect(payment.status).toBe('SUCCEEDED');
+
+    // The place is still given up — the seats must not wait on the money.
+    const sessions = await sessionsOf();
+    expect(sessions.every((s) => s.seatsTaken === 0)).toBe(true);
+  });
+
+  it('does not refund twice when the cancellation is retried', async () => {
+    await enablePayments();
+    await startCourseCheckout();
+
+    const csid = (await prisma.payment.findFirstOrThrow({}))
+      .providerCheckoutSessionId!;
+    await deliverWebhook(provider.payCheckout(csid));
+
+    const enrollment = await prisma.enrollment.findFirstOrThrow({});
+    const url = `${studio.base}/courses/${seriesId}/enrollments/${enrollment.id}`;
+
+    const first = await request(app).delete(url).set(studio.headers);
+    const second = await request(app).delete(url).set(studio.headers);
+
+    expect(first.body.refundedCents).toBe(45000);
+    // Already cancelled, so there is nothing left to give back.
+    expect(second.body.refundedCents).toBe(0);
+
+    const payment = await prisma.payment.findFirstOrThrow({});
+    expect(payment.refundedCents).toBe(45000);
+  });
+
   it('sends one confirmation for the course, not one per week', async () => {
     await enablePayments();
     await startCourseCheckout();

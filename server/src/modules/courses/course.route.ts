@@ -4,7 +4,6 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAdmin, requireMember } from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import * as courses from './course.service';
-import { cancelEnrollment } from '../../scheduling/series.service';
 import {
   createSeriesSchema,
   enrollSchema,
@@ -164,15 +163,26 @@ courseRouter.post(
   }),
 );
 
+/**
+ * Cancelling a place refunds it by default, under the studio's own policy.
+ *
+ * `?refund=false` is for the case where the studio has already settled with
+ * the student off-platform, which is common enough that forcing a double
+ * refund would be worse than offering the escape hatch.
+ */
 courseRouter.delete(
   '/:seriesId/enrollments/:enrollmentId',
   requireAdmin,
   asyncHandler(async (req, res) => {
+    const result = await courses.cancelEnrollmentAsStudio(
+      req.tenant!.organizationId,
+      id(req, 'enrollmentId'),
+      { refund: req.query.refund !== 'false' },
+    );
+
     res.json({
-      enrollment: await cancelEnrollment(
-        req.tenant!.organizationId,
-        id(req, 'enrollmentId'),
-      ),
+      enrollment: result.enrollment,
+      refundedCents: result.refundedCents,
     });
   }),
 );

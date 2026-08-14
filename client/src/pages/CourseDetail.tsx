@@ -119,6 +119,8 @@ export default function CourseDetail() {
   const [series, setSeries] = useState<Series | null>(null);
   const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  /** Money moved, so the studio is told what happened rather than guessing. */
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   // --- Generating the dates --------------------------------------------------
@@ -252,14 +254,22 @@ export default function CourseDetail() {
     if (
       !confirm(
         `Cancel ${entry.customer.name}'s place on this course?\n\n` +
-          'Every week they hold is released. Any refund is yours to issue.',
+          'Every week they hold is released, and whatever your cancellation ' +
+          'policy allows is refunded to them automatically.',
       )
     )
       return;
 
     setBusy(true);
     try {
-      await api.del(`${base}/courses/${seriesId}/enrollments/${entry.id}`);
+      const res = await api.del<{ refundedCents: number }>(
+        `${base}/courses/${seriesId}/enrollments/${entry.id}`,
+      );
+      setNotice(
+        res.refundedCents > 0
+          ? `Place cancelled. ${money(res.refundedCents, currency)} refunded to ${entry.customer.name}.`
+          : 'Place cancelled. Nothing was refunded — check your cancellation policy if that is wrong.',
+      );
       await load();
       setError(null);
     } catch (err) {
@@ -316,6 +326,7 @@ export default function CourseDetail() {
       </header>
 
       {error && <div className="err">{error}</div>}
+      {notice && <div className="alert warn">{notice}</div>}
 
       {/* --- Dates ---------------------------------------------------------- */}
 
