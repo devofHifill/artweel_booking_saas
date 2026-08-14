@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { config } from '../../config';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { asyncHandler } from '../../lib/async-handler';
@@ -73,11 +74,18 @@ marketingRouter.get(
 );
 
 /**
- * The dashboard.
+ * The dashboard, which lives somewhere else.
  *
- * In production nginx serves the built client here. In development it lives on
- * its own Vite port, so this redirects rather than 404ing and leaving a dead
- * "Sign in" link on every marketing page.
+ * Every "Sign in" and "Start free" link on the marketing site points at /app,
+ * so this redirect IS the signup funnel. It sends people to APP_URL — the Vite
+ * port in development, the dashboard hostname in production.
+ *
+ * This was hardcoded to `http://localhost:5173` until 2026-08-14, written when
+ * the plan was for nginx to serve the built client from this same origin. The
+ * deploy later moved to Traefik with a separate `app.` hostname and no host
+ * nginx, which left a development fallback serving as production behaviour:
+ * staging sent every visitor who clicked "Sign in" to their own machine. It
+ * broke nothing that a health check, a smoke test or a log line could see.
  */
 marketingRouter.get(
   '/app',
@@ -85,7 +93,7 @@ marketingRouter.get(
     const query = req.originalUrl.includes('?')
       ? req.originalUrl.slice(req.originalUrl.indexOf('?'))
       : '';
-    res.redirect(302, `http://localhost:5173${query}`);
+    res.redirect(302, `${config.APP_URL}${query}`);
   }),
 );
 

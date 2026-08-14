@@ -74,6 +74,34 @@ describe('pages', () => {
   });
 });
 
+describe('the way in', () => {
+  /**
+   * Every "Sign in" and "Start free" link points at /app, so this redirect is
+   * the entire self-serve funnel. It was hardcoded to localhost:5173 and
+   * shipped that way to staging, where it sent visitors to their own machine
+   * and broke nothing any health check could see.
+   */
+  it('sends people to the dashboard, wherever that is', async () => {
+    const { config } = await import('../../src/config');
+
+    const res = await request(app).get('/app');
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe(config.APP_URL);
+    // The bug: a literal that ignores configuration entirely.
+    expect(res.headers.location).not.toBe('http://localhost:5173');
+  });
+
+  it('carries the signup flag through', async () => {
+    const { config } = await import('../../src/config');
+
+    const res = await request(app).get('/app?signup=1');
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe(`${config.APP_URL}?signup=1`);
+  });
+});
+
 describe('technical SEO', () => {
   it('gives every page a unique title and description', async () => {
     // Duplicated metadata is one of the few things that reliably suppresses a

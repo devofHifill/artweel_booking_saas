@@ -163,3 +163,42 @@ if (config.NODE_ENV === 'production' && !config.CREDENTIAL_ENCRYPTION_KEY) {
   );
   process.exit(1);
 }
+
+/**
+ * APP_URL and PUBLIC_URL default to localhost, which is right for development
+ * and silently catastrophic in production. They are not decoration: APP_URL
+ * builds the Stripe Connect return URL and the billing checkout success and
+ * cancel URLs, and the marketing site redirects /app to it.
+ *
+ * A deployment that omits APP_URL therefore boots healthy, serves every page,
+ * passes its health check — and sends every visitor clicking "Sign in", every
+ * studio finishing Stripe onboarding, and everyone who just paid for a
+ * subscription to a machine that is not there. Nothing errors, so nothing
+ * tells you. That is exactly what happened on staging.
+ *
+ * Refuse to start instead. A container that will not boot is a problem you
+ * find in the deploy; a localhost redirect is one a customer finds for you.
+ */
+const LOCAL_HOST = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i;
+
+if (config.NODE_ENV === 'production') {
+  const localUrls = (
+    [
+      ['APP_URL', config.APP_URL],
+      ['PUBLIC_URL', config.PUBLIC_URL],
+    ] as const
+  ).filter(([, value]) => LOCAL_HOST.test(value.replace(/\/+$/, '')));
+
+  if (localUrls.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `${localUrls
+        .map(([name, value]) => `${name} is ${value}`)
+        .join(' and ')} in production. ` +
+        'These build the links customers follow and the URLs Stripe returns ' +
+        'them to, so a localhost value strands anyone who clicks. Set them in ' +
+        '.env.production to the real hostnames.',
+    );
+    process.exit(1);
+  }
+}

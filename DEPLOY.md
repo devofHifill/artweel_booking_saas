@@ -161,6 +161,13 @@ Edit `server/.env.production` and fill in:
 - `POSTGRES_PASSWORD` **and the same password inside `DATABASE_URL` and
   `SHADOW_DATABASE_URL`** — three places, one value. This is the single most
   common way this deploy fails.
+- **`PUBLIC_URL` and `APP_URL`.** Omitting `APP_URL` is the second most common,
+  and it used to fail silently: it defaults to `http://localhost:5173`, so the
+  site boots, serves every page and passes its health check while sending
+  everyone who clicks "Sign in" — and every studio returning from Stripe
+  Connect or a subscription checkout — to a machine that is not there. Staging
+  ran that way until 2026-08-14. The API now refuses to start in production if
+  either is a localhost URL, so this fails loudly in the deploy instead.
 - both JWT secrets, and `CREDENTIAL_ENCRYPTION_KEY`
 - `STRIPE_SECRET_KEY`, and **both** signing secrets from step 3 as a single
   comma-separated `STRIPE_WEBHOOK_SECRET` value

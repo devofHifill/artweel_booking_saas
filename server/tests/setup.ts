@@ -39,3 +39,16 @@ process.env.PASSWORD_COST_EXPONENT = '12';
 // Deterministic secrets, so a missing .env cannot silently weaken the suite.
 process.env.JWT_ACCESS_SECRET ??= 'test-access-secret-0123456789abcdefghijkl';
 process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret-0123456789abcdefghijkl';
+
+/**
+ * Deliberately NOT the development defaults.
+ *
+ * These are the values the app builds customer-facing links from — the "Sign
+ * in" redirect, the Stripe Connect return URL, the billing checkout success
+ * page. A test asserting such a link is worthless if the expected value is
+ * also what a hardcoded localhost literal would produce: the /app redirect was
+ * hardcoded to `http://localhost:5173` and reached staging precisely because
+ * that string looked correct everywhere anyone checked.
+ */
+process.env.APP_URL = 'https://dashboard.test';
+process.env.PUBLIC_URL = 'https://public.test';
