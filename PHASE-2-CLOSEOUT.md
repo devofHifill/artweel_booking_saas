@@ -168,9 +168,9 @@ All three sweeps are already idempotent by design — `released_at IS NULL`,
 `status = 'OFFERED'`, and `updateMany ... where status = 'PENDING'` respectively
 — so concurrent or repeated runs are safe, and no locking work is needed.
 
-**BUILT 2026-08-14** — `src/workers/sweep.worker.ts`, wired into `server.ts`,
-covered by `tests/gate/sweeps.test.ts`. 495 tests green, typecheck clean.
-**Not yet deployed.**
+**DONE 2026-08-14** — `src/workers/sweep.worker.ts`, wired into `server.ts`,
+covered by `tests/gate/sweeps.test.ts`. 495 tests green, typecheck clean,
+deployed to staging and confirmed by `Sweep worker started` in the API log.
 
 Two notes on how it was built. Offers are swept before holds: a waitlist offer
 holds its seat through a booking hold created with the *offer's* TTL, so both

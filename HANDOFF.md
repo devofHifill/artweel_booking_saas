@@ -46,9 +46,17 @@ containers start, splitting them would break the live API in that window. The
 migration's own comment claims the rename makes the rollout safe; it makes the
 *data* safe, which is not the same thing.
 
-**Awaiting deploy:** the sweep worker (`src/workers/sweep.worker.ts`). Until it
-ships, waitlist offers on staging hold their seats permanently — see
+Also deployed 2026-08-14: the sweep worker (`src/workers/sweep.worker.ts`).
+Three expiry sweeps had been written and tested but never called from `src/`,
+so waitlist offers held their seats permanently and no trial ever ended — see
 `PHASE-2-CLOSEOUT.md` C2.1.
+
+**Check `Sweep worker started` after every deploy.** That grep caught a deploy
+that had silently shipped nothing: health was green, every route returned 200
+and uptime showed a fresh restart, because the container really had restarted —
+on the old image. No external signal can distinguish that from a good deploy.
+The API logs four startup lines; three means the build did not include your
+change.
 
 The Phase 2 deploy applied migrations `..._course_series_enrollments` and
 `..._course_holds` cleanly against the live database, and health reports
