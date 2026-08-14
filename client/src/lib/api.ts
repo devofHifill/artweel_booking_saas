@@ -260,6 +260,23 @@ export function zonedToInstant(local: string, timezone: string): Date {
   return new Date(naive - offsetAt(firstPass));
 }
 
+/**
+ * A date far enough away that the year matters.
+ *
+ * `dateIn` deliberately omits the year, which is right for a schedule — nobody
+ * needs telling that tonight's class is this year. It is wrong for an expiry:
+ * a credit lapsing on 14 August 2027 renders as "Sat, Aug 14", indisting-
+ * uishable from one lapsing today.
+ */
+export function expiryIn(iso: string, timezone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: timezone,
+  }).format(new Date(iso));
+}
+
 export function dateIn(iso: string, timezone: string): string {
   return new Intl.DateTimeFormat('en-US', {
     weekday: 'short',

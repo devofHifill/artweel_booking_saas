@@ -263,6 +263,10 @@ tr:hover td { background: var(--clay-lt); }
 .tag.LOADING, .tag.FIRING, .tag.COOLING { color: var(--warn); border-color: currentColor; }
 .tag.COMPLETE { color: var(--ok); border-color: currentColor; }
 
+/* Pack purchases. REFUNDED is muted rather than red: it is a settled outcome,
+   not a problem to chase. */
+.tag.REFUNDED { color: var(--muted); }
+
 .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
 
 .empty { color: var(--muted); text-align: center; padding: 40px 0; }

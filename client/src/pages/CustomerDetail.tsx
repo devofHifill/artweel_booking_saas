@@ -1,7 +1,90 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, dateIn, money, timeIn } from '../lib/api';
+import { api, dateIn, expiryIn, money, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+
+type Credit = {
+  id: string;
+  status: 'AVAILABLE' | 'REDEEMED' | 'EXPIRED' | 'CANCELLED';
+  source: 'ABSENCE' | 'PACK' | 'GRANT';
+  expiresAt: string | null;
+  reason: string | null;
+  enrollment: { id: string; courseSeries: { id: string; name: string } } | null;
+};
+
+type Purchase = {
+  id: string;
+  status: 'PENDING' | 'ACTIVE' | 'REFUNDED';
+  creditCount: number;
+  pricePaidCents: number;
+  issuedAt: string | null;
+  expiresAt: string | null;
+  classPack: { id: string; name: string } | null;
+};
+
+type Balance = {
+  available: number;
+  bySource: Record<string, number>;
+  nextExpiry: string | null;
+};
+
+type Pack = {
+  id: string;
+  name: string;
+  creditCount: number;
+  priceCents: number;
+  isActive: boolean;
+};
+
+/** Where a credit came from, in words a studio would use. */
+const SOURCE: Record<string, string> = {
+  ABSENCE: 'missed class',
+  PACK: 'pack',
+  GRANT: 'given',
+};
+
+type CreditGroup = {
+  key: string;
+  credits: Credit[];
+  source: string;
+  detail: string | null;
+  expiresAt: string | null;
+};
+
+/**
+ * Credits are individually redeemable rows, which is right in the database and
+ * wrong on a screen: a ten-class pack produces ten identical lines saying "one
+ * class". They collapse by where they came from and when they lapse, which is
+ * the only distinction a studio acts on.
+ */
+function groupCredits(credits: Credit[]): CreditGroup[] {
+  const groups = new Map<string, CreditGroup>();
+
+  for (const credit of credits) {
+    // The reason often repeats the source ("pack" / "Class pack"), so it is
+    // only shown when it adds something.
+    const detail =
+      credit.enrollment?.courseSeries.name ??
+      (credit.reason && credit.reason.toLowerCase() !== 'class pack'
+        ? credit.reason
+        : null);
+    const day = credit.expiresAt?.slice(0, 10) ?? '';
+    const key = `${credit.source}|${detail ?? ''}|${day}`;
+
+    const existing = groups.get(key);
+    if (existing) existing.credits.push(credit);
+    else
+      groups.set(key, {
+        key,
+        credits: [credit],
+        source: credit.source,
+        detail,
+        expiresAt: credit.expiresAt,
+      });
+  }
+
+  return [...groups.values()];
+}
 
 type CustomerDetailResponse = {
   customer: {
@@ -43,6 +126,16 @@ export default function CustomerDetail() {
   );
   const [error, setError] = useState<string | null>(null);
 
+  const [credits, setCredits] = useState<Credit[]>([]);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [balance, setBalance] = useState<Balance | null>(null);
+  const [packs, setPacks] = useState<Pack[]>([]);
+  const [entError, setEntError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [selling, setSelling] = useState('');
+
+  const isAdmin = org?.role === 'OWNER' || org?.role === 'ADMIN';
+
   useEffect(() => {
     api
       .get<CustomerDetailResponse>(`${base}/customers/${customerId}`)
@@ -50,8 +143,121 @@ export default function CustomerDetail() {
       .catch((err) => setError(err.message));
   }, [base, customerId]);
 
+  /**
+   * Credits and packs are one question — "what has this person already paid
+   * for?" — so they load together and render as one panel, whatever table
+   * they came from.
+   */
+  const loadEntitlements = useCallback(async () => {
+    try {
+      const [c, p, b, catalogue] = await Promise.all([
+        api.get<{ credits: Credit[] }>(`${base}/credits?customerId=${customerId}`),
+        api.get<{ purchases: Purchase[] }>(
+          `${base}/packs/purchases/all?customerId=${customerId}`,
+        ),
+        api.get<Balance>(`${base}/packs/balance/${customerId}`),
+        api.get<{ packs: Pack[] }>(`${base}/packs`),
+      ]);
+      setCredits(c.credits);
+      setPurchases(p.purchases);
+      setBalance(b);
+      setPacks(catalogue.packs.filter((x) => x.isActive));
+      setEntError(null);
+    } catch (err) {
+      setEntError(
+        err instanceof Error ? err.message : 'Could not load credits.',
+      );
+    }
+  }, [base, customerId]);
+
+  useEffect(() => {
+    void loadEntitlements();
+  }, [loadEntitlements]);
+
+  async function sellPack() {
+    if (!selling) return;
+    const pack = packs.find((p) => p.id === selling);
+    if (
+      !confirm(
+        `Sell "${pack?.name}" to ${data?.name}?\n\n` +
+          `${pack?.creditCount} credit(s) are issued straight away. This records ` +
+          'a sale you have already taken payment for — no card is charged here.',
+      )
+    )
+      return;
+
+    setBusy(true);
+    try {
+      await api.post(`${base}/packs/${selling}/sell`, { customerId });
+      setSelling('');
+      await loadEntitlements();
+    } catch (err) {
+      setEntError(err instanceof Error ? err.message : 'Could not sell it.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function grantCredit() {
+    const reason = prompt('Why are you giving this credit? (optional)');
+    if (reason === null) return;
+
+    setBusy(true);
+    try {
+      await api.post(`${base}/credits`, {
+        customerId,
+        ...(reason.trim() ? { reason: reason.trim() } : {}),
+      });
+      await loadEntitlements();
+    } catch (err) {
+      setEntError(err instanceof Error ? err.message : 'Could not grant it.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelCredit(credit: Credit) {
+    if (!confirm('Withdraw this credit? The customer loses the free class.'))
+      return;
+
+    setBusy(true);
+    try {
+      await api.del(`${base}/credits/${credit.id}`);
+      await loadEntitlements();
+    } catch (err) {
+      setEntError(err instanceof Error ? err.message : 'Could not withdraw it.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refundPurchase(purchase: Purchase) {
+    if (
+      !confirm(
+        `Refund "${purchase.classPack?.name ?? 'this pack'}"?\n\n` +
+          'Any credits from it that are still unused are withdrawn. Credits ' +
+          'already spent on classes stay spent. The money itself is yours to ' +
+          'return.',
+      )
+    )
+      return;
+
+    setBusy(true);
+    try {
+      await api.post(`${base}/packs/purchases/${purchase.id}/refund`, {});
+      await loadEntitlements();
+    } catch (err) {
+      setEntError(err instanceof Error ? err.message : 'Could not refund it.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (error) return <div className="err">{error}</div>;
   if (!data) return <div className="empty">Loading…</div>;
+
+  const liveCredits = credits.filter((c) => c.status === 'AVAILABLE');
+  const spentCredits = credits.filter((c) => c.status !== 'AVAILABLE');
 
   return (
     <>
@@ -93,6 +299,137 @@ export default function CustomerDetail() {
           they can opt back in, by replying START.
         </div>
       )}
+
+      {/* --- What they have already paid for ------------------------------ */}
+
+      <div className="card">
+        <div className="row-head" style={{ cursor: 'default' }}>
+          <h2>Credits and packs</h2>
+          <div className="counts">
+            {balance?.available ?? 0} class
+            {balance?.available === 1 ? '' : 'es'} in hand
+            {balance?.nextExpiry
+              ? ` · first lapses ${expiryIn(balance.nextExpiry, timezone)}`
+              : ''}
+          </div>
+        </div>
+
+        {entError && <div className="err">{entError}</div>}
+
+        {isAdmin && (
+          <div className="toolbar" style={{ margin: '8px 0' }}>
+            {packs.length > 0 && (
+              <>
+                <select
+                  value={selling}
+                  onChange={(e) => setSelling(e.target.value)}
+                  aria-label="Pack to sell"
+                >
+                  <option value="">Sell a pack…</option>
+                  {packs.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} — {p.creditCount} for{' '}
+                      {money(p.priceCents, currency)}
+                    </option>
+                  ))}
+                </select>
+                <button onClick={() => void sellPack()} disabled={busy || !selling}>
+                  Sell
+                </button>
+              </>
+            )}
+            <button className="link" onClick={() => void grantCredit()} disabled={busy}>
+              Give a credit
+            </button>
+          </div>
+        )}
+
+        {liveCredits.length === 0 && purchases.length === 0 && (
+          <p className="sub">Nothing bought or owed.</p>
+        )}
+
+        {liveCredits.length > 0 && (
+          <ul className="queue">
+            {groupCredits(liveCredits).map((group) => (
+              <li key={group.key}>
+                <span className="who">
+                  {group.credits.length} class
+                  {group.credits.length === 1 ? '' : 'es'}
+                  <span className="sub">
+                    {SOURCE[group.source] ?? group.source.toLowerCase()}
+                    {group.detail ? ` · ${group.detail}` : ''}
+                  </span>
+                </span>
+                <span className="counts">
+                  {group.expiresAt
+                    ? `lapses ${expiryIn(group.expiresAt, timezone)}`
+                    : 'no expiry'}
+                </span>
+                {/*
+                  Withdrawing is offered one credit at a time. A block of ten
+                  came from a pack, and the honest way to undo that is to
+                  refund the purchase below — which withdraws what is unused
+                  and leaves what has been spent alone.
+                */}
+                {isAdmin && group.credits.length === 1 && (
+                  <button
+                    className="link danger"
+                    onClick={() => void cancelCredit(group.credits[0]!)}
+                    disabled={busy}
+                  >
+                    Withdraw
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {purchases.length > 0 && (
+          <>
+            <p className="sub" style={{ marginTop: 12 }}>
+              Packs bought
+            </p>
+            <ul className="queue">
+              {purchases.map((purchase) => (
+                <li key={purchase.id}>
+                  <span className="who">
+                    {purchase.classPack?.name ?? 'Pack'}
+                    <span className="sub">
+                      {purchase.creditCount} classes ·{' '}
+                      {money(purchase.pricePaidCents, currency)}
+                      {purchase.expiresAt
+                        ? ` · until ${expiryIn(purchase.expiresAt, timezone)}`
+                        : ''}
+                    </span>
+                  </span>
+                  <span className={`tag ${purchase.status}`}>
+                    {purchase.status.toLowerCase()}
+                  </span>
+                  {isAdmin && purchase.status === 'ACTIVE' && (
+                    <button
+                      className="link danger"
+                      onClick={() => void refundPurchase(purchase)}
+                      disabled={busy}
+                    >
+                      Refund
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        {spentCredits.length > 0 && (
+          <p className="sub" style={{ marginTop: 10 }}>
+            {spentCredits.filter((c) => c.status === 'REDEEMED').length} used ·{' '}
+            {spentCredits.filter((c) => c.status === 'EXPIRED').length} lapsed ·{' '}
+            {spentCredits.filter((c) => c.status === 'CANCELLED').length}{' '}
+            withdrawn
+          </p>
+        )}
+      </div>
 
       <h2>History</h2>
 
