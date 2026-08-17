@@ -62,7 +62,17 @@ export async function getOrganization(organizationId: string) {
 
 export async function updateOrganization(
   organizationId: string,
-  data: { name?: string; timezone?: string; currency?: string },
+  data: {
+    name?: string;
+    timezone?: string;
+    currency?: string;
+    makeUpCreditsEnabled?: boolean;
+    makeUpCreditDays?: number;
+    makeUpRequiresNotice?: boolean;
+    makeUpNoticeHours?: number;
+    makeUpCrossCohort?: boolean;
+    pieceHoldDays?: number;
+  },
 ) {
   return prisma.organization.update({ where: { id: organizationId }, data });
 }

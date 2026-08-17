@@ -55,6 +55,19 @@ COPY package.json ./
 COPY --from=build /app/src ./src
 COPY --from=build /app/tsconfig.json ./
 
+# Operator scripts, for the same reason and one that matters more.
+#
+# `npm run platform:grant` is the ONLY way to create a platform admin — there is
+# deliberately no HTTP route for it, because an endpoint that mints platform
+# admins would have to be guarded by the authority it hands out. Without this
+# line the deployed image has a platform surface that nobody can ever reach, and
+# the only remedy is a hand-written INSERT against production Postgres.
+#
+# Copied from the build CONTEXT rather than the build stage: the compile does not
+# need these, and going through the build stage would invalidate its cache every
+# time a script changed.
+COPY scripts ./scripts
+
 # Configuration arrives as real environment variables from compose's env_file.
 # config/index.ts also looks for /app/.env and shrugs when it is absent —
 # dotenv does not overwrite variables that are already set, so there is no

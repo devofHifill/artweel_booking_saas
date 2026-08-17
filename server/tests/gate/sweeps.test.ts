@@ -172,6 +172,41 @@ describe('the sweep batch', () => {
   });
 });
 
+/**
+ * Polls until the worker has actually done something, instead of sleeping for a
+ * fixed period and hoping.
+ *
+ * The test below used to sleep 400ms and assert once, which is a bet that one
+ * tick of a real worker — several statements against a real Postgres — always
+ * finishes within 400ms. On a loaded machine it does not: this file passed on
+ * its own and failed inside the full suite, on 2026-08-17, with the code under
+ * test working correctly both times. A test that fails for reasons unrelated to
+ * its subject is worse than no test, because the next person to see it red
+ * learns to ignore it.
+ *
+ * Note this only applies to waiting for something to HAPPEN. The sibling test
+ * below waits a fixed period to show that nothing happens, which is the right
+ * shape for a negative and must stay a fixed sleep.
+ */
+async function eventually<T>(
+  read: () => Promise<T | null | undefined>,
+  what: string,
+  timeoutMs = 5_000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+
+  for (;;) {
+    const value = await read();
+    if (value) return value;
+
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out after ${timeoutMs}ms waiting for ${what}.`);
+    }
+
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 describe('the worker loop', () => {
   /**
    * The test that would have caught the original bug: not "does the sweep
@@ -186,12 +221,21 @@ describe('the worker loop', () => {
     expect(before).not.toBeNull();
 
     startSweepWorker(50);
-    await new Promise((r) => setTimeout(r, 400));
 
-    const ana = await prisma.waitlistEntry.findFirst({
-      orderBy: { position: 'asc' },
-    });
-    expect(ana!.status).toBe('EXPIRED');
+    // Wait for the row to CHANGE, then assert what it changed to — so the
+    // assertion still fails if the worker runs and does the wrong thing, rather
+    // than the poll quietly encoding the expected answer.
+    const ana = await eventually(
+      async () => {
+        const row = await prisma.waitlistEntry.findFirst({
+          orderBy: { position: 'asc' },
+        });
+        return row && row.status !== 'OFFERED' ? row : null;
+      },
+      'the worker to act on the ignored offer',
+    );
+
+    expect(ana.status).toBe('EXPIRED');
   });
 
   it('stops when told to', async () => {

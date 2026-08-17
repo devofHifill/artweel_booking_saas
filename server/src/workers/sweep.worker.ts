@@ -1,4 +1,5 @@
 import { logger } from '../lib/logger';
+import { recordWorkerRun } from '../lib/heartbeat';
 import { sweepExpiredOffers } from '../modules/waitlists/waitlist.service';
 import { sweepExpiredSubscriptions } from '../modules/billing/billing.service';
 import { sweepExpiredHolds } from '../scheduling/hold.service';
@@ -90,7 +91,13 @@ export function startSweepWorker(intervalMs = 60_000) {
     const billing = ++billingCounter >= 60;
     if (billing) billingCounter = 0;
 
-    const result = await processSweepBatch({ billing });
+    // Wrapped so that "this worker has not run" is a visible state rather than
+    // an absence of log lines. `processSweepBatch` swallows each sweep's own
+    // errors by design, so the heartbeat records the TICK happening; per-sweep
+    // failures stay in the log.
+    const result = await recordWorkerRun('sweeps', () =>
+      processSweepBatch({ billing }),
+    );
 
     // Quiet when there is nothing to do, which is most ticks. A sweep that
     // logged every minute would bury the one line that matters.

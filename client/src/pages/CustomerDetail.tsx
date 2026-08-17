@@ -36,6 +36,14 @@ type Pack = {
   isActive: boolean;
 };
 
+type UpcomingSession = {
+  id: string;
+  startsAt: string;
+  capacity: number;
+  seatsTaken: number;
+  serviceType: { name: string };
+};
+
 /** Where a credit came from, in words a studio would use. */
 const SOURCE: Record<string, string> = {
   ABSENCE: 'missed class',
@@ -133,6 +141,8 @@ export default function CustomerDetail() {
   const [entError, setEntError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selling, setSelling] = useState('');
+  const [redeeming, setRedeeming] = useState<Credit | null>(null);
+  const [upcoming, setUpcoming] = useState<UpcomingSession[]>([]);
 
   const isAdmin = org?.role === 'OWNER' || org?.role === 'ADMIN';
 
@@ -211,6 +221,52 @@ export default function CustomerDetail() {
       await loadEntitlements();
     } catch (err) {
       setEntError(err instanceof Error ? err.message : 'Could not grant it.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Spending a credit is the point of having one.
+   *
+   * The panel could show a make-up class owed and offer no way to book it,
+   * which is where this started: the studio could see the debt and not settle
+   * it. Sessions are loaded on demand rather than with the page, since most
+   * visits to a customer are not about redeeming anything.
+   */
+  async function openRedeem(credit: Credit) {
+    setRedeeming(credit);
+    setEntError(null);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const to = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+      const res = await api.get<{ sessions: UpcomingSession[] }>(
+        `${base}/sessions?from=${today}&to=${to}`,
+      );
+      setUpcoming(res.sessions.filter((s) => s.seatsTaken < s.capacity));
+    } catch (err) {
+      setEntError(err instanceof Error ? err.message : 'Could not load classes.');
+    }
+  }
+
+  async function redeem(sessionId: string) {
+    if (!redeeming) return;
+
+    setBusy(true);
+    try {
+      await api.post(`${base}/credits/${redeeming.id}/redeem`, { sessionId });
+      setRedeeming(null);
+      setUpcoming([]);
+      await loadEntitlements();
+      // The booking is real, so the history above is now out of date too.
+      const res = await api.get<CustomerDetailResponse>(
+        `${base}/customers/${customerId}`,
+      );
+      setData(res.customer);
+    } catch (err) {
+      // Says which rule refused it — a full class, one that has started, or a
+      // credit the studio keeps inside its own cohort.
+      setEntError(err instanceof Error ? err.message : 'Could not book it.');
     } finally {
       setBusy(false);
     }
@@ -371,6 +427,13 @@ export default function CustomerDetail() {
                   refund the purchase below — which withdraws what is unused
                   and leaves what has been spent alone.
                 */}
+                <button
+                  className="link"
+                  onClick={() => void openRedeem(group.credits[0]!)}
+                  disabled={busy}
+                >
+                  Book a class
+                </button>
                 {isAdmin && group.credits.length === 1 && (
                   <button
                     className="link danger"
@@ -383,6 +446,57 @@ export default function CustomerDetail() {
               </li>
             ))}
           </ul>
+        )}
+
+        {redeeming && (
+          <div className="pack">
+            <div className="row-head" style={{ cursor: 'default' }}>
+              <div className="sub">
+                Which class? The credit pays for one seat.
+              </div>
+              <button
+                className="link"
+                onClick={() => {
+                  setRedeeming(null);
+                  setUpcoming([]);
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+
+            {upcoming.length === 0 && (
+              <p className="sub">
+                Nothing with a free seat in the next 60 days.
+              </p>
+            )}
+
+            {upcoming.length > 0 && (
+              <ul className="queue">
+                {upcoming.map((session) => (
+                  <li key={session.id}>
+                    <span className="who">
+                      {session.serviceType.name}
+                      <span className="sub">
+                        {dateIn(session.startsAt, timezone)} ·{' '}
+                        {timeIn(session.startsAt, timezone)}
+                      </span>
+                    </span>
+                    <span className="counts">
+                      {session.capacity - session.seatsTaken} free
+                    </span>
+                    <button
+                      className="link"
+                      onClick={() => void redeem(session.id)}
+                      disabled={busy}
+                    >
+                      Book
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
 
         {purchases.length > 0 && (

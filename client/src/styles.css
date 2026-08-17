@@ -380,3 +380,79 @@ tr:hover td { background: var(--clay-lt); }
 .result { margin-top: 12px; }
 .result ul { margin: 6px 0 0 18px; font-size: .84rem; }
 .counts .link.danger { margin-left: 10px; color: var(--danger); }
+
+/* ==========================================================================
+   Platform admin (/admin)
+
+   A separate shell, not a variant of the studio one — but built from the same
+   tokens, cards and tags on purpose. An operator surface that looks like a
+   different product is a second design language to maintain for one user.
+   ========================================================================== */
+
+.admin .brand { color: var(--clay); }
+.admin-who { font-size: .78rem; color: var(--muted); display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.admin-who strong { color: var(--ink); font-weight: 600; word-break: break-all; }
+
+/* Tiles on the Overview screen are buttons: every count opens the rows behind
+   it, because a number you cannot click through to is a number you cannot act
+   on. Reset the button chrome so they still read as tiles. */
+.stat-button { text-align: left; cursor: pointer; width: 100%; font: inherit; }
+.stat-button:hover { border-color: var(--clay); }
+.stat .value.small { font-size: 1.05rem; font-weight: 600; }
+
+.cards-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 22px; }
+.cards-2 > .card { margin: 0; }
+
+.figure { font-size: 1.9rem; font-weight: 700; letter-spacing: -.02em; margin: 6px 0 4px; }
+.figure.muted { color: var(--muted); }
+
+.alert.ok { background: #eaf6ec; border-color: #b8ddc0; color: var(--ok); }
+@media (prefers-color-scheme: dark) {
+  .alert.ok { background: #16281a; border-color: #2c5233; color: #9fd6a9; }
+}
+
+.tag-ok { color: var(--ok); border-color: currentColor; }
+.tag-info { color: var(--clay); border-color: currentColor; }
+.tag-warn { color: var(--warn); border-color: currentColor; }
+.tag-danger { color: var(--danger); border-color: currentColor; }
+
+.muted { color: var(--muted); }
+.ok { color: var(--ok); }
+.bad { color: var(--danger); }
+
+/* Wide by nature — eight columns of studio state. Scrolls inside its own box so
+   the page itself never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin-bottom: 18px; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: .86rem; min-width: 900px; }
+.admin-table th {
+  text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line);
+  color: var(--muted); font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 600;
+}
+.admin-table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.admin-table tr:hover td { background: var(--card); }
+.admin-table .sub { font-size: .76rem; }
+
+.detail-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: .86rem; margin: 0; }
+.detail-list dt { color: var(--muted); }
+.detail-list dd { margin: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* The reason field lives here. Given its own panel rather than a dialog: a
+   confirm box trains you to dismiss it, and this one has to be filled in. */
+.action-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.action-form h3 { font-size: .95rem; margin: 0 0 4px; }
+.action-form .fields { margin: 12px 0; }
+
+.worker-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.worker-row:last-child { border-bottom: 0; }
+.worker-row .sub.bad { color: var(--danger); }
+
+.audit-list { font-size: .86rem; }
+.audit-entry { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.audit-entry:last-child { border-bottom: 0; }
+.audit-reason { margin: 6px 0 0; }
+.audit-entry pre {
+  font-size: .74rem; background: var(--card); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px; overflow-x: auto; margin: 6px 0 0;
+}
+.queue-block + .queue-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.queue-block h3 { font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 6px; }

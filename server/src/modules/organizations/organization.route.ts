@@ -63,6 +63,26 @@ organizationRouter.patch(
       name: z.string().min(1).max(120).optional(),
       timezone: z.string().max(64).optional(),
       currency: z.string().length(3).optional(),
+
+      /**
+       * Studio policy.
+       *
+       * These columns existed from the credits migration and nothing could
+       * write them — not this route, not the seed, not onboarding. Only the
+       * tests, reaching past the API. `makeUpCreditsEnabled` defaults to
+       * false, so make-up credits were shipped switched off with no switch:
+       * a whole workstream that no studio could ever reach.
+       *
+       * The bounds mirror the CHECK constraints in the migration, so a value
+       * the database would reject is refused here with a readable message
+       * rather than a 500.
+       */
+      makeUpCreditsEnabled: z.boolean().optional(),
+      makeUpCreditDays: z.number().int().min(0).max(3650).optional(),
+      makeUpRequiresNotice: z.boolean().optional(),
+      makeUpNoticeHours: z.number().int().min(0).max(720).optional(),
+      makeUpCrossCohort: z.boolean().optional(),
+      pieceHoldDays: z.number().int().min(0).max(3650).optional(),
     }),
   ),
   asyncHandler(async (req, res) => {

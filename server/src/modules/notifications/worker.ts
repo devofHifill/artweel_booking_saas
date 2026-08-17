@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config';
 import { logger } from '../../lib/logger';
+import { recordWorkerRun } from '../../lib/heartbeat';
 import { DeliveryError } from './provider';
 import { getEmailProvider, getSmsProvider } from './registry';
 import { scheduleBookingNotifications } from './notification.service';
@@ -203,16 +204,22 @@ export function startNotificationWorker(intervalMs = 5_000) {
 
   const tick = async () => {
     try {
-      const result = await processBatch();
-      if (result.claimed > 0) {
-        logger.debug(result, 'Notification batch');
-      }
+      // Inside the existing try/catch, which keeps its behaviour: a failed tick
+      // is still logged and still does not kill the loop. The heartbeat records
+      // the failure too, so "running but failing every time" is distinguishable
+      // from "running quietly" without reading logs.
+      await recordWorkerRun('notifications', async () => {
+        const result = await processBatch();
+        if (result.claimed > 0) {
+          logger.debug(result, 'Notification batch');
+        }
 
-      // Roughly every five minutes at the default interval.
-      if (++reconcileCounter >= 60) {
-        reconcileCounter = 0;
-        await reconcileMissingConfirmations();
-      }
+        // Roughly every five minutes at the default interval.
+        if (++reconcileCounter >= 60) {
+          reconcileCounter = 0;
+          await reconcileMissingConfirmations();
+        }
+      });
     } catch (err) {
       logger.error({ err }, 'Notification worker tick failed');
     }

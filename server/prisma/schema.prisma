@@ -92,6 +92,32 @@ model Organization {
    */
   gracePeriodEndsAt DateTime? @map("grace_period_ends_at") @db.Timestamptz(3)
 
+  /**
+   * Set when an OPERATOR suspended this studio, as distinct from billing
+   * suspending it.
+   *
+   * Both reasons write the same `SUSPENDED` status, and billing clears that
+   * status on a successful payment — so without this column a suspension applied
+   * for abuse is silently reverted by the studio's next invoice, and nobody can
+   * tell afterwards which reason had set it. Every billing path that would clear
+   * SUSPENDED checks this first; see `platformSuspensionHolds` in
+   * billing.service.
+   */
+  suspendedByPlatformAt DateTime? @map("suspended_by_platform_at") @db.Timestamptz(3)
+  /// Operator-facing only. Never shown to the studio.
+  suspendedReason       String?   @map("suspended_reason")
+
+  /**
+   * Set when a studio is on a plan it is not paying for.
+   *
+   * Comping deliberately does NOT cancel the Stripe subscription, so a comped
+   * studio can have `subscriptionStatus = ACTIVE` here while Stripe keeps
+   * charging their card. The divergence is intended; being unable to see it is
+   * not, which is why this is a stored fact rather than something inferred. The
+   * platform studio detail response reports the conflict explicitly.
+   */
+  compedAt DateTime? @map("comped_at") @db.Timestamptz(3)
+
   /// Which setup steps the studio has finished. Drives the wizard.
   onboardingSteps  Json?     @map("onboarding_steps")
   onboardingDoneAt DateTime? @map("onboarding_done_at") @db.Timestamptz(3)
@@ -203,8 +229,162 @@ model User {
   staff              Staff[]
   refreshTokens      RefreshToken[]
   verificationTokens VerificationToken[]
+  platformAdmin      PlatformAdmin[]
+  platformGrants     PlatformAdmin[] @relation("PlatformAdminGrantedBy")
 
   @@map("users")
+}
+
+/// Platform-level (Artweel) authority. NOT a studio role.
+///
+/// `MembershipRole` answers "what may this person do inside that studio", and
+/// platform authority is a different question with a different blast radius, so
+/// it lives in a different table rather than as a fifth value on that enum.
+///
+/// A table rather than a boolean on `users` because "who has god mode" is a
+/// question that deserves an answer with history: a revoked row stays, so the
+/// grant and the removal are both recoverable facts rather than a flag that was
+/// once true and now is not.
+///
+/// Deliberately NOT reachable from the HTTP surface. The first grant has to come
+/// from somewhere, and an endpoint that mints platform admins is a permanent
+/// privilege-escalation route sitting in the table waiting to be found — so
+/// granting is a CLI script that requires shell access on the box
+/// (`npm run platform:grant`).
+model PlatformAdmin {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  /// Null for the bootstrap grant — there was nobody to grant it.
+  grantedBy String?  @map("granted_by") @db.Uuid
+  grantedAt DateTime @default(now()) @map("granted_at") @db.Timestamptz(3)
+
+  /// Set rather than deleted, so losing access is as recorded as gaining it.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  /// Why this person has it. Free text, for the human reading the table later.
+  note String?
+
+  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grantor User? @relation("PlatformAdminGrantedBy", fields: [grantedBy], references: [id], onDelete: SetNull)
+
+
+  /// "One LIVE grant per human, keep every revoked one" is enforced by a PARTIAL
+  /// unique index that Prisma cannot express here, so the migration creates it
+  /// by hand:
+  ///
+  ///   CREATE UNIQUE INDEX platform_admins_user_id_live_key
+  ///     ON platform_admins(user_id) WHERE revoked_at IS NULL;
+  ///
+  /// `@@unique([userId, revokedAt])` looks like it would do the job and does
+  /// not: Postgres treats NULLs as distinct in a unique index, so every live
+  /// grant carries revoked_at = NULL and the constraint would permit any number
+  /// of them — the exact rows it is supposed to forbid.
+  ///
+  /// BEWARE when next running `prisma migrate dev`. Because the index cannot be
+  /// expressed here, Prisma does not know it should exist, and a generated
+  /// migration may quietly include a DROP for it. `migrate diff` reports "no
+  /// difference" today, so this will not announce itself. If a generated
+  /// migration mentions platform_admins_user_id_live_key, delete that statement.
+  /// `tests/platform/gate.test.ts` asserts the constraint by attempting a direct
+  /// double-insert, so losing it fails the suite rather than going unnoticed.
+  @@index([userId])
+  @@map("platform_admins")
+}
+
+/// One row per background worker, stamped on every tick.
+///
+/// Exists because of C2.1: three sweeps were written, tested, and called by
+/// nothing outside the test suite for two days, while every health check stayed
+/// green. A queue that silently does nothing looks exactly like a quiet queue,
+/// and "the route returns 200" cannot tell them apart.
+///
+/// Note the contrast with [PlatformAuditLog]: the audit row must be atomic with
+/// the action it records, and a failure to write it rolls the action back. This
+/// is the opposite — a heartbeat is observability, so a failure to stamp it must
+/// never stop the work. See `recordWorkerRun`.
+model WorkerHeartbeat {
+  /// The worker's own name. One row per worker, upserted forever, never grows.
+  name String @id
+
+  lastStartedAt  DateTime? @map("last_started_at") @db.Timestamptz(3)
+  lastFinishedAt DateTime? @map("last_finished_at") @db.Timestamptz(3)
+
+  /// Retained after a later success, so a fault that has since cleared is still
+  /// visible rather than erased by the next quiet tick.
+  lastError   String?   @map("last_error")
+  lastErrorAt DateTime? @map("last_error_at") @db.Timestamptz(3)
+
+  runs     Int @default(0)
+  failures Int @default(0)
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("worker_heartbeats")
+}
+
+/// Every platform action, append-only.
+///
+/// This is the record that answers "what did that account touch?" after a
+/// phished password — which, for an account with cross-tenant write over every
+/// studio's customer PII, is the question that decides whether an incident is
+/// recoverable or terminal. It is written in the SAME TRANSACTION as the action
+/// it describes; see `withAudit` for why that is not optional.
+///
+/// Distinct from application logs (pino → stdout), which are ops telemetry and
+/// belong in a log service. This is product data: queryable, retained, and shown
+/// to the operator.
+///
+/// NO FOREIGN KEYS, deliberately — see the field notes below. An audit row must
+/// outlive the things it refers to, and a FK's job is to stop exactly that.
+model PlatformAuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  /**
+   * Who did it. No FK and no relation, plus a denormalised copy of the address.
+   *
+   * A FK with ON DELETE SET NULL would keep the row and erase the actor, which
+   * is the one field the row exists for. A FK with CASCADE would delete the
+   * evidence along with the account. Both are worse than no constraint. The
+   * email is snapshotted at write time so the record stays readable by a human
+   * years later, when the user row may be gone and a bare uuid means nothing.
+   */
+  actorUserId String @map("actor_user_id") @db.Uuid
+  actorEmail  String @map("actor_email")
+
+  /// Dotted and past-tense-free, e.g. `organization.suspend`, `trial.extend`.
+  action String
+
+  /// What was acted on. `targetId` is text, not uuid: not every target is a row.
+  targetType String  @map("target_type")
+  targetId   String? @map("target_id")
+
+  /**
+   * Which studio this was done to, if any. No FK for the same reason as the
+   * actor: S11 contemplates archiving and purging organizations, and "everything
+   * ever done to that studio" must remain answerable afterwards — especially
+   * then, since that is when someone asks.
+   */
+  organizationId String? @map("organization_id") @db.Uuid
+
+  /// Why. Required by the routes that take one; the log is worth far less
+  /// without it, because "who" and "what" are usually the easy parts.
+  reason String?
+
+  /// Before/after, and anything else the action wants to preserve.
+  metadata Json?
+
+  ip        String?
+  userAgent String? @map("user_agent")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  /// The two questions actually asked: everything done to one studio, and
+  /// everything done by one operator — both newest first.
+  @@index([organizationId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([createdAt])
+  @@map("platform_audit_log")
 }
 
 /// A refresh token, stored only as a hash.

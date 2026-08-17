@@ -167,9 +167,14 @@ export async function createSubscriptionCheckout(
       where: { id: organizationId },
       data: {
         plan: planId,
-        subscriptionStatus: 'ACTIVE',
+        // Guarded like the webhook paths. This branch is reachable on any
+        // deployment without Stripe keys — which includes staging today — so
+        // leaving it unguarded would make platform suspension trivially
+        // bypassable exactly where it is most likely to be tested.
+        ...(platformSuspensionHolds(org)
+          ? {}
+          : { subscriptionStatus: 'ACTIVE', gracePeriodEndsAt: null }),
         currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
-        gracePeriodEndsAt: null,
       },
     });
 
@@ -253,6 +258,28 @@ export async function createBillingPortalSession(organizationId: string) {
 // Webhook handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether a platform suspension outranks whatever billing is about to say.
+ *
+ * An operator suspension and a billing suspension write the same `SUSPENDED`
+ * status, and billing clears that status whenever money arrives. So a studio
+ * suspended for abuse would be quietly reinstated by its own next invoice —
+ * which is not a visible bug: the status simply reads ACTIVE again, indis-
+ * tinguishable from any other paid-up studio, and the operator who suspended it
+ * has no reason to look.
+ *
+ * A payment therefore does not lift an operator suspension. Only an operator
+ * does, through `/unsuspend`.
+ *
+ * NOTE what this does not do: a platform-suspended studio can still complete
+ * checkout and still be charged, it just does not come back on. Refusing their
+ * money as well is a further decision — S4 makes the state visible on the studio
+ * detail screen so the operator can act, rather than quietly deciding it here.
+ */
+function platformSuspensionHolds(org: { suspendedByPlatformAt: Date | null }) {
+  return org.suspendedByPlatformAt !== null;
+}
+
 export async function onSubscriptionChanged(data: {
   id: string;
   status: string;
@@ -278,17 +305,22 @@ export async function onSubscriptionChanged(data: {
           ? 'CANCELED'
           : org.subscriptionStatus;
 
+  // The Stripe-side facts are still recorded — subscription id, period end,
+  // plan. Only the STATUS is withheld, because that is the one an operator
+  // suspension owns.
+  const effectiveStatus = platformSuspensionHolds(org) ? 'SUSPENDED' : status;
+
   await prisma.organization.update({
     where: { id: org.id },
     data: {
       billingSubscriptionId: data.id,
-      subscriptionStatus: status as never,
+      subscriptionStatus: effectiveStatus as never,
       ...(data.planId ? { plan: data.planId as never } : {}),
       currentPeriodEnd: data.currentPeriodEnd
         ? new Date(data.currentPeriodEnd * 1000)
         : null,
       // A successful renewal clears any outstanding grace period.
-      ...(status === 'ACTIVE' ? { gracePeriodEndsAt: null } : {}),
+      ...(effectiveStatus === 'ACTIVE' ? { gracePeriodEndsAt: null } : {}),
     },
   });
 }
@@ -326,6 +358,21 @@ export async function onPaymentSucceeded(customerId: string) {
     where: { billingCustomerId: customerId },
   });
   if (!org) return;
+
+  if (platformSuspensionHolds(org)) {
+    // Grace is still cleared — they have paid, and grace is a billing concept.
+    // The suspension is not a billing concept and stays.
+    await prisma.organization.update({
+      where: { id: org.id },
+      data: { gracePeriodEndsAt: null },
+    });
+
+    logger.warn(
+      { organizationId: org.id },
+      'Payment succeeded for a platform-suspended studio — suspension kept',
+    );
+    return;
+  }
 
   await prisma.organization.update({
     where: { id: org.id },

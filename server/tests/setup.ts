@@ -41,6 +41,29 @@ process.env.JWT_ACCESS_SECRET ??= 'test-access-secret-0123456789abcdefghijkl';
 process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret-0123456789abcdefghijkl';
 
 /**
+ * Auth rate limits, raised far above anything a test generates.
+ *
+ * Every fixture in the suite registers through `/api/auth/register`, and all of
+ * it arrives from one IP under supertest, so production limits would fail most
+ * files for reasons unrelated to what they assert.
+ *
+ * Raised rather than disabled, deliberately: the limiters stay genuinely mounted
+ * in all 34 files, so a mistake in the wiring — wrong order, thrown from the
+ * wrong place, applied to the wrong route — still shows up as a broken suite.
+ * A limiter switched off by NODE_ENV is a limiter nothing exercises until
+ * production. `tests/auth/rate-limit.test.ts` sets them low on purpose and is
+ * the file that proves they bite.
+ *
+ * `??=` rather than `=` so a value exported in the environment survives, which
+ * is what lets the suite be run once against production-like limits on purpose.
+ * (An individual test file does not need that: setup files run before test
+ * modules, so a file assigning its own value already wins.)
+ */
+process.env.AUTH_LOGIN_RATE_MAX ??= '100000';
+process.env.AUTH_REGISTER_RATE_MAX ??= '100000';
+process.env.AUTH_RESET_RATE_MAX ??= '100000';
+
+/**
  * Deliberately NOT the development defaults.
  *
  * These are the values the app builds customer-facing links from — the "Sign

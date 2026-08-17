@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Navigate, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import {
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom';
 import { api } from './lib/api';
 import { useAuth, useActiveOrg, useOrgBase } from './lib/auth';
 import Login from './pages/Login';
@@ -18,11 +25,13 @@ import Firings from './pages/Firings';
 import Packs from './pages/Packs';
 import CustomerDetail from './pages/CustomerDetail';
 import Billing from './pages/Billing';
+import AdminApp from './admin/AdminApp';
 
 export default function App() {
   const { user, loading, signOut, memberships, activeOrgId, setActiveOrg } =
     useAuth();
   const org = useActiveOrg();
+  const location = useLocation();
   const [showSignUp, setShowSignUp] = useState(false);
 
   if (loading) return <div className="empty">Loading…</div>;
@@ -44,6 +53,27 @@ export default function App() {
         </div>
       </>
     );
+  }
+
+  /**
+   * The platform surface, branched ABOVE everything studio-related.
+   *
+   * Two reasons it sits here rather than inside the shell below:
+   *
+   * 1. Nothing in the studio sidebar is conditional on being an operator, so no
+   *    conditional can ever leak platform UI to a customer. The admin tree has
+   *    its own shell entirely.
+   *
+   * 2. An Artweel operator may belong to NO studio, which is the normal case for
+   *    a staff account. Below this line, zero memberships means the "No studio
+   *    yet" dead end — so branching after it would have made /admin unreachable
+   *    for exactly the accounts that need it.
+   *
+   * Whether the caller is actually an admin is not decided here. AdminApp asks
+   * the server, which 404s for everyone without a live grant.
+   */
+  if (location.pathname.startsWith('/admin')) {
+    return <AdminApp />;
   }
 
   if (memberships.length === 0) {

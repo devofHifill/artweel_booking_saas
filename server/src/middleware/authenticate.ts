@@ -23,6 +23,8 @@ declare global {
     interface Request {
       auth?: { userId: string; email: string };
       tenant?: { organizationId: string; role: MembershipRole };
+      /** Set only by requirePlatformAdmin. Platform authority, not a studio role. */
+      platform?: { adminId: string; userId: string };
     }
   }
 }
@@ -47,6 +49,42 @@ export async function authenticate(
   } catch (err) {
     next(err);
   }
+}
+
+/**
+ * Identifies the caller if they present a valid token, and says nothing if they
+ * do not.
+ *
+ * Exists for the platform routes, where `authenticate`'s 401 would itself be a
+ * disclosure. An unauthenticated probe of `/api/platform/*` must be answered
+ * exactly like a probe of any path that does not exist — a 401 says "this route
+ * is real, bring credentials", which is precisely the fact worth hiding. Pairing
+ * this with `requirePlatformAdmin` makes no-token, bad-token, ordinary-user and
+ * revoked-admin all produce the same 404.
+ *
+ * Use it ONLY where the handler behind it treats an absent `req.auth` as a hard
+ * failure. On a route that merely behaves differently when signed in, this
+ * silently turns a broken token into anonymous access.
+ */
+export function authenticateOptional(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+) {
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) {
+    next();
+    return;
+  }
+
+  try {
+    const payload = verifyAccessToken(header.slice(7).trim());
+    req.auth = { userId: payload.sub, email: payload.email };
+  } catch {
+    // An invalid token is indistinguishable from no token here, on purpose.
+  }
+
+  next();
 }
 
 /**
