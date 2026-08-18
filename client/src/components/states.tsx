@@ -72,10 +72,22 @@ export function SkeletonList({ count = 4, lines = 2 }: { count?: number; lines?:
   );
 }
 
-/** Matches the `.stats` grid, so tiles do not jump when the numbers arrive. */
-export function SkeletonStats({ count = 4 }: { count?: number }) {
+/**
+ * Matches the `.stats` grid, so tiles do not jump when the numbers arrive.
+ *
+ * `className` exists for pages whose figure row is not an even auto-fit grid:
+ * Today's leads with a wide tile, and a skeleton in the default grid would
+ * settle into different columns the moment the data landed.
+ */
+export function SkeletonStats({
+  count = 4,
+  className = 'stats',
+}: {
+  count?: number;
+  className?: string;
+}) {
   return (
-    <div className="stats">
+    <div className={className}>
       {Array.from({ length: count }, (_, i) => (
         <div className="card stat" key={i}>
           <Skeleton w="55%" h=".7em" />
