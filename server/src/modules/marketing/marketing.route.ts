@@ -6,6 +6,7 @@ import { asyncHandler } from '../../lib/async-handler';
 import { rateLimit } from '../../middleware/rate-limit';
 import { ALL_PAGES, type Page } from './content';
 import { renderMarketingPage, renderRobots, renderSitemap } from './render';
+import { renderLanding } from './landing';
 
 export const marketingRouter = Router();
 
@@ -105,7 +106,9 @@ marketingRouter.get(
   asyncHandler(async (req, res) => {
     const page = BY_SLUG.get('')!;
     recordView('/', req.get('referer'), String(req.query.utm_source ?? '') || undefined);
-    res.type('html').send(renderMarketingPage(page));
+    // The home page is a designed landing page rather than the document
+    // template the other seven share, so it renders from its own module.
+    res.type('html').send(renderLanding(page));
   }),
 );
 

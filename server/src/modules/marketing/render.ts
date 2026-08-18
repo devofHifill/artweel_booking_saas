@@ -309,7 +309,7 @@ function eyebrow(page: Page): string {
  * FAQ markup is the highest-leverage thing on a page like this: it is what
  * turns a plain blue link into a result that occupies four times the space.
  */
-function structuredData(page: Page, canonical: string): string {
+export function structuredData(page: Page, canonical: string): string {
   const blocks: unknown[] = [];
 
   if (page.slug === '' || page.slug === 'pricing') {
