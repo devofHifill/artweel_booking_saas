@@ -1,4 +1,5 @@
 import { clientScript } from './booking-page.client';
+import { tokensCss } from '../../lib/design-tokens';
 import { EMBED_HEIGHT_SCRIPT } from './embed';
 
 /**
@@ -91,10 +92,7 @@ type PageData = {
 };
 
 const STYLES = `
-:root{--ink:#1f2328;--muted:#5c6570;--clay:#a6522c;--clay-dk:#6e3418;
---line:#e2e5e9;--bg:#fdfcfb;--card:#fff;--ok:#1f6f43;--radius:12px}
-@media(prefers-color-scheme:dark){:root{--ink:#eceff3;--muted:#9aa4b0;
---line:#2b3138;--bg:#15181c;--card:#1c2026}}
+${tokensCss()}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
 font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;

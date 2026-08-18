@@ -26,6 +26,9 @@ import Packs from './pages/Packs';
 import CustomerDetail from './pages/CustomerDetail';
 import Billing from './pages/Billing';
 import AdminApp from './admin/AdminApp';
+import { Shell } from './components/Shell';
+import { Icon } from './components/Icon';
+import { ThemeToggle } from './components/ThemeToggle';
 
 export default function App() {
   const { user, loading, signOut, memberships, activeOrgId, setActiveOrg } =
@@ -91,72 +94,105 @@ export default function App() {
   }
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">
+    <Shell
+      brand={
+        <>
           {org?.organization.name ?? 'Studio'}
           <small>{org?.role.toLowerCase().replace('_', ' ')}</small>
-        </div>
+        </>
+      }
+      sidebar={
+        <>
+          <nav className="nav">
+            <NavLink to="/" end>
+              <Icon name="today" />
+              Today
+            </NavLink>
+            <NavLink to="/calendar">
+              <Icon name="calendar" />
+              Calendar
+            </NavLink>
+            <NavLink to="/bookings">
+              <Icon name="bookings" />
+              Bookings
+            </NavLink>
+            <NavLink to="/classes">
+              <Icon name="classes" />
+              Classes
+            </NavLink>
+            <NavLink to="/courses">
+              <Icon name="courses" />
+              Courses
+            </NavLink>
+            <NavLink to="/register">
+              <Icon name="register" />
+              Register
+            </NavLink>
+            <NavLink to="/studio">
+              <Icon name="studio" />
+              Studio floor
+            </NavLink>
+            <NavLink to="/customers">
+              <Icon name="customers" />
+              Customers
+            </NavLink>
+            <NavLink to="/packs">
+              <Icon name="packs" />
+              Packs
+            </NavLink>
+            <NavLink to="/billing">
+              <Icon name="plan" />
+              Plan
+            </NavLink>
+          </nav>
 
-        <nav className="nav">
-          <NavLink to="/" end>Today</NavLink>
-          <NavLink to="/calendar">Calendar</NavLink>
-          <NavLink to="/bookings">Bookings</NavLink>
-          <NavLink to="/classes">Classes</NavLink>
-          <NavLink to="/courses">Courses</NavLink>
-          <NavLink to="/register">Register</NavLink>
-          <NavLink to="/studio">Studio floor</NavLink>
-          <NavLink to="/customers">Customers</NavLink>
-          <NavLink to="/packs">Packs</NavLink>
-          <NavLink to="/billing">Plan</NavLink>
-        </nav>
+          <div className="spacer" />
 
-        <div className="spacer" />
+          {memberships.length > 1 && (
+            <>
+              <label htmlFor="org">Studio</label>
+              <select
+                id="org"
+                value={activeOrgId ?? ''}
+                onChange={(e) => setActiveOrg(e.target.value)}
+              >
+                {memberships.map((m) => (
+                  <option key={m.organizationId} value={m.organizationId}>
+                    {m.organization.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
 
-        {memberships.length > 1 && (
-          <>
-            <label htmlFor="org">Studio</label>
-            <select
-              id="org"
-              value={activeOrgId ?? ''}
-              onChange={(e) => setActiveOrg(e.target.value)}
-            >
-              {memberships.map((m) => (
-                <option key={m.organizationId} value={m.organizationId}>
-                  {m.organization.name}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
+          <ThemeToggle />
 
-        <button onClick={signOut} style={{ marginTop: 12 }}>
-          Sign out
-        </button>
-      </aside>
-
-      <main className="main">
-        <BillingBanner />
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/setup" element={<SetupRoute />} />
-          <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/bookings" element={<Bookings />} />
-          <Route path="/classes" element={<Classes />} />
-          <Route path="/courses" element={<Courses />} />
-          <Route path="/courses/:seriesId" element={<CourseDetail />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/studio" element={<Navigate to="/studio/pieces" replace />} />
-          <Route path="/studio/pieces" element={<Pieces />} />
-          <Route path="/studio/firings" element={<Firings />} />
-          <Route path="/customers" element={<Customers />} />
-          <Route path="/customers/:customerId" element={<CustomerDetail />} />
-          <Route path="/packs" element={<Packs />} />
-          <Route path="/billing" element={<Billing />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
-    </div>
+          <button onClick={signOut} style={{ marginTop: 12 }}>
+            Sign out
+          </button>
+        </>
+      }
+    >
+      <BillingBanner />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/setup" element={<SetupRoute />} />
+        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/bookings" element={<Bookings />} />
+        <Route path="/classes" element={<Classes />} />
+        <Route path="/courses" element={<Courses />} />
+        <Route path="/courses/:seriesId" element={<CourseDetail />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/studio" element={<Navigate to="/studio/pieces" replace />} />
+        <Route path="/studio/pieces" element={<Pieces />} />
+        <Route path="/studio/firings" element={<Firings />} />
+        <Route path="/customers" element={<Customers />} />
+        <Route path="/customers/:customerId" element={<CustomerDetail />} />
+        <Route path="/packs" element={<Packs />} />
+        <Route path="/billing" element={<Billing />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Shell>
   );
 }
 

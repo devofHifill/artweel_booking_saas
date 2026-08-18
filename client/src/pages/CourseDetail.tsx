@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, dateIn, money, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 /**
  * One cohort: its weeks, and who is on it.
@@ -280,7 +281,12 @@ export default function CourseDetail() {
   }
 
   if (error && !series) return <div className="err">{error}</div>;
-  if (!series) return <div className="empty">Loading…</div>;
+  if (!series) return (
+      <LoadingRegion label="Loading this course">
+        <SkeletonStats />
+        <SkeletonList count={3} lines={3} />
+      </LoadingRegion>
+    );
 
   const weeks = series.sessions;
   const tightest = tightestWeek(weeks);

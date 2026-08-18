@@ -8,6 +8,7 @@ import {
   type StudioList,
   type SubscriptionStatus,
 } from './types';
+import { LoadingRegion, SkeletonTable } from '../components/states';
 
 const STATUSES: SubscriptionStatus[] = [
   'TRIALING',
@@ -133,9 +134,14 @@ export default function Studios() {
       )}
 
       {!data ? (
-        <div className="empty">Loading…</div>
+      <LoadingRegion label="Loading studios">
+        <SkeletonTable rows={6} cols={5} />
+      </LoadingRegion>
       ) : data.studios.length === 0 ? (
-        <div className="empty">No studios match that.</div>
+        <div className="empty-state">
+          <span className="empty-mark" aria-hidden="true">◍</span>
+          <p className="empty-title">No studios match that.</p>
+        </div>
       ) : (
         <div className="table-scroll">
           <table className="admin-table">

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, dateIn, expiryIn, money, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 type Credit = {
   id: string;
@@ -310,7 +311,12 @@ export default function CustomerDetail() {
   }
 
   if (error) return <div className="err">{error}</div>;
-  if (!data) return <div className="empty">Loading…</div>;
+  if (!data) return (
+      <LoadingRegion label="Loading this customer">
+        <SkeletonStats />
+        <SkeletonList count={3} lines={3} />
+      </LoadingRegion>
+    );
 
   const liveCredits = credits.filter((c) => c.status === 'AVAILABLE');
   const spentCredits = credits.filter((c) => c.status !== 'AVAILABLE');
@@ -548,7 +554,10 @@ export default function CustomerDetail() {
       <h2>History</h2>
 
       {data.bookings.length === 0 ? (
-        <div className="card empty">No bookings yet.</div>
+        <div className="card empty-state">
+          <span className="empty-mark" aria-hidden="true">◍</span>
+          <p className="empty-title">No bookings yet.</p>
+        </div>
       ) : (
         <div className="card" style={{ padding: 0 }}>
           <table>

@@ -162,7 +162,10 @@ export default function Bookings() {
       {error && <div className="err">{error}</div>}
 
       {bookings.length === 0 ? (
-        <div className="card empty">No bookings match that.</div>
+        <div className="card empty-state">
+          <span className="empty-mark" aria-hidden="true">◍</span>
+          <p className="empty-title">No bookings match that.</p>
+        </div>
       ) : (
         <div className="card" style={{ padding: 0 }}>
           <table>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { dateTime, type AuditEntry } from './types';
+import { LoadingRegion, SkeletonList } from '../components/states';
 
 /**
  * The audit log.
@@ -64,10 +65,13 @@ export default function Audit() {
       {error && <div className="err">{error}</div>}
 
       {!entries ? (
-        <div className="empty">Loading…</div>
+      <LoadingRegion label="Loading the audit log">
+        <SkeletonList count={5} lines={2} />
+      </LoadingRegion>
       ) : entries.length === 0 ? (
-        <div className="empty">
-          Nothing recorded yet. Platform actions appear here as they happen.
+        <div className="empty-state">
+          <span className="empty-mark" aria-hidden="true">❏</span>
+          <p className="empty-title">Nothing recorded yet. Platform actions appear here as they happen.</p>
         </div>
       ) : (
         <ul className="list audit-list">

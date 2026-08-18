@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useOrgBase } from '../lib/auth';
+import { LoadingRegion, SkeletonList } from '../components/states';
 
 /**
  * The setup wizard.
@@ -76,7 +77,11 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   }
 
   if (error && !state) return <div className="err">{error}</div>;
-  if (!state) return <div className="empty">Loading…</div>;
+  if (!state) return (
+      <LoadingRegion label="Loading your setup">
+        <SkeletonList count={4} lines={2} />
+      </LoadingRegion>
+    );
 
   const remaining = state.steps.filter(
     (s) => !s.done && !s.optional && s.id !== 'publish',

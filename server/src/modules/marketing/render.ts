@@ -1,4 +1,5 @@
 import { config } from '../../config';
+import { tokensCss } from '../../lib/design-tokens';
 import { PLANS } from '../billing/plan';
 import {
   COMING_SOON,
@@ -38,10 +39,7 @@ function money(cents: number): string {
 }
 
 const STYLES = `
-:root{--ink:#1f2328;--muted:#5c6570;--clay:#a6522c;--clay-dk:#6e3418;
---clay-lt:#f6ece5;--line:#e4e7ea;--bg:#fffdfb;--card:#fff;--ok:#1f6f43;--r:12px}
-@media(prefers-color-scheme:dark){:root{--ink:#eceff3;--muted:#9aa4b0;
---clay-lt:#33200f;--line:#2b3138;--bg:#131619;--card:#1b1f24}}
+${tokensCss()}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
 font:17px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;

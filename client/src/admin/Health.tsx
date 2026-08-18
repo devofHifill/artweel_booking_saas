@@ -6,6 +6,7 @@ import {
   type QueueHealth,
   type WorkerHealth,
 } from './types';
+import { LoadingRegion, SkeletonList } from '../components/states';
 
 /**
  * Are the background workers running, and are the queues draining.
@@ -53,7 +54,11 @@ export default function Health() {
     return stale ? (
       <div className="err">Could not load health.</div>
     ) : (
-      <div className="empty">Loading…</div>
+      (
+      <LoadingRegion label="Loading health">
+        <SkeletonList count={3} lines={3} />
+      </LoadingRegion>
+    )
     );
   }
 

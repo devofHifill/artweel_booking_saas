@@ -165,7 +165,10 @@ export default function Packs() {
       )}
 
       {packs.length === 0 && !error && (
-        <div className="card empty">Nothing on the menu yet.</div>
+        <div className="card empty-state">
+          <span className="empty-mark" aria-hidden="true">❏</span>
+          <p className="empty-title">Nothing on the menu yet.</p>
+        </div>
       )}
 
       <div className="list">

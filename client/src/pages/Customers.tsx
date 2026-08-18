@@ -60,7 +60,10 @@ export default function Customers() {
       {error && <div className="err">{error}</div>}
 
       {customers.length === 0 ? (
-        <div className="card empty">No customers yet.</div>
+        <div className="card empty-state">
+          <span className="empty-mark" aria-hidden="true">◍</span>
+          <p className="empty-title">No customers yet.</p>
+        </div>
       ) : (
         <div className="card" style={{ padding: 0 }}>
           <table>

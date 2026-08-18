@@ -237,7 +237,10 @@ export default function Courses() {
       )}
 
       {series.length === 0 && !error && (
-        <div className="card empty">No courses yet.</div>
+        <div className="card empty-state">
+          <span className="empty-mark" aria-hidden="true">❏</span>
+          <p className="empty-title">No courses yet.</p>
+        </div>
       )}
 
       <div className="list">

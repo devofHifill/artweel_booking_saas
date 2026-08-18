@@ -499,7 +499,10 @@ export default function Classes() {
       )}
 
       {sessions.length === 0 && !error && (
-        <div className="card empty">No classes in this range.</div>
+        <div className="card empty-state">
+          <span className="empty-mark" aria-hidden="true">◷</span>
+          <p className="empty-title">No classes in this range.</p>
+        </div>
       )}
 
       <div className="list">

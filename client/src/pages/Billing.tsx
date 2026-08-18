@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, money } from '../lib/api';
 import { useOrgBase } from '../lib/auth';
+import { LoadingRegion, SkeletonList } from '../components/states';
 
 type Plan = {
   id: string;
@@ -70,7 +71,11 @@ export default function Billing() {
     }
   }
 
-  if (!state) return <div className="empty">Loading…</div>;
+  if (!state) return (
+      <LoadingRegion label="Loading your plan">
+        <SkeletonList count={3} lines={3} />
+      </LoadingRegion>
+    );
 
   return (
     <>

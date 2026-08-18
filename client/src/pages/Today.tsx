@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, money, timeIn, type TodayResponse } from '../lib/api';
 import { useOrgBase } from '../lib/auth';
+import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 /**
  * The Today view.
@@ -29,7 +30,12 @@ export default function Today() {
   }, [base]);
 
   if (error) return <div className="err">{error}</div>;
-  if (!data) return <div className="empty">Loading…</div>;
+  if (!data) return (
+      <LoadingRegion label="Loading today's bookings">
+        <SkeletonStats />
+        <SkeletonList count={3} lines={2} />
+      </LoadingRegion>
+    );
 
   const { stats, alerts, today, timezone, currency } = data;
 
@@ -92,7 +98,10 @@ export default function Today() {
       <h2>Today's schedule</h2>
 
       {today.length === 0 ? (
-        <div className="card empty">Nothing booked today.</div>
+        <div className="card empty-state">
+          <span className="empty-mark" aria-hidden="true">☕</span>
+          <p className="empty-title">Nothing booked today.</p>
+        </div>
       ) : (
         <div className="card" style={{ padding: 0 }}>
           <table>

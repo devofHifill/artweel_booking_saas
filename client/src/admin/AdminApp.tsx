@@ -7,6 +7,10 @@ import Studios from './Studios';
 import StudioDetail from './StudioDetail';
 import Health from './Health';
 import Audit from './Audit';
+import { Shell } from '../components/Shell';
+import { Icon } from '../components/Icon';
+import { LoadingRegion, SkeletonList } from '../components/states';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 /**
  * Artweel's own operator surface.
@@ -58,7 +62,11 @@ export default function AdminApp() {
     };
   }, []);
 
-  if (state === 'checking') return <div className="empty">Loading…</div>;
+  if (state === 'checking') return (
+      <LoadingRegion label="Loading">
+        <SkeletonList count={2} lines={3} />
+      </LoadingRegion>
+    );
 
   /**
    * Says only what a wrong URL would say. The server already answers 404 here;
@@ -78,65 +86,79 @@ export default function AdminApp() {
   }
 
   return (
-    <div className="shell admin">
-      <aside className="sidebar">
-        <div className="brand">
+    <Shell
+      className="admin"
+      brand={
+        <>
           Artweel
           <small>platform</small>
-        </div>
+        </>
+      }
+      sidebar={
+        <>
+          <nav className="nav">
+            <NavLink to="/admin" end>
+              <Icon name="overview" />
+              Overview
+            </NavLink>
+            <NavLink to="/admin/studios">
+              <Icon name="studios" />
+              Studios
+            </NavLink>
+            <NavLink to="/admin/health">
+              <Icon name="health" />
+              Health
+            </NavLink>
+            <NavLink to="/admin/audit">
+              <Icon name="audit" />
+              Audit
+            </NavLink>
+          </nav>
 
-        <nav className="nav">
-          <NavLink to="/admin" end>
-            Overview
-          </NavLink>
-          <NavLink to="/admin/studios">Studios</NavLink>
-          <NavLink to="/admin/health">Health</NavLink>
-          <NavLink to="/admin/audit">Audit</NavLink>
-        </nav>
+          <div className="spacer" />
 
-        <div className="spacer" />
+          <div className="admin-who">
+            <strong>{user?.email}</strong>
+            {grant?.note && <span className="sub">{grant.note}</span>}
+          </div>
 
-        <div className="admin-who">
-          <strong>{user?.email}</strong>
-          {grant?.note && <span className="sub">{grant.note}</span>}
-        </div>
+          {/*
+            A link rather than a nav item: the studio dashboard is a different
+            application that happens to share a bundle.
+          */}
+          <a href="/" className="sub">
+            Studio dashboard
+          </a>
 
-        {/*
-          A link rather than a nav item: the studio dashboard is a different
-          application that happens to share a bundle.
-        */}
-        <a href="/" className="sub">
-          Studio dashboard
-        </a>
+          <ThemeToggle />
 
-        <button onClick={signOut} style={{ marginTop: 12 }}>
-          Sign out
-        </button>
-      </aside>
+          <button onClick={signOut} style={{ marginTop: 12 }}>
+            Sign out
+          </button>
+        </>
+      }
+    >
+      {/*
+        ABSOLUTE paths, not relative ones.
 
-      <main className="main">
-        {/*
-          ABSOLUTE paths, not relative ones.
-
-          `App.tsx` renders this component directly rather than through a
-          `<Route path="/admin/*">`, so there is no parent route to establish a
-          base and these patterns are matched against the whole pathname. With
-          `path="/"` here, nothing matched at `/admin`: the shell rendered, the
-          gate returned 200, and the main panel was simply blank — a failure with
-          no error anywhere to point at it.
-        */}
-        <Routes>
-          <Route path="/admin" element={<Overview />} />
-          <Route path="/admin/studios" element={<Studios />} />
-          <Route
-            path="/admin/studios/:organizationId"
-            element={<StudioDetail />}
-          />
-          <Route path="/admin/health" element={<Health />} />
-          <Route path="/admin/audit" element={<Audit />} />
-          <Route path="*" element={<Navigate to="/admin" replace />} />
-        </Routes>
-      </main>
-    </div>
+        `App.tsx` renders this component directly rather than through a
+        `<Route path="/admin/*">`, so there is no parent route to establish a
+        base and these patterns are matched against the whole pathname. With
+        `path="/"` here, nothing matched at `/admin`: the shell rendered, the
+        gate returned 200, and the main panel was simply blank — a failure with
+        no error anywhere to point at it.
+      */}
+      <Routes>
+        <Route path="/admin" element={<Overview />} />
+        <Route path="/admin/studios" element={<Studios />} />
+        <Route
+          path="/admin/studios/:organizationId"
+          element={<StudioDetail />}
+        />
+        <Route path="/admin/health" element={<Health />} />
+        <Route path="/admin/audit" element={<Audit />} />
+        <Route path="*" element={<Navigate to="/admin" replace />} />
+      </Routes>
+    </Shell>
   );
 }

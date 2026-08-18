@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { money, type Health, type Metrics } from './types';
+import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 /**
  * The landing screen.
@@ -36,7 +37,12 @@ export default function Overview() {
   }, []);
 
   if (error) return <div className="err">{error}</div>;
-  if (!metrics || !health) return <div className="empty">Loading…</div>;
+  if (!metrics || !health) return (
+      <LoadingRegion label="Loading the platform overview">
+        <SkeletonStats />
+        <SkeletonList count={2} lines={3} />
+      </LoadingRegion>
+    );
 
   const { studios, trials, subscriptionRevenue, studioBookingVolume } = metrics;
 

@@ -10,6 +10,7 @@ import {
   type PlanId,
   type StudioDetailResponse,
 } from './types';
+import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 type ActionId = 'trial' | 'plan' | 'comp' | 'suspend' | 'unsuspend';
 
@@ -43,7 +44,12 @@ export default function StudioDetail() {
   }, [load]);
 
   if (error) return <div className="err">{error}</div>;
-  if (!data) return <div className="empty">Loading…</div>;
+  if (!data) return (
+      <LoadingRegion label="Loading this studio">
+        <SkeletonStats />
+        <SkeletonList count={2} lines={4} />
+      </LoadingRegion>
+    );
 
   const { studio, warnings, members, onboarding } = data;
 
