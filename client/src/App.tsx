@@ -40,21 +40,15 @@ export default function App() {
   if (loading) return <div className="empty">Loading…</div>;
 
   if (!user) {
-    return (
-      <>
-        {showSignUp ? (
-          <SignUp onSignedUp={() => window.location.reload()} />
-        ) : (
-          <Login />
-        )}
-        <div style={{ textAlign: 'center', marginTop: -20 }}>
-          <button className="link" onClick={() => setShowSignUp((v) => !v)}>
-            {showSignUp
-              ? 'Already have an account? Sign in'
-              : 'New here? Start your studio'}
-          </button>
-        </div>
-      </>
+    // The flip between the two screens lives INSIDE the auth layout now, so it
+    // sits in the panel's header rather than floating under a full-height
+    // split screen with nothing around it.
+    const flip = () => setShowSignUp((v) => !v);
+
+    return showSignUp ? (
+      <SignUp onSignedUp={() => window.location.reload()} onSwitch={flip} />
+    ) : (
+      <Login onSwitch={flip} />
     );
   }
 

@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { useAuth } from '../lib/auth';
 import { ApiError } from '../lib/api';
+import { Icon } from '../components/Icon';
+import { AuthField, AuthLayout } from '../components/AuthLayout';
 
-export default function Login() {
+export default function Login({ onSwitch }: { onSwitch?: () => void }) {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,39 +30,41 @@ export default function Login() {
   }
 
   return (
-    <div className="login">
-      <h1>Studio dashboard</h1>
-      <p className="sub" style={{ marginBottom: 18 }}>
-        Sign in to manage your bookings.
-      </p>
+    <AuthLayout
+      title="Sign in"
+      intro="Pick up where the studio left off."
+      switchLabel="Start your studio"
+      onSwitch={onSwitch}
+    >
+      <form className="auth-form" onSubmit={submit}>
+        {/* Live, so the failure is announced rather than only drawn. */}
+        <div aria-live="polite">
+          {error && <div className="err auth-err">{error}</div>}
+        </div>
 
-      <form className="card" onSubmit={submit}>
-        {error && <div className="err">{error}</div>}
-
-        <label htmlFor="email">Email</label>
-        <input
-          id="email"
+        <AuthField
+          label="Email"
           type="email"
           autoComplete="username"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={setEmail}
           required
         />
 
-        <label htmlFor="password">Password</label>
-        <input
-          id="password"
+        <AuthField
+          label="Password"
           type="password"
           autoComplete="current-password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={setPassword}
           required
         />
 
-        <button className="primary" type="submit" disabled={busy}>
+        <button className="auth-submit" type="submit" disabled={busy}>
+          <Icon name="signin" size={18} />
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
-    </div>
+    </AuthLayout>
   );
 }
