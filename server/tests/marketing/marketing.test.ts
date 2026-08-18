@@ -254,14 +254,45 @@ describe('honesty of the copy', () => {
   });
 });
 
+/**
+ * Waits for the fire-and-forget page-view write to land.
+ *
+ * The route records views with `void prisma.marketingEvent...` so a visitor never
+ * waits on analytics, which means a test has no promise to await and can only
+ * watch for the row. These cases used fixed 250–400ms sleeps, which is a bet that
+ * a real insert always completes in that time — and on 2026-08-17 it did not:
+ * one failure in an otherwise clean 592-test run, on a machine also running two
+ * dev servers, Docker and a browser. The code under test was correct.
+ *
+ * Same lesson as `tests/gate/sweeps.test.ts`: poll for the condition you actually
+ * mean. A test that fails for reasons unrelated to its subject teaches the next
+ * person to shrug at a red run.
+ */
+async function eventually<T>(
+  read: () => Promise<T | null | undefined>,
+  what: string,
+  timeoutMs = 5_000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await read();
+    if (value) return value;
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out after ${timeoutMs}ms waiting for ${what}.`);
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 describe('analytics', () => {
   it('counts a page view without storing anything about the person', async () => {
     await request(app).get('/');
 
-    // Fire-and-forget write; give it a moment.
-    await new Promise((r) => setTimeout(r, 250));
+    const rows = await eventually(async () => {
+      const found = await prisma.marketingEvent.findMany();
+      return found.length > 0 ? found : null;
+    }, 'the page view to be recorded');
 
-    const rows = await prisma.marketingEvent.findMany();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.path).toBe('/');
     expect(rows[0]!.views).toBe(1);
@@ -276,11 +307,15 @@ describe('analytics', () => {
     // NULLs as distinct in a unique index, so nullable columns here would make
     // every direct visit its own row.
     for (let i = 0; i < 4; i++) await request(app).get('/pricing');
-    await new Promise((r) => setTimeout(r, 400));
 
-    const rows = await prisma.marketingEvent.findMany({
-      where: { path: '/pricing' },
-    });
+    // Waits for the fourth increment, not merely for the row to appear —
+    // otherwise the poll can win after the first view and assert views === 1.
+    const rows = await eventually(async () => {
+      const found = await prisma.marketingEvent.findMany({
+        where: { path: '/pricing' },
+      });
+      return found[0]?.views === 4 ? found : null;
+    }, 'all four views to be counted');
 
     expect(rows).toHaveLength(1);
     expect(rows[0]!.views).toBe(4);
@@ -292,9 +327,11 @@ describe('analytics', () => {
       .get('/')
       .set('referer', 'https://www.google.com/search?q=secret+personal+thing');
 
-    await new Promise((r) => setTimeout(r, 250));
+    const row = await eventually(
+      () => prisma.marketingEvent.findFirst({}),
+      'the referrer to be recorded',
+    );
 
-    const row = await prisma.marketingEvent.findFirstOrThrow({});
     expect(row.referrerHost).toBe('www.google.com');
     expect(JSON.stringify(row)).not.toContain('secret');
   });
@@ -341,7 +378,15 @@ describe('analytics', () => {
     await request(app).get('/');
     await request(app).get('/pricing');
     await request(app).get('/pricing');
-    await new Promise((r) => setTimeout(r, 400));
+
+    // Both pages must be counted before the report is asked for, or the
+    // assertion below races the writes rather than testing the report.
+    await eventually(async () => {
+      const rows = await prisma.marketingEvent.findMany();
+      const pricing = rows.find((r) => r.path === '/pricing');
+      const home = rows.find((r) => r.path === '/');
+      return pricing?.views === 2 && home ? rows : null;
+    }, 'both page views to be counted');
 
     const res = await request(app)
       .get(`${studio.base}/traffic`)
