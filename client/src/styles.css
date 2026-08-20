@@ -1945,3 +1945,371 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
 /* A back link sitting above a page head, not inside its title. */
 .back-link { display: inline-block; margin-bottom: var(--space-2); text-decoration: none; }
 .back-link:hover { text-decoration: underline; }
+
+/* --- Dashboard ------------------------------------------------------------ */
+/*
+   Every colour is a token or derived from one. The donut slices in particular
+   are shades of the studio's own accent rather than a fixed rainbow, so a studio
+   that re-themed does not end up with a chart in somebody else's colours.
+*/
+
+:root {
+  --slice-0: var(--clay);
+  --slice-1: color-mix(in srgb, var(--clay) 62%, var(--card));
+  --slice-2: color-mix(in srgb, var(--clay) 38%, var(--card));
+  --slice-3: color-mix(in srgb, var(--clay) 22%, var(--card));
+  --slice-4: var(--line);
+}
+
+/* --- KPI row -------------------------------------------------------------- */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  /* A hairline of the tile's own tone, so five tiles read as a set rather than
+     as five unrelated cards. */
+  border-top: 2px solid var(--clay);
+}
+.kpi.green { border-top-color: var(--ok); }
+.kpi.violet { border-top-color: var(--clay-text); }
+.kpi.amber { border-top-color: var(--warn); }
+.kpi.red { border-top-color: var(--danger); }
+
+.kpi-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+}
+.kpi-value {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -.02em;
+  /* Tabular figures so the row does not jitter as numbers change width. */
+  font-variant-numeric: tabular-nums;
+}
+.kpi-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+.trend { font-weight: 700; }
+.trend.up { color: var(--ok); }
+/* Down is not automatically bad — a quiet Tuesday is a fact, not an alarm — so
+   this is the muted ink rather than the danger colour. */
+.trend.down { color: var(--muted); }
+
+/* --- Panels --------------------------------------------------------------- */
+.dash-split,
+.dash-thirds {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.dash-split { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+.dash-thirds { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+@media (max-width: 1100px) {
+  .dash-split,
+  .dash-thirds { grid-template-columns: minmax(0, 1fr); }
+}
+
+.panel { padding: 0; display: flex; flex-direction: column; }
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--line);
+}
+.panel-head h2 { margin: 0; font-size: var(--text-base); }
+.panel-head .sub { margin: 2px 0 0; font-size: var(--text-xs); }
+.panel-action { font-size: var(--text-sm); white-space: nowrap; }
+.panel-body { padding: var(--space-4) var(--space-5); flex: 1; }
+/* A table fills its panel edge to edge; the padding belongs to the rows. */
+.panel-body > .table-wrap { margin: calc(var(--space-4) * -1) calc(var(--space-5) * -1); }
+.panel-body > .table-wrap th:first-child,
+.panel-body > .table-wrap td:first-child { padding-left: var(--space-5); }
+.panel-body > .table-wrap th:last-child,
+.panel-body > .table-wrap td:last-child { padding-right: var(--space-5); }
+
+/* --- Today's schedule ----------------------------------------------------- */
+.sched-row {
+  display: grid;
+  grid-template-columns: auto 3px 1fr 130px auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+.sched-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.sched-time {
+  font-weight: 700;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.sched-bar { align-self: stretch; border-radius: 2px; min-height: 32px; }
+.sched-main { min-width: 0; }
+.sched-name {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.sched-meta {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sched-cap-text {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-xs);
+  margin-bottom: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.sched-rev {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 700px) {
+  /* The capacity bar and the takings drop below the name rather than being
+     crushed into 40px each. */
+  .sched-row { grid-template-columns: auto 3px 1fr; }
+  .sched-cap, .sched-rev { grid-column: 3; }
+  .sched-rev { text-align: left; }
+}
+
+/* --- Progress bars -------------------------------------------------------- */
+.progress {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+  overflow: hidden;
+}
+.progress i {
+  display: block;
+  height: 100%;
+  background: var(--clay);
+  border-radius: inherit;
+}
+/* Full is good news for a studio, so the scale runs quiet → busy → full rather
+   than green → amber → red, which would read as a warning about success. */
+.progress.quiet i { background: color-mix(in srgb, var(--clay) 55%, var(--card)); }
+.progress.busy i { background: var(--clay); }
+.progress.full i { background: var(--ok); }
+
+/* --- Week chart ----------------------------------------------------------- */
+.chart-bars {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--space-2);
+  align-items: end;
+  height: 140px;
+  margin-bottom: var(--space-3);
+}
+.chart-col { display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; gap: var(--space-2); }
+.chart-bar {
+  width: 100%;
+  background: color-mix(in srgb, var(--clay) 45%, var(--card));
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  min-height: 3px;
+}
+.chart-bar.today { background: var(--clay); }
+.chart-label { font-size: var(--text-xs); color: var(--muted); }
+.chart-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-sm);
+  padding-top: var(--space-2);
+}
+
+/* --- Ranked list ---------------------------------------------------------- */
+.ranked { display: flex; flex-direction: column; gap: var(--space-4); }
+.rank-row { display: flex; gap: var(--space-3); align-items: flex-start; }
+.rank-n {
+  flex: 0 0 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--clay-lt);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.rank-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.rank-name { display: flex; justify-content: space-between; gap: var(--space-2); font-weight: 600; font-size: var(--text-sm); }
+
+/* --- Mini lists ----------------------------------------------------------- */
+.mini-list { display: flex; flex-direction: column; gap: var(--space-1); }
+.mini-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+.mini-row.action {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.mini-row.action:hover { background: var(--clay-lt); }
+.mini-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mini-end { text-align: right; }
+.tiny { font-size: var(--text-xs); }
+
+.avatar {
+  flex: 0 0 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--clay-lt);
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.attention-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+.attention-dot.warn { background: var(--warn); }
+/* Nothing wrong still gets a mark, so the row reads as "checked and clear"
+   rather than as a row that failed to load. */
+.attention-dot.ok { background: var(--ok); }
+.mini-row.quiet { color: var(--muted); }
+
+/* --- Donut ---------------------------------------------------------------- */
+.donut-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
+.donut {
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.donut-hole {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: var(--card);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  line-height: 1.15;
+}
+.legend { display: flex; flex-direction: column; gap: 6px; font-size: var(--text-sm); min-width: 130px; }
+.legend-row { display: flex; align-items: center; gap: var(--space-2); }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 10px; }
+.legend-value { margin-left: auto; font-weight: 600; color: var(--muted); }
+.donut-note { flex-basis: 100%; margin: 0; }
+
+/* --- Head actions --------------------------------------------------------- */
+/* Links that must look like the buttons beside them. */
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.button-link:hover { border-color: var(--clay); }
+.button-link.primary {
+  background: var(--clay);
+  border-color: var(--clay);
+  color: #fff;
+}
+.button-link.primary:hover { background: var(--clay-dk); }
+
+.dash-foot { margin-top: var(--space-4); }
+
+/* --- Staff & Guides ------------------------------------------------------- */
+
+.staff-name { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 600; }
+.staff-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 10px;
+  /* A hairline, so a pale calendar colour is still a disc on a white row. */
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 15%);
+}
+
+/*
+   A deactivated instructor stays legible.
+
+   The tempting move is opacity, which fades the text towards the background and
+   makes a row somebody still has to read harder to read. The status is already
+   spelled out in its own column; this only needs to recede, so it mutes the ink
+   and leaves contrast intact.
+*/
+.row-inactive td { color: var(--muted); }
+
+.row-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+.row-actions .link { padding: 0; white-space: nowrap; }
+.row-actions .link.danger { color: var(--danger); }
+
+/* --- Qualification chips --------------------------------------------------- */
+.chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.chip {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.6;
+}
+.chip:hover:not(:disabled) { border-color: var(--clay); color: var(--ink); }
+.chip:disabled { cursor: default; }
+/*
+   Selected chips carry a tint AND a border, never colour alone — the unselected
+   state is also a coloured pill, so "the coloured one" distinguishes nothing.
+*/
+.chip.on {
+  background: var(--clay-lt);
+  border-color: var(--clay);
+  color: var(--ink);
+}
+
+/*
+   "Not bookable yet" is a warning, not a neutral blank.
+
+   An instructor with no classes assigned matches nothing in availability — both
+   the booking engine and the public list filter on `staffServices: { some: … }` —
+   so they silently never appear. This has to look like something to fix.
+*/
+.not-bookable {
+  color: var(--warn);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}

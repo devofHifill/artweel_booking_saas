@@ -152,10 +152,33 @@ export async function deleteStaff(organizationId: string, id: string) {
   const staff = await prisma.staff.findFirst({ where: { id, organizationId } });
   if (!staff) throw AppError.notFound('Staff member not found.');
 
-  const bookings = await prisma.booking.count({ where: { staffId: id } });
-  if (bookings > 0) {
+  /*
+    Three kinds of history, not one.
+
+    This counted `booking.staffId` alone, which is only set for APPOINTMENTS — a
+    1:1 lesson hangs off a staff member directly. A class booking hangs off a
+    SESSION, and the session is what carries the instructor. So an instructor who
+    had taught fifty group classes and never a single private lesson passed this
+    check and was hard-deleted.
+
+    What made that quiet rather than loud is the relation: `Session.staff` and
+    `CourseSeries.staff` are both `onDelete: SetNull`. Nothing failed. Every
+    class they had ever taught simply became a class with no instructor,
+    including classes in the past — a register that had been taken now showing
+    nobody took it.
+
+    Found when the Staff page shipped and made Remove clickable for the first
+    time; before that, nothing in the product could reach this path.
+  */
+  const [bookings, sessions, courses] = await Promise.all([
+    prisma.booking.count({ where: { staffId: id } }),
+    prisma.session.count({ where: { staffId: id } }),
+    prisma.courseSeries.count({ where: { staffId: id } }),
+  ]);
+
+  if (bookings + sessions + courses > 0) {
     throw AppError.conflict(
-      'This instructor has booking history and cannot be deleted. ' +
+      'This instructor has teaching history and cannot be deleted. ' +
         'Deactivate them instead so the record is kept.',
       'STAFF_IN_USE',
     );

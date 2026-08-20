@@ -158,22 +158,13 @@ export type BookingListItem = {
   location: { id: string; name: string } | null;
 };
 
-export type TodayResponse = {
-  timezone: string;
-  currency: string;
-  today: BookingListItem[];
-  stats: {
-    todayCount: number;
-    todaySeats: number;
-    upcomingWeek: number;
-    outstandingCents: number;
-  };
-  alerts: {
-    paymentsNotEnabled: boolean;
-    failedNotifications: number;
-    calendarsNeedingReauth: number;
-  };
-};
+/*
+   `TodayResponse` lived here until the dashboard replaced the Today page.
+   The server route `/bookings/today` still exists and is still tested — B9
+   (Daily Manifest) is the likely next consumer — but nothing in the client
+   calls it now, so the type went with the page rather than sitting here as a
+   shape nobody constructs.
+*/
 
 export type Membership = {
   organizationId: string;

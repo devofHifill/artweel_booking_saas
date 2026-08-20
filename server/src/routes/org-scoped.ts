@@ -26,6 +26,7 @@ import {
 } from '../modules/billing/billing.route';
 import { onboardingRouter } from '../modules/onboarding/onboarding.route';
 import { shellRouter } from '../modules/shell/shell.route';
+import { dashboardRouter } from '../modules/dashboard/dashboard.route';
 import { getTrafficSummary } from '../modules/marketing/marketing.route';
 import { asyncHandler } from '../lib/async-handler';
 import { requireMember } from '../middleware/authenticate';
@@ -102,3 +103,6 @@ orgScopedRouter.use('/customers', customerRouter);
  * picking one of them to own it.
  */
 orgScopedRouter.use('/shell', shellRouter);
+
+/** The landing page. Composes analytics with today's operating picture. */
+orgScopedRouter.use('/dashboard', dashboardRouter);

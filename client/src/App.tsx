@@ -12,7 +12,7 @@ import { useAuth, useActiveOrg, useOrgBase } from './lib/auth';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Onboarding from './pages/Onboarding';
-import Today from './pages/Today';
+import Dashboard from './pages/Dashboard';
 import Bookings from './pages/Bookings';
 import CalendarPage from './pages/Calendar';
 import Customers from './pages/Customers';
@@ -26,6 +26,7 @@ import Packs from './pages/Packs';
 import CustomerDetail from './pages/CustomerDetail';
 import Billing from './pages/Billing';
 import SettingsPage from './pages/Settings';
+import StaffPage from './pages/Staff';
 import AdminApp from './admin/AdminApp';
 import { Shell } from './components/Shell';
 import { Icon } from './components/Icon';
@@ -109,7 +110,7 @@ export default function App() {
           <GlobalSearch />
 
           <div className="topbar-right">
-            {/* Today's date, so "Today" and the schedule have a stated anchor. */}
+            {/* Today's date, so the dashboard's figures have a stated anchor. */}
             <span className="topbar-date">
               {new Date().toLocaleDateString(undefined, {
                 weekday: 'short',
@@ -144,7 +145,7 @@ export default function App() {
         <>
           <NavLink to="/" end>
             <Icon name="today" size={20} />
-            Today
+            Dashboard
           </NavLink>
           <NavLink to="/calendar">
             <Icon name="calendar" size={20} />
@@ -159,7 +160,7 @@ export default function App() {
           </NavLink>
           <NavLink to="/classes">
             <Icon name="classes" size={20} />
-            Classes
+            Activities
           </NavLink>
           <NavLink to="/customers">
             <Icon name="customers" size={20} />
@@ -170,23 +171,23 @@ export default function App() {
       sidebar={
         <>
           {/*
-            Grouped, because thirteen flat links is a list to be read rather than
-            a structure to be navigated. The split is by frequency, not by
-            subject: the top group is what a studio touches during a working day,
-            the bottom what it sets up once and revisits occasionally.
+            TourFlow's thirteen items, in TourFlow's order and grouping, plus the
+            four screens it has no equivalent for.
+
+            Those four — Courses, Packs, Studio floor, Plan — are the ceramics
+            vertical this product deliberately picked, so they get their own
+            group rather than being scattered through the other two.
+
+            Three labels are TourFlow's rather than the schema's: Activities,
+            Staff & Guides, Daily Manifest. The ROUTES underneath are unchanged
+            (/classes, /staff, /register), so existing links and bookmarks
+            survive and the code still calls things what the database calls them.
           */}
           <nav className="nav">
             <p className="nav-label">Operations</p>
             <NavLink to="/" end>
               <Icon name="today" />
-              Today
-              {summary.counts.today > 0 && (
-                <span className="count">{summary.counts.today}</span>
-              )}
-            </NavLink>
-            <NavLink to="/calendar">
-              <Icon name="calendar" />
-              Calendar
+              Dashboard
             </NavLink>
             <NavLink to="/bookings">
               <Icon name="bookings" />
@@ -197,24 +198,28 @@ export default function App() {
                 </span>
               )}
             </NavLink>
-            <NavLink to="/register">
-              <Icon name="register" />
-              Register
+            <NavLink to="/calendar">
+              <Icon name="calendar" />
+              Calendar
             </NavLink>
-            <NavLink to="/studio">
-              <Icon name="studio" />
-              Studio floor
+            <NavLink to="/classes">
+              <Icon name="classes" />
+              Activities
             </NavLink>
             <NavLink to="/customers">
               <Icon name="customers" />
               Customers
             </NavLink>
-
-            <p className="nav-label">Set up &amp; sell</p>
-            <NavLink to="/classes">
-              <Icon name="classes" />
-              Classes
+            <NavLink to="/staff">
+              <Icon name="staff" />
+              Staff &amp; Guides
             </NavLink>
+            <NavLink to="/register">
+              <Icon name="register" />
+              Daily Manifest
+            </NavLink>
+
+            <p className="nav-label">Studio</p>
             <NavLink to="/courses">
               <Icon name="courses" />
               Courses
@@ -223,13 +228,22 @@ export default function App() {
               <Icon name="packs" />
               Packs
             </NavLink>
-            <NavLink to="/billing">
-              <Icon name="plan" />
-              Plan
+            <NavLink to="/studio">
+              <Icon name="studio" />
+              Studio floor
             </NavLink>
+
+            {/* Notifications, Integrations and Website & Widget join this group
+                as B5, B6 and B8 land; the order below is already their final
+                one, so adding each is an insert rather than a reshuffle. */}
+            <p className="nav-label">Growth &amp; setup</p>
             <NavLink to="/settings">
               <Icon name="settings" />
               Settings
+            </NavLink>
+            <NavLink to="/billing">
+              <Icon name="plan" />
+              Plan
             </NavLink>
           </nav>
 
@@ -277,6 +291,7 @@ export default function App() {
         <Route path="/customers/:customerId" element={<CustomerDetail />} />
         <Route path="/packs" element={<Packs />} />
         <Route path="/billing" element={<Billing />} />
+        <Route path="/staff" element={<StaffPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -286,8 +301,9 @@ export default function App() {
 
 /**
  * A studio that has not published yet lands on the wizard instead of an empty
- * Today view. Showing "nothing booked today" to somebody who has not set
- * anything up tells them nothing about what to do next.
+ * dashboard. Showing five zeroed KPI tiles to somebody who has not set anything
+ * up tells them nothing about what to do next — and reads as a broken product
+ * rather than an empty one.
  */
 function Home() {
   const base = useOrgBase();
@@ -306,7 +322,7 @@ function Home() {
 
   if (complete === null) return <div className="empty">Loading…</div>;
   if (!complete) return <Navigate to="/setup" replace />;
-  return <Today />;
+  return <Dashboard />;
 }
 
 function SetupRoute() {

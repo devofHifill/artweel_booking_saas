@@ -21,7 +21,7 @@ export type IconName =
   | 'studio' | 'customers' | 'packs' | 'plan'
   | 'overview' | 'studios' | 'health' | 'audit'
   | 'menu' | 'close' | 'search' | 'chevron' | 'external' | 'sun' | 'moon'
-  | 'eye' | 'eye-off' | 'signin' | 'settings' | 'bell';
+  | 'eye' | 'eye-off' | 'signin' | 'settings' | 'bell' | 'staff';
 
 const PATHS: Record<IconName, string> = {
   today: 'M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
@@ -56,6 +56,16 @@ const PATHS: Record<IconName, string> = {
   settings:
     'M4 6h10M18 6h2M4 12h2M10 12h10M4 18h8M16 18h4M16 4v4M8 10v4M14 16v4',
   bell: 'M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0',
+  /*
+     A staff badge, not another group of people.
+
+     The obvious choice — two figures — is what `customers` already is, and the
+     two sit four rows apart in the same sidebar. At 18px the difference between
+     "two people" and "two people, one behind" is not a difference anybody sees;
+     they read as the same icon used twice, which makes the whole set look
+     careless. A lanyard badge says "staff" and cannot be confused with a crowd.
+  */
+  staff: 'M9 3h6M12 3v3M5 6h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2ZM12 13a2 2 0 1 0 0-4 2 2 0 0 0 0 4M8.5 18a3.5 3.5 0 0 1 7 0',
 };
 
 export function Icon({
