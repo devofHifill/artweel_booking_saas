@@ -8,6 +8,8 @@ import {
   type BookingListItem,
 } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { DataTable, PageHead, StatusPill, Toolbar } from '../components/layout';
+import { EmptyState } from '../components/states';
 
 type ListResponse = { bookings: BookingListItem[]; nextCursor: string | null };
 
@@ -125,19 +127,19 @@ export default function Bookings() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Bookings</h1>
-          <p className="sub">{bookings.length} shown</p>
-        </div>
-        {selected.size > 0 && (
-          <button className="danger" onClick={cancelSelected} disabled={busy}>
-            Cancel {selected.size} selected
-          </button>
-        )}
-      </div>
+      <PageHead
+        title="Bookings"
+        lede={`${bookings.length} shown`}
+        actions={
+          selected.size > 0 && (
+            <button className="danger" onClick={cancelSelected} disabled={busy}>
+              Cancel {selected.size} selected
+            </button>
+          )
+        }
+      />
 
-      <div className="toolbar">
+      <Toolbar>
         <input
           placeholder="Search name, email or phone"
           value={search}
@@ -157,19 +159,17 @@ export default function Bookings() {
           <option value="NO_SHOW">No show</option>
           <option value="CANCELLED">Cancelled</option>
         </select>
-      </div>
+      </Toolbar>
 
       {error && <div className="err">{error}</div>}
 
       {bookings.length === 0 ? (
-        <div className="card empty-state">
-          <span className="empty-mark" aria-hidden="true">◍</span>
-          <p className="empty-title">No bookings match that.</p>
-        </div>
+        <EmptyState>No bookings match that.</EmptyState>
       ) : (
         <div className="card" style={{ padding: 0 }}>
-          <table>
-            <thead>
+          <DataTable
+            caption="Bookings, with class, customer, status and amount owed"
+            head={
               <tr>
                 <th style={{ width: 30 }} />
                 <th>When</th>
@@ -179,8 +179,8 @@ export default function Bookings() {
                 <th>Owed</th>
                 <th style={{ width: 190 }} />
               </tr>
-            </thead>
-            <tbody>
+            }
+          >
               {bookings.map((booking) => (
                 <tr key={booking.id}>
                   <td>
@@ -213,9 +213,7 @@ export default function Bookings() {
                     </Link>
                   </td>
                   <td>
-                    <span className={`tag ${booking.status}`}>
-                      {booking.status.replace('_', ' ')}
-                    </span>
+                    <StatusPill status={booking.status} />
                   </td>
                   <td>
                     {booking.outstandingCents > 0
@@ -251,8 +249,7 @@ export default function Bookings() {
                   </td>
                 </tr>
               ))}
-            </tbody>
-          </table>
+          </DataTable>
         </div>
       )}
     </>

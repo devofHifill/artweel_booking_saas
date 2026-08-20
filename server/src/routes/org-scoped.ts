@@ -25,6 +25,7 @@ import {
   requireActiveSubscription,
 } from '../modules/billing/billing.route';
 import { onboardingRouter } from '../modules/onboarding/onboarding.route';
+import { shellRouter } from '../modules/shell/shell.route';
 import { getTrafficSummary } from '../modules/marketing/marketing.route';
 import { asyncHandler } from '../lib/async-handler';
 import { requireMember } from '../middleware/authenticate';
@@ -91,3 +92,13 @@ orgScopedRouter.use('/notifications', notificationRouter);
 orgScopedRouter.use('/calendar', calendarRouter);
 orgScopedRouter.use('/bookings', bookingAdminRouter);
 orgScopedRouter.use('/customers', customerRouter);
+
+/**
+ * The app chrome — badge counts, alerts, global search.
+ *
+ * Mounted last because it is the only thing here that is not a resource: it
+ * reads across bookings, notifications and calendars to answer "what does the
+ * sidebar say", and grouping it with the modules it queries would have meant
+ * picking one of them to own it.
+ */
+orgScopedRouter.use('/shell', shellRouter);

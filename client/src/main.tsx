@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './lib/auth';
 import { captureAttribution } from './lib/attribution';
 import { applyStoredThemeEarly } from './lib/theme';
+import { applyCachedBrandEarly } from './lib/brand';
 import App from './App';
 import './styles.css';
 
@@ -15,6 +16,12 @@ captureAttribution();
 // corrects itself once React mounts, which is a white flash on every load for
 // anyone who chose dark.
 applyStoredThemeEarly();
+
+// Same reasoning, one layer up: the last known accent for this studio, painted
+// before the first frame. The authoritative value arrives with the first API
+// call a moment later, and a stale accent for that moment is invisible in a way
+// that a clay-to-brand repaint on every page load is not.
+applyCachedBrandEarly();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

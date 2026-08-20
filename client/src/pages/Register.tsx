@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, dateIn, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { PageHead } from '../components/layout';
+import { EmptyState } from '../components/states';
 
 /**
  * Taking the register.
@@ -190,27 +192,26 @@ export default function Register() {
 
   return (
     <div>
-      <header className="page-head">
-        <h1>Register</h1>
-        <input
-          type="date"
-          value={day}
-          onChange={(e) => {
-            setDay(e.target.value);
-            setOpenId(null);
-            setRegister(null);
-          }}
-          aria-label="Day"
-        />
-      </header>
+      <PageHead
+        title="Register"
+        actions={
+          <input
+            type="date"
+            value={day}
+            onChange={(e) => {
+              setDay(e.target.value);
+              setOpenId(null);
+              setRegister(null);
+            }}
+            aria-label="Day"
+          />
+        }
+      />
 
       {error && <div className="err">{error}</div>}
 
       {sessions.length === 0 && !error && (
-        <div className="card empty-state">
-          <span className="empty-mark" aria-hidden="true">◷</span>
-          <p className="empty-title">No classes on this day.</p>
-        </div>
+        <EmptyState icon="◷">No classes on this day.</EmptyState>
       )}
 
       <div className="list">

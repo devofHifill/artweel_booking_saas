@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, money } from '../lib/api';
 import { useOrgBase } from '../lib/auth';
 import { LoadingRegion, SkeletonList } from '../components/states';
+import { PageHead, Stat, StatGrid } from '../components/layout';
 
 type Plan = {
   id: string;
@@ -79,17 +80,17 @@ export default function Billing() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Plan and billing</h1>
-          <p className="sub">
+      <PageHead
+        title="Plan and billing"
+        lede={
+          <>
             You are on {state.planName}
             {state.trialDaysLeft !== null &&
               state.status === 'TRIALING' &&
               ` · ${state.trialDaysLeft} days left on your trial`}
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {error && <div className="err">{error}</div>}
       {state.notice && (
@@ -98,28 +99,32 @@ export default function Billing() {
         </div>
       )}
 
-      <div className="stats">
-        <div className="card stat">
-          <div className="label">Instructors</div>
-          <div className="value">
-            {state.usage.staff}
-            <span className="sub" style={{ fontSize: '.9rem', fontWeight: 400 }}>
-              {' '}
-              / {state.limits.maxStaff ?? '∞'}
-            </span>
-          </div>
-        </div>
-        <div className="card stat">
-          <div className="label">Locations</div>
-          <div className="value">
-            {state.usage.locations}
-            <span className="sub" style={{ fontSize: '.9rem', fontWeight: 400 }}>
-              {' '}
-              / {state.limits.maxLocations ?? '∞'}
-            </span>
-          </div>
-        </div>
-      </div>
+      <StatGrid>
+        <Stat
+          label="Instructors"
+          value={
+            <>
+              {state.usage.staff}
+              <span className="sub" style={{ fontSize: '.9rem', fontWeight: 400 }}>
+                {' '}
+                / {state.limits.maxStaff ?? '∞'}
+              </span>
+            </>
+          }
+        />
+        <Stat
+          label="Locations"
+          value={
+            <>
+              {state.usage.locations}
+              <span className="sub" style={{ fontSize: '.9rem', fontWeight: 400 }}>
+                {' '}
+                / {state.limits.maxLocations ?? '∞'}
+              </span>
+            </>
+          }
+        />
+      </StatGrid>
 
       <h2>Plans</h2>
 

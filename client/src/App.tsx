@@ -25,10 +25,14 @@ import Firings from './pages/Firings';
 import Packs from './pages/Packs';
 import CustomerDetail from './pages/CustomerDetail';
 import Billing from './pages/Billing';
+import SettingsPage from './pages/Settings';
 import AdminApp from './admin/AdminApp';
 import { Shell } from './components/Shell';
 import { Icon } from './components/Icon';
 import { ThemeToggle } from './components/ThemeToggle';
+import { GlobalSearch } from './components/GlobalSearch';
+import { AlertBell } from './components/AlertBell';
+import { useShellSummary } from './lib/useShellSummary';
 
 export default function App() {
   const { user, loading, signOut, memberships, activeOrgId, setActiveOrg } =
@@ -36,6 +40,11 @@ export default function App() {
   const org = useActiveOrg();
   const location = useLocation();
   const [showSignUp, setShowSignUp] = useState(false);
+  /* Badge counts and alerts for the chrome. Declared with the other hooks
+     rather than beside the JSX that uses it: everything below this point can
+     return early, and a hook after an early return is a hook that sometimes
+     does not run. */
+  const summary = useShellSummary();
 
   if (loading) return <div className="empty">Loading…</div>;
 
@@ -95,12 +104,85 @@ export default function App() {
           <small>{org?.role.toLowerCase().replace('_', ' ')}</small>
         </>
       }
+      topbar={
+        <div className="topbar-tools">
+          <GlobalSearch />
+
+          <div className="topbar-right">
+            {/* Today's date, so "Today" and the schedule have a stated anchor. */}
+            <span className="topbar-date">
+              {new Date().toLocaleDateString(undefined, {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+              })}
+            </span>
+
+            <AlertBell alerts={summary.alerts} />
+
+            {/*
+              A real link to the real page, not a preview modal. It is the thing
+              customers see, and the fastest way to check a change landed is to
+              look at it. Opens in a new tab so the dashboard is not lost.
+            */}
+            {org && (
+              <a
+                className="icon-btn"
+                href={`/public/${org.organization.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="View your booking page"
+                aria-label="View your booking page"
+              >
+                <Icon name="external" size={18} />
+              </a>
+            )}
+          </div>
+        </div>
+      }
+      bottomNav={
+        <>
+          <NavLink to="/" end>
+            <Icon name="today" size={20} />
+            Today
+          </NavLink>
+          <NavLink to="/calendar">
+            <Icon name="calendar" size={20} />
+            Calendar
+          </NavLink>
+          <NavLink to="/bookings">
+            <Icon name="bookings" size={20} />
+            Bookings
+            {summary.counts.pendingBookings > 0 && (
+              <span className="nav-dot" aria-hidden="true" />
+            )}
+          </NavLink>
+          <NavLink to="/classes">
+            <Icon name="classes" size={20} />
+            Classes
+          </NavLink>
+          <NavLink to="/customers">
+            <Icon name="customers" size={20} />
+            People
+          </NavLink>
+        </>
+      }
       sidebar={
         <>
+          {/*
+            Grouped, because thirteen flat links is a list to be read rather than
+            a structure to be navigated. The split is by frequency, not by
+            subject: the top group is what a studio touches during a working day,
+            the bottom what it sets up once and revisits occasionally.
+          */}
           <nav className="nav">
+            <p className="nav-label">Operations</p>
             <NavLink to="/" end>
               <Icon name="today" />
               Today
+              {summary.counts.today > 0 && (
+                <span className="count">{summary.counts.today}</span>
+              )}
             </NavLink>
             <NavLink to="/calendar">
               <Icon name="calendar" />
@@ -109,14 +191,11 @@ export default function App() {
             <NavLink to="/bookings">
               <Icon name="bookings" />
               Bookings
-            </NavLink>
-            <NavLink to="/classes">
-              <Icon name="classes" />
-              Classes
-            </NavLink>
-            <NavLink to="/courses">
-              <Icon name="courses" />
-              Courses
+              {summary.counts.pendingBookings > 0 && (
+                <span className="count" title="Awaiting payment or confirmation">
+                  {summary.counts.pendingBookings}
+                </span>
+              )}
             </NavLink>
             <NavLink to="/register">
               <Icon name="register" />
@@ -130,6 +209,16 @@ export default function App() {
               <Icon name="customers" />
               Customers
             </NavLink>
+
+            <p className="nav-label">Set up &amp; sell</p>
+            <NavLink to="/classes">
+              <Icon name="classes" />
+              Classes
+            </NavLink>
+            <NavLink to="/courses">
+              <Icon name="courses" />
+              Courses
+            </NavLink>
             <NavLink to="/packs">
               <Icon name="packs" />
               Packs
@@ -137,6 +226,10 @@ export default function App() {
             <NavLink to="/billing">
               <Icon name="plan" />
               Plan
+            </NavLink>
+            <NavLink to="/settings">
+              <Icon name="settings" />
+              Settings
             </NavLink>
           </nav>
 
@@ -184,6 +277,7 @@ export default function App() {
         <Route path="/customers/:customerId" element={<CustomerDetail />} />
         <Route path="/packs" element={<Packs />} />
         <Route path="/billing" element={<Billing />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>

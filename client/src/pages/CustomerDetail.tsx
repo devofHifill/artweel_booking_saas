@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, dateIn, expiryIn, money, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { DataTable, PageHead, Stat, StatGrid } from '../components/layout';
+import { EmptyState } from '../components/states';
 import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 type Credit = {
@@ -323,37 +325,32 @@ export default function CustomerDetail() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <Link to="/customers" className="sub">
-            ← Customers
-          </Link>
-          <h1 style={{ marginTop: 6 }}>{data.name}</h1>
-          <p className="sub">
+      {/* Above the head, not inside its title: nesting it in the <h1> would
+          make this page's heading read "← Customers Jane Potter" to anyone
+          navigating by headings. */}
+      <Link to="/customers" className="sub back-link">
+        ← Customers
+      </Link>
+
+      <PageHead
+        title={data.name}
+        lede={
+          <>
             {data.email}
             {data.phone && ` · ${data.phone}`}
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      <div className="stats">
-        <div className="card stat">
-          <div className="label">Bookings</div>
-          <div className="value">{data.stats.total}</div>
-        </div>
-        <div className="card stat">
-          <div className="label">Attended</div>
-          <div className="value">{data.stats.attended}</div>
-        </div>
-        <div className="card stat">
-          <div className="label">No shows</div>
-          <div className="value">{data.stats.noShows}</div>
-        </div>
-        <div className="card stat">
-          <div className="label">Lifetime</div>
-          <div className="value">{money(data.stats.lifetimeCents, currency)}</div>
-        </div>
-      </div>
+      <StatGrid>
+        <Stat label="Bookings" value={data.stats.total} />
+        <Stat label="Attended" value={data.stats.attended} />
+        <Stat label="No shows" value={data.stats.noShows} />
+        <Stat
+          label="Lifetime"
+          value={money(data.stats.lifetimeCents, currency)}
+        />
+      </StatGrid>
 
       {data.smsOptedOutAt && (
         <div className="alert warn">
@@ -554,14 +551,12 @@ export default function CustomerDetail() {
       <h2>History</h2>
 
       {data.bookings.length === 0 ? (
-        <div className="card empty-state">
-          <span className="empty-mark" aria-hidden="true">◍</span>
-          <p className="empty-title">No bookings yet.</p>
-        </div>
+        <EmptyState>No bookings yet.</EmptyState>
       ) : (
         <div className="card" style={{ padding: 0 }}>
-          <table>
-            <thead>
+          <DataTable
+            caption="This customer's booking history"
+            head={
               <tr>
                 <th>When</th>
                 <th>Class</th>
@@ -569,8 +564,8 @@ export default function CustomerDetail() {
                 <th>Status</th>
                 <th>Value</th>
               </tr>
-            </thead>
-            <tbody>
+            }
+          >
               {data.bookings.map((booking) => (
                 <tr key={booking.id}>
                   <td>
@@ -595,8 +590,7 @@ export default function CustomerDetail() {
                   <td>{money(booking.totalCents, currency)}</td>
                 </tr>
               ))}
-            </tbody>
-          </table>
+          </DataTable>
         </div>
       )}
     </>

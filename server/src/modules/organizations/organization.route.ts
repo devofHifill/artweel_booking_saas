@@ -95,6 +95,57 @@ organizationRouter.patch(
   }),
 );
 
+// --- Branding -------------------------------------------------------------
+//
+// Its own pair of routes rather than more fields on the settings PATCH above.
+// Saving a theme has to DERIVE and validate a palette and can answer "your
+// colour was adjusted, here is why", which is a different response shape from
+// "here is the updated organization" — and folding it in would have made the
+// settings route answer two unrelated questions.
+
+organizationRouter.get(
+  '/:organizationId/theme',
+  withOrganization(),
+  requireMember,
+  asyncHandler(async (req, res) => {
+    res.json(await service.getTheme(req.tenant!.organizationId));
+  }),
+);
+
+organizationRouter.patch(
+  '/:organizationId/theme',
+  withOrganization(),
+  requireAdmin,
+  validateBody(
+    z.object({
+      /**
+       * A preset id, or the literal 'custom'.
+       *
+       * Not an enum of the known ids: the presets live in lib/brand.ts and the
+       * service already resolves an unknown id to a readable 400. Restating the
+       * list here would mean adding a preset in two files, and the day someone
+       * updated only one, the new swatch would render in the picker and refuse
+       * to save.
+       */
+      preset: z.string().min(1).max(32),
+
+      /**
+       * Six hex digits, lower or upper case; the service canonicalises to lower
+       * before writing, matching the CHECK constraint on the column. Shorthand
+       * (#abc) is refused rather than expanded so the stored value has exactly
+       * one form.
+       */
+      accent: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/, 'Use a six-digit hex colour, like #a6522c.')
+        .nullish(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    res.json(await service.updateTheme(req.tenant!.organizationId, req.body));
+  }),
+);
+
 organizationRouter.get(
   '/:organizationId/members',
   withOrganization(),

@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, money } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { StatusPill } from '../components/layout';
+import { PageHead } from '../components/layout';
+import { EmptyState } from '../components/states';
 
 /**
  * Multi-week courses, as cohorts rather than as a pile of classes.
@@ -117,22 +120,24 @@ export default function Courses() {
 
   return (
     <div>
-      <header className="page-head">
-        <h1>Courses</h1>
-        <div className="toolbar">
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">Any status</option>
-            <option value="DRAFT">Draft</option>
-            <option value="PUBLISHED">Published</option>
-            <option value="CANCELLED">Cancelled</option>
-          </select>
-          {isAdmin && (
-            <button onClick={() => setCreating((v) => !v)}>
-              {creating ? 'Close' : 'New course'}
-            </button>
-          )}
-        </div>
-      </header>
+      <PageHead
+        title="Courses"
+        actions={
+          <>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">Any status</option>
+              <option value="DRAFT">Draft</option>
+              <option value="PUBLISHED">Published</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
+            {isAdmin && (
+              <button onClick={() => setCreating((v) => !v)}>
+                {creating ? 'Close' : 'New course'}
+              </button>
+            )}
+          </>
+        }
+      />
 
       {error && <div className="err">{error}</div>}
 
@@ -237,10 +242,7 @@ export default function Courses() {
       )}
 
       {series.length === 0 && !error && (
-        <div className="card empty-state">
-          <span className="empty-mark" aria-hidden="true">❏</span>
-          <p className="empty-title">No courses yet.</p>
-        </div>
+        <EmptyState icon="❏">No courses yet.</EmptyState>
       )}
 
       <div className="list">
@@ -252,9 +254,7 @@ export default function Courses() {
                   <Link to={`/courses/${s.id}`}>{s.name}</Link>
                 </strong>
                 {s.cohortLabel && <span className="tag">{s.cohortLabel}</span>}
-                <span className={`tag ${s.status}`}>
-                  {s.status.toLowerCase()}
-                </span>
+                <StatusPill status={s.status} />
                 <div className="sub">
                   {s.serviceType.name} · {s.sessionCount} week
                   {s.sessionCount === 1 ? '' : 's'} ·{' '}

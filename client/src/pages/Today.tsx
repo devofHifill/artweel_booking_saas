@@ -7,6 +7,7 @@ import {
   type TodayResponse,
 } from '../lib/api';
 import { useOrgBase } from '../lib/auth';
+import { PageHead } from '../components/layout';
 import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 /**
@@ -60,10 +61,10 @@ export default function Today() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Today</h1>
-          <p className="sub">
+      <PageHead
+        title="Today"
+        lede={
+          <>
             {new Intl.DateTimeFormat('en-US', {
               weekday: 'long',
               day: 'numeric',
@@ -71,9 +72,9 @@ export default function Today() {
               timeZone: timezone,
             }).format(new Date())}{' '}
             · {timezone.replace('_', ' ')}
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {alerts.paymentsNotEnabled && (
         <div className="alert warn">

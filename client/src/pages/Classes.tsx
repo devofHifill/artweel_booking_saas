@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, dateIn, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { PageHead, StatusPill } from '../components/layout';
+import { EmptyState } from '../components/states';
 
 /**
  * Scheduling classes.
@@ -326,23 +328,25 @@ export default function Classes() {
 
   return (
     <div>
-      <header className="page-head">
-        <h1>Classes</h1>
-        <div className="toolbar">
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            aria-label="From"
-          />
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            aria-label="To"
-          />
-        </div>
-      </header>
+      <PageHead
+        title="Classes"
+        actions={
+          <>
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              aria-label="From"
+            />
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              aria-label="To"
+            />
+          </>
+        }
+      />
 
       {error && <div className="err">{error}</div>}
 
@@ -499,10 +503,7 @@ export default function Classes() {
       )}
 
       {sessions.length === 0 && !error && (
-        <div className="card empty-state">
-          <span className="empty-mark" aria-hidden="true">◷</span>
-          <p className="empty-title">No classes in this range.</p>
-        </div>
+        <EmptyState icon="◷">No classes in this range.</EmptyState>
       )}
 
       <div className="list">
@@ -584,11 +585,11 @@ export default function Classes() {
                               {entry.seats > 1 ? ` · ${entry.seats} seats` : ''}
                             </span>
                           </span>
-                          <span className={`tag ${entry.status}`}>
+                          <StatusPill status={entry.status}>
                             {entry.status === 'OFFERED' && entry.offerExpiresAt
                               ? `held until ${timeIn(entry.offerExpiresAt, timezone)}`
-                              : entry.status.toLowerCase()}
-                          </span>
+                              : undefined}
+                          </StatusPill>
                           {isAdmin &&
                             (entry.status === 'WAITING' ||
                               entry.status === 'OFFERED') && (

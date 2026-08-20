@@ -1,5 +1,6 @@
 import { clientScript } from './booking-page.client';
 import { tokensCss } from '../../lib/design-tokens';
+import { brandCss, resolveBrand } from '../../lib/brand';
 import { EMBED_HEIGHT_SCRIPT } from './embed';
 
 /**
@@ -66,6 +67,11 @@ type PageData = {
     slug: string;
     timezone: string;
     currency: string;
+    /* Read into the page's <style> block by resolveBrand. Optional so a caller
+       that has not selected them renders the default rather than failing to
+       compile: these are decoration, not data the page depends on. */
+    brandPreset?: string | null;
+    brandAccent?: string | null;
   };
   acceptingBookings: boolean;
   services: {
@@ -216,7 +222,7 @@ export function renderBookingPage(data: PageData): string {
 <meta property="og:description" content="${escapeHtml(description)}">
 <meta property="og:type" content="website">
 <script type="application/ld+json">${jsonForScript(jsonLd)}</script>
-<style>${STYLES}</style>
+<style>${STYLES}${brandCss(resolveBrand(organization))}</style>
 </head>
 <body>
 <div class="wrap">
@@ -279,7 +285,13 @@ type ManageData = {
     serviceType: { name: string };
     staff: { name: string } | null;
     location: { name: string; address: string | null } | null;
-    organization: { name: string; slug: string; currency?: string };
+    organization: {
+      name: string;
+      slug: string;
+      currency?: string;
+      brandPreset?: string | null;
+      brandAccent?: string | null;
+    };
     customer: { name: string };
   };
   cancellationQuote: { refundCents: number; creditCents: number } | null;
@@ -312,7 +324,7 @@ export function renderManagePage(data: ManageData, token: string): string {
 <title>Your booking at ${escapeHtml(b.organization.name)}</title>
 <!-- A booking link must never be indexed: the token in the URL is the credential. -->
 <meta name="robots" content="noindex,nofollow">
-<style>${STYLES}</style>
+<style>${STYLES}${brandCss(resolveBrand(b.organization))}</style>
 </head>
 <body>
 <div class="wrap">

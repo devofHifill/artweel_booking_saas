@@ -21,7 +21,7 @@ export type IconName =
   | 'studio' | 'customers' | 'packs' | 'plan'
   | 'overview' | 'studios' | 'health' | 'audit'
   | 'menu' | 'close' | 'search' | 'chevron' | 'external' | 'sun' | 'moon'
-  | 'eye' | 'eye-off' | 'signin';
+  | 'eye' | 'eye-off' | 'signin' | 'settings' | 'bell';
 
 const PATHS: Record<IconName, string> = {
   today: 'M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
@@ -50,6 +50,12 @@ const PATHS: Record<IconName, string> = {
   'eye-off': 'M10.6 6.2A9.9 9.9 0 0 1 12 6c6.4 0 10 6 10 6a17.6 17.6 0 0 1-3.2 3.9M6.6 7.5A17.4 17.4 0 0 0 2 12s3.6 6 10 6a9.7 9.7 0 0 0 4.1-.9M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18',
   // An arrow moving INTO a doorway: the door is the account, the arrow is you.
   signin: 'M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3',
+  /* Sliders rather than the usual cog: at 24px on a 1.6 stroke a cog's teeth
+     collapse into a grey ring, which is why every icon set that keeps one draws
+     it heavier than its neighbours. Three rules on the same grid do not. */
+  settings:
+    'M4 6h10M18 6h2M4 12h2M10 12h10M4 18h8M16 18h4M16 4v4M8 10v4M14 16v4',
+  bell: 'M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0',
 };
 
 export function Icon({

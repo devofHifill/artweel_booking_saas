@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, money } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { PageHead } from '../components/layout';
+import { EmptyState } from '../components/states';
 
 /**
  * The pack catalogue: what a studio sells, not who bought it.
@@ -93,16 +95,16 @@ export default function Packs() {
 
   return (
     <div>
-      <header className="page-head">
-        <h1>Class packs</h1>
-        {isAdmin && (
-          <div className="toolbar">
+      <PageHead
+        title="Class packs"
+        actions={
+          isAdmin && (
             <button onClick={() => setCreating((v) => !v)}>
               {creating ? 'Close' : 'New pack'}
             </button>
-          </div>
-        )}
-      </header>
+          )
+        }
+      />
 
       {error && <div className="err">{error}</div>}
 
@@ -165,10 +167,7 @@ export default function Packs() {
       )}
 
       {packs.length === 0 && !error && (
-        <div className="card empty-state">
-          <span className="empty-mark" aria-hidden="true">❏</span>
-          <p className="empty-title">Nothing on the menu yet.</p>
-        </div>
+        <EmptyState icon="❏">Nothing on the menu yet.</EmptyState>
       )}
 
       <div className="list">

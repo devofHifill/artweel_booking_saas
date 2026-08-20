@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 /**
  * Light / dark / follow-the-system.
@@ -36,18 +36,51 @@ export function applyTheme(theme: Theme) {
   else root.setAttribute('data-theme', theme);
 }
 
-export function useTheme() {
-  const [theme, setTheme] = useState<Theme>(read);
+/**
+ * One store, shared by every control.
+ *
+ * This was `useState` inside the hook, which was correct while exactly one
+ * control existed. It stops being correct the moment there are two — the
+ * sidebar toggle and the one in Settings → Appearance. Each hook instance would
+ * hold its own copy: clicking either would update the DOM and localStorage for
+ * real, while the other went on displaying the previous value until something
+ * unrelated remounted it. The setting would look like it had failed to save.
+ *
+ * `useSyncExternalStore` is the sanctioned way to read from something outside
+ * React, and it keeps the hook's existing shape, so nothing that calls it
+ * changes.
+ */
+let current: Theme = read();
+const listeners = new Set<() => void>();
 
-  useEffect(() => {
-    applyTheme(theme);
-    if (theme === 'system') localStorage.removeItem(KEY);
-    else localStorage.setItem(KEY, theme);
-  }, [theme]);
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function getSnapshot(): Theme {
+  return current;
+}
+
+/** Applies, persists and broadcasts — in that order, so the paint is not queued. */
+export function setTheme(next: Theme) {
+  current = next;
+  applyTheme(next);
+
+  // 'system' removes the key rather than storing the word, matching applyTheme:
+  // a stored "system" would match neither selector on the next load.
+  if (next === 'system') localStorage.removeItem(KEY);
+  else localStorage.setItem(KEY, next);
+
+  for (const listener of listeners) listener();
+}
+
+export function useTheme() {
+  const theme = useSyncExternalStore(subscribe, getSnapshot);
 
   /** light → dark → system → light. */
   const cycle = () =>
-    setTheme((t) => (t === 'light' ? 'dark' : t === 'dark' ? 'system' : 'light'));
+    setTheme(theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light');
 
   return { theme, setTheme, cycle };
 }

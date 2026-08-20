@@ -122,6 +122,28 @@ model Organization {
   onboardingSteps  Json?     @map("onboarding_steps")
   onboardingDoneAt DateTime? @map("onboarding_done_at") @db.Timestamptz(3)
 
+  // --- Studio branding ---------------------------------------------------
+  //
+  // A studio's accent, and nothing else. These two columns feed an override
+  // LAYER over the shared design tokens — see src/lib/brand.ts. They can move
+  // --clay, --clay-dk, --clay-lt and --clay-text; they can never move --ink,
+  // --bg, --card, --line or any scale, so no theme can make a studio's own
+  // dashboard unreadable.
+
+  /// Id of a curated preset from BRAND_PRESETS. Defaults to the clay values the
+  /// product already shipped, so an untouched studio looks exactly as before.
+  /// An unknown id resolves back to clay rather than failing: a theme is
+  /// decoration and must never be able to take a dashboard down.
+  brandPreset String @default("clay") @map("brand_preset")
+
+  /// An owner-supplied accent, which WINS over brandPreset when set.
+  ///
+  /// Stored as the hex the owner chose, not as the derived palette. Derivation
+  /// enforces WCAG AA and may move the value; keeping the request means a later
+  /// change to the derivation rules reaches studios that already chose a colour,
+  /// instead of freezing them against whatever the rules were on the day.
+  brandAccent String? @map("brand_accent")
+
   // --- Studio policy -----------------------------------------------------
   //
   // These exist as SETTINGS rather than as code because nobody has yet asked

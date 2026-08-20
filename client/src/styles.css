@@ -1413,3 +1413,535 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
   color: var(--muted);
 }
 .theme-toggle:hover { color: var(--ink); }
+
+/* --- Settings ------------------------------------------------------------ */
+/*
+   Every colour below is a token. That is not a style preference here: this is
+   the screen where a studio changes its accent, so anything hardcoded would be
+   the one part of the page that refused to follow the setting being made on it.
+*/
+
+.lede { color: var(--muted); margin: 4px 0 0; max-width: 60ch; }
+
+.settings-section { padding: var(--space-6); }
+.settings-section h2 { margin: 0 0 var(--space-5); font-size: var(--text-md); }
+.settings-section hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: var(--space-6) 0;
+}
+
+/* Label left, control right — until there is no room, when the control drops
+   beneath rather than being squeezed into an unusable width. */
+.setting {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+}
+.setting-label h3 { margin: 0 0 var(--space-1); font-size: var(--text-base); }
+.setting-label .sub { margin: 0; max-width: 52ch; }
+/* For a control too wide to sit beside its label at any size. */
+.setting-stack { flex-direction: column; gap: var(--space-4); }
+
+/* --- Segmented control --------------------------------------------------- */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--card);
+}
+.seg button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease);
+}
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button:hover:not(.on) { background: var(--clay-lt); color: var(--ink); }
+.seg button.on { background: var(--clay); color: #fff; }
+
+/* --- Brand swatches ------------------------------------------------------ */
+.brand-swatches { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.brand-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease);
+}
+.brand-swatch:hover:not(:disabled) { border-color: var(--clay); }
+.brand-swatch:disabled { opacity: .55; cursor: not-allowed; }
+/*
+  The selected swatch is marked with a ring in the CURRENT accent plus a border,
+  never by colour alone — the chips are all colours, so "the coloured one" is not
+  a distinction anybody can see, and colour alone fails WCAG 1.4.1 regardless.
+*/
+.brand-swatch.on {
+  border-color: var(--clay);
+  box-shadow: 0 0 0 2px var(--clay-lt);
+}
+.brand-swatch-chip {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  /* A hairline, so a pale swatch is still a disc on a white card. */
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 15%);
+}
+
+/* --- Custom accent ------------------------------------------------------- */
+.custom-accent { display: flex; flex-direction: column; gap: var(--space-2); }
+.custom-accent label { font-size: var(--text-sm); font-weight: 600; }
+.custom-accent .sub { margin: 0; font-size: var(--text-xs); }
+.accent-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.accent-row input[type='color'] {
+  width: 44px;
+  height: 38px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  cursor: pointer;
+}
+.accent-row input.hex {
+  width: 10ch;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-transform: lowercase;
+}
+
+/* --- Theme preview ------------------------------------------------------- */
+/*
+   Rendered with the live tokens rather than the chosen hex, so it shows what the
+   studio will actually get — including a colour the server darkened for
+   contrast, which is exactly the case an owner needs to see rather than be told.
+*/
+.theme-preview {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  background: var(--bg);
+}
+.preview-label {
+  display: block;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  margin-bottom: var(--space-3);
+}
+.preview-row { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+/* Disabled so it cannot be clicked, but at full strength: a faded button would
+   preview the wrong thing. */
+.preview-row button.primary:disabled { opacity: 1; cursor: default; }
+.preview-row a { color: var(--clay-text); font-weight: 600; }
+.preview-tint {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--clay-lt);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* --- App chrome: persistent top bar, grouped nav, bottom nav -------------- */
+/*
+   Only when the shell is given topbar content. /admin shares this component and
+   passes none, so everything here is scoped to `.has-topbar` and /admin keeps
+   the layout it had — a bar that appears only below 900px to hold the menu
+   toggle.
+*/
+
+@media (min-width: 901px) {
+  /*
+     Grid rather than the flex row, so the bar can sit above the CONTENT while
+     the sidebar still runs the full height beside it. Scoped to a min-width
+     query on purpose: below 901px the existing `.shell { display: block }` rule
+     must win, and a media query adds no specificity — an unscoped
+     `.shell.has-topbar` would out-specify it and strand the mobile layout in a
+     two-column grid.
+  */
+  .shell.has-topbar {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    grid-template-areas:
+      'sidebar topbar'
+      'sidebar main';
+    grid-template-rows: auto 1fr;
+  }
+  .shell.has-topbar > .sidebar { grid-area: sidebar; }
+  .shell.has-topbar > .topbar { grid-area: topbar; }
+  .shell.has-topbar > .main { grid-area: main; }
+
+  .shell.has-topbar > .topbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-2) var(--space-6);
+    background: var(--card);
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+
+  /* The sidebar already shows both at this width. */
+  .shell.has-topbar > .topbar .menu-toggle,
+  .shell.has-topbar > .topbar > .brand { display: none; }
+}
+
+.topbar-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: 1;
+  min-width: 0;
+}
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.topbar-date {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+/* The date is the first thing to go: it is orientation, not a control. */
+@media (max-width: 1100px) { .topbar-date { display: none; } }
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.icon-btn:hover { background: var(--clay-lt); color: var(--ink); }
+
+/* --- Search -------------------------------------------------------------- */
+.search-wrap { position: relative; flex: 1; min-width: 0; max-width: 460px; }
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+.search-input {
+  width: 100%;
+  padding-left: 32px;
+  padding-right: 28px;
+  font-size: var(--text-sm);
+}
+/* Safari draws its own clear button on type=search and it collides with the hint. */
+.search-input::-webkit-search-decoration,
+.search-input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+.kbd {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.search-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-2);
+  z-index: 40;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.search-group {
+  margin: var(--space-2) 0 var(--space-1);
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.search-hit {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+/*
+   Highlight follows the keyboard, so hover and arrow keys share one state. Two
+   independent highlights — one for the mouse, one for the keys — is how these
+   menus end up showing two selected rows at once.
+*/
+.search-hit.on { background: var(--clay-lt); }
+.hit-label { font-weight: 600; }
+.hit-meta { color: var(--muted); font-size: var(--text-xs); margin-left: auto; }
+.search-none { margin: 0; padding: var(--space-3); color: var(--muted); font-size: var(--text-sm); }
+
+/* --- Alert bell ---------------------------------------------------------- */
+.bell-wrap { position: relative; }
+.bell-wrap .icon-btn { position: relative; }
+.bell-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  /* Ringed in the bar's own background so it reads as a badge, not a smudge. */
+  box-shadow: 0 0 0 2px var(--card);
+}
+.bell-dot.warn { background: var(--warn); }
+.bell-dot.danger { background: var(--danger); }
+
+.bell-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(320px, 90vw);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-2);
+  z-index: 40;
+}
+.bell-none { margin: 0; padding: var(--space-3); color: var(--muted); font-size: var(--text-sm); }
+.bell-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+.bell-item:hover { background: var(--clay-lt); }
+.bell-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex: 0 0 8px;
+}
+.bell-item.warn .bell-mark { background: var(--warn); }
+.bell-item.danger .bell-mark { background: var(--danger); }
+
+/* --- Grouped sidebar nav ------------------------------------------------- */
+.nav-label {
+  margin: var(--space-4) 0 var(--space-1);
+  padding: 0 10px;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.nav-label:first-child { margin-top: 0; }
+
+/*
+   Flex so the icon, the label and a count sit on one line with the count pushed
+   to the end. The rule was `display: block`, which left a badge wherever the
+   text happened to wrap.
+*/
+.nav a {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.nav a .count {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--clay-lt);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-align: center;
+}
+/* On the active row the tint is invisible against the accent behind it. */
+.nav a.active .count { background: rgb(255 255 255 / 22%); color: #fff; }
+
+/* --- Bottom nav (small screens) ------------------------------------------ */
+.bottom-nav { display: none; }
+
+@media (max-width: 900px) {
+  .bottom-nav {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--card);
+    border-top: 1px solid var(--line);
+    z-index: 35;
+    /* Clear of the iOS home indicator, and zero everywhere else. */
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .bottom-nav a {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: var(--space-2) 0;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: var(--text-xs);
+    font-weight: 600;
+  }
+  .bottom-nav a.active { color: var(--clay-text); }
+
+  /*
+     A dot, not a number: there is no room for a count at this size, and
+     "something is waiting" is the whole message.
+  */
+  .nav-dot {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    margin-left: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warn);
+  }
+
+  /* So the last row of a page is not permanently under the bar. */
+  .shell.has-topbar > .main { padding-bottom: 84px; }
+
+  .shell.has-topbar > .topbar .search-wrap { max-width: none; }
+}
+
+/* --- Layout primitives ---------------------------------------------------- */
+/*
+   Styles for the components in components/layout.tsx. `.page-head`, `.toolbar`,
+   `.stats`, `.stat` and `.tag` are all defined further up this file and are NOT
+   redefined here — what follows is only the parts that had no styles because no
+   page had ever built them.
+*/
+
+/* The two slots inside a page head. The text block may shrink; the actions
+   never do, or a button label wraps to two lines while whitespace sits beside
+   the title. */
+.ph-text { min-width: 0; }
+.ph-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+/* --- Tables -------------------------------------------------------------- */
+/*
+   The scroll container. Without it a wide table widens the PAGE, which pushes
+   the sidebar off screen and reads as a broken layout rather than as content
+   that does not fit.
+*/
+.table-wrap {
+  overflow-x: auto;
+  /* Momentum scrolling on iOS, and a scrollbar that does not overlay content. */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* --- Tabs ---------------------------------------------------------------- */
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--space-5);
+  overflow-x: auto;
+}
+.tab {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab:hover { color: var(--ink); }
+
+/*
+   The active tab is marked by a rule that sits ON the container's border, so the
+   selected tab reads as connected to the panel below it. Drawn with a
+   pseudo-element rather than a border on the button: a border would change the
+   button's height and shift every other tab by a pixel as the selection moves.
+*/
+.tab.on { color: var(--clay-text); }
+.tab.on::after {
+  content: '';
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: -1px;
+  height: 2px;
+  background: var(--clay);
+  border-radius: 2px 2px 0 0;
+}
+
+.tab-count {
+  margin-left: var(--space-2);
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--clay-lt);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+/* A back link sitting above a page head, not inside its title. */
+.back-link { display: inline-block; margin-bottom: var(--space-2); text-decoration: none; }
+.back-link:hover { text-decoration: underline; }

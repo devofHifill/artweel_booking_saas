@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, timeIn, type BookingListItem } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { PageHead } from '../components/layout';
 
 /**
  * Week view with drag-to-reschedule.
@@ -188,14 +189,11 @@ export default function CalendarPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Calendar</h1>
-          <p className="sub">
-            Drag an appointment to move it. Times shown in {timezone.replace('_', ' ')}.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+      <PageHead
+        title="Calendar"
+        lede={`Drag an appointment to move it. Times shown in ${timezone.replace('_', ' ')}.`}
+        actions={
+          <>
           <button
             onClick={() => {
               const previous = new Date(weekStart);
@@ -217,8 +215,9 @@ export default function CalendarPage() {
           >
             Next →
           </button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {error && <div className="err">{error}</div>}
 

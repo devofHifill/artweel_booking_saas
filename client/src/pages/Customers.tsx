@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useOrgBase } from '../lib/auth';
+import { DataTable, PageHead, StatusPill, Toolbar } from '../components/layout';
+import { EmptyState } from '../components/states';
 
 type CustomerRow = {
   id: string;
@@ -41,70 +43,66 @@ export default function Customers() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Customers</h1>
-          <p className="sub">{customers.length} shown</p>
-        </div>
-      </div>
+      <PageHead title="Customers" lede={`${customers.length} shown`} />
 
-      <div className="toolbar">
+      <Toolbar>
         <input
           placeholder="Search name, email or phone"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           style={{ minWidth: 280 }}
         />
-      </div>
+      </Toolbar>
 
       {error && <div className="err">{error}</div>}
 
       {customers.length === 0 ? (
-        <div className="card empty-state">
-          <span className="empty-mark" aria-hidden="true">◍</span>
-          <p className="empty-title">No customers yet.</p>
-        </div>
+        /* Was a hand-built copy of the empty state, which had drifted from the
+           shared one: no hint slot, and the card wrapper the others do not use. */
+        <EmptyState hint={search.trim() ? 'Try a different search.' : undefined}>
+          {search.trim() ? 'No customers match that search.' : 'No customers yet.'}
+        </EmptyState>
       ) : (
         <div className="card" style={{ padding: 0 }}>
-          <table>
-            <thead>
+          <DataTable
+            caption="Customers, with contact details and text-message consent"
+            head={
               <tr>
                 <th>Name</th>
                 <th>Contact</th>
                 <th>Bookings</th>
                 <th>Texts</th>
               </tr>
-            </thead>
-            <tbody>
-              {customers.map((customer) => (
-                <tr key={customer.id}>
-                  <td>
-                    <Link to={`/customers/${customer.id}`}>{customer.name}</Link>
-                  </td>
-                  <td>
-                    {customer.email}
-                    {customer.phone && (
-                      <div className="sub" style={{ fontSize: '.78rem' }}>
-                        {customer.phone}
-                      </div>
-                    )}
-                  </td>
-                  <td>{customer._count.bookings}</td>
-                  <td>
-                    {/* Opt-out is shown distinctly from "never consented":
-                        they are very different answers to "why no text?" */}
-                    {customer.smsOptedOutAt ? (
-                      <span className="tag NO_SHOW">Opted out</span>
-                    ) : customer.smsConsentAt ? (
-                      <span className="tag CONFIRMED">Yes</span>
-                    ) : (
-                      <span className="tag CANCELLED">No consent</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            }
+          >
+            {customers.map((customer) => (
+              <tr key={customer.id}>
+                <td>
+                  <Link to={`/customers/${customer.id}`}>{customer.name}</Link>
+                </td>
+                <td>
+                  {customer.email}
+                  {customer.phone && (
+                    <div className="sub" style={{ fontSize: '.78rem' }}>
+                      {customer.phone}
+                    </div>
+                  )}
+                </td>
+                <td>{customer._count.bookings}</td>
+                <td>
+                  {/* Opt-out is shown distinctly from "never consented":
+                      they are very different answers to "why no text?" */}
+                  {customer.smsOptedOutAt ? (
+                    <StatusPill status="NO_SHOW">Opted out</StatusPill>
+                  ) : customer.smsConsentAt ? (
+                    <StatusPill status="CONFIRMED">Yes</StatusPill>
+                  ) : (
+                    <StatusPill status="CANCELLED">No consent</StatusPill>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </DataTable>
         </div>
       )}
     </>

@@ -18,12 +18,26 @@ export function Shell({
   brand,
   sidebar,
   children,
+  topbar,
+  bottomNav,
   className = '',
 }: {
   /** Rendered in the sidebar and, on small screens, in the top bar. */
   brand: ReactNode;
   sidebar: ReactNode;
   children: ReactNode;
+  /**
+   * Search, alerts and account controls, kept at every width.
+   *
+   * Optional, and that is the point: /admin shares this shell and has no
+   * customers to search or studio page to preview. Without the prop it renders
+   * exactly what it rendered before — a bar that appears only below 900px to
+   * carry the menu toggle. Passing it opts the dashboard into a persistent bar
+   * instead, via `has-topbar` on the root.
+   */
+  topbar?: ReactNode;
+  /** Small-screen tab bar. Same reasoning: the dashboard has one, /admin does not. */
+  bottomNav?: ReactNode;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -60,7 +74,11 @@ export function Shell({
   }, [open]);
 
   return (
-    <div className={`shell ${className}`.trim()}>
+    <div
+      className={`shell ${topbar ? 'has-topbar' : ''} ${className}`
+        .replace(/\s+/g, ' ')
+        .trim()}
+    >
       {/*
         Skip link. Ten nav items sit before the page body, and without this a
         keyboard or screen-reader user walks through all of them on every single
@@ -70,7 +88,11 @@ export function Shell({
         Skip to content
       </a>
 
-      {/* Only rendered small — the CSS hides it above 900px. */}
+      {/*
+        Without `topbar` this is the original small-screen-only bar. With it, the
+        CSS keeps the bar at every width and hides the toggle and brand above
+        900px, where the sidebar already shows both.
+      */}
       <div className="topbar">
         <button
           className="menu-toggle"
@@ -81,6 +103,7 @@ export function Shell({
           <Icon name={open ? 'close' : 'menu'} size={20} />
         </button>
         <div className="brand">{brand}</div>
+        {topbar}
       </div>
 
       {open && (
@@ -99,6 +122,9 @@ export function Shell({
       <main className="main" id="main" tabIndex={-1}>
         {children}
       </main>
+
+      {/* Small screens only; the CSS hides it above 900px where the sidebar is. */}
+      {bottomNav && <nav className="bottom-nav">{bottomNav}</nav>}
     </div>
   );
 }

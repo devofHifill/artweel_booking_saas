@@ -54,6 +54,12 @@ export async function getStudio(slug: string) {
       timezone: true,
       currency: true,
       subscriptionStatus: true,
+      /* The studio's accent, rendered into the page's <style> block. Selected
+         here rather than fetched separately: the booking page is the surface
+         where a studio's branding actually matters, and an extra round trip on
+         the critical path to buy something is a poor trade for two columns. */
+      brandPreset: true,
+      brandAccent: true,
     },
   });
 
@@ -850,7 +856,19 @@ export async function getBookingByToken(token: string) {
       },
       staff: { select: { id: true, name: true } },
       location: { select: { id: true, name: true, address: true, locationType: true } },
-      organization: { select: { id: true, name: true, slug: true, timezone: true } },
+      organization: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          timezone: true,
+          // The manage page shares a stylesheet with the booking page, so
+          // without these it would render in clay while the page the customer
+          // booked from renders in the studio's colour.
+          brandPreset: true,
+          brandAccent: true,
+        },
+      },
       customer: { select: { name: true, email: true } },
     },
   });

@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, dateIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { StatusPill } from '../components/layout';
+import { PageHead } from '../components/layout';
+import { EmptyState } from '../components/states';
 
 /**
  * The shelf: every pot in the studio and where it is in the firing cycle.
@@ -223,21 +226,23 @@ export default function Pieces() {
 
   return (
     <div>
-      <header className="page-head">
-        <h1>Pieces</h1>
-        <div className="toolbar">
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            {FILTERS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-          <button onClick={() => setLogging((v) => !v)}>
-            {logging ? 'Close' : 'Log a class'}
-          </button>
-        </div>
-      </header>
+      <PageHead
+        title="Pieces"
+        actions={
+          <>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              {FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            <button onClick={() => setLogging((v) => !v)}>
+              {logging ? 'Close' : 'Log a class'}
+            </button>
+          </>
+        }
+      />
 
       <nav className="subnav">
         <Link to="/studio/pieces" className="on">
@@ -364,10 +369,7 @@ export default function Pieces() {
       {/* --- Everything ---------------------------------------------------- */}
 
       {pieces.length === 0 && !error && (
-        <div className="card empty-state">
-          <span className="empty-mark" aria-hidden="true">◍</span>
-          <p className="empty-title">Nothing logged yet.</p>
-        </div>
+        <EmptyState>Nothing logged yet.</EmptyState>
       )}
 
       <div className="list">
@@ -376,9 +378,7 @@ export default function Pieces() {
             <div className="row-head" style={{ cursor: 'default' }}>
               <div>
                 <strong>{piece.label}</strong>
-                <span className={`tag ${piece.status}`}>
-                  {humanise(piece.status)}
-                </span>
+                <StatusPill status={piece.status} />
                 <div className="sub">
                   <Link to={`/customers/${piece.customer.id}`}>
                     {piece.customer.name}

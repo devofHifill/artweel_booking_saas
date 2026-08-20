@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, dateIn, timeIn, zonedToInstant } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { StatusPill } from '../components/layout';
+import { PageHead } from '../components/layout';
+import { EmptyState } from '../components/states';
 
 /**
  * Kiln loads.
@@ -259,14 +262,14 @@ export default function Firings() {
 
   return (
     <div>
-      <header className="page-head">
-        <h1>Firings</h1>
-        <div className="toolbar">
+      <PageHead
+        title="Firings"
+        actions={
           <button onClick={() => setCreating((v) => !v)}>
             {creating ? 'Close' : 'Schedule a firing'}
           </button>
-        </div>
-      </header>
+        }
+      />
 
       <nav className="subnav">
         <Link to="/studio/pieces">Pieces</Link>
@@ -368,10 +371,7 @@ export default function Firings() {
       )}
 
       {firings.length === 0 && !error && (
-        <div className="card empty-state">
-          <span className="empty-mark" aria-hidden="true">△</span>
-          <p className="empty-title">No firings scheduled.</p>
-        </div>
+        <EmptyState icon="△">No firings scheduled.</EmptyState>
       )}
 
       <div className="list">
@@ -380,12 +380,8 @@ export default function Firings() {
             <div className="row-head" style={{ cursor: 'default' }}>
               <div>
                 <strong>{firing.resource.name}</strong>
-                <span className={`tag ${firing.firingType}`}>
-                  {firing.firingType.toLowerCase()}
-                </span>
-                <span className={`tag ${firing.status}`}>
-                  {humanise(firing.status)}
-                </span>
+                <StatusPill status={firing.firingType} />
+                <StatusPill status={firing.status} />
                 <div className="sub">
                   {dateIn(firing.startsAt, timezone)} ·{' '}
                   {timeIn(firing.startsAt, timezone)} →{' '}
@@ -441,9 +437,7 @@ export default function Firings() {
                               {piece.label}
                               <span className="sub">{piece.customer.name}</span>
                             </span>
-                            <span className={`tag ${piece.status}`}>
-                              {humanise(piece.status)}
-                            </span>
+                            <StatusPill status={piece.status} />
                             {FLOW[firing.status].length > 0 && (
                               <button
                                 className="link danger"
