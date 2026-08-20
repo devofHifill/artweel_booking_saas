@@ -68,6 +68,12 @@ COPY --from=build /app/tsconfig.json ./
 # time a script changed.
 COPY scripts ./scripts
 
+# TEMPORARY — static demo prototypes served at /demo (see the comment in
+# src/app.ts). Plain HTML/CSS/JS, so the compile never touches them; copied
+# from the build CONTEXT for the same reason as scripts above. Delete this
+# line when the demos come off this host.
+COPY demos ./demos
+
 # Configuration arrives as real environment variables from compose's env_file.
 # config/index.ts also looks for /app/.env and shrugs when it is absent —
 # dotenv does not overwrite variables that are already set, so there is no

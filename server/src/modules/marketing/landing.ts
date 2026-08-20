@@ -284,6 +284,8 @@ ${structuredData(page, canonical)}
       <a href="#features" data-spy>Features</a>
       <a href="#pricing" data-spy>Pricing</a>
       <a href="#guides" data-spy>FAQ</a>
+      <!-- TEMPORARY demo link — remove with the /demo mount in app.ts -->
+      <a href="/demo">Demo</a>
       <a href="/app" class="nav-signin">Sign in</a>
       <a href="/app?signup=1" class="btn btn-primary btn-sm">Start free</a>
     </nav>
@@ -299,6 +301,8 @@ ${structuredData(page, canonical)}
       <a href="#features">Features</a>
       <a href="#pricing">Pricing</a>
       <a href="#guides">FAQ</a>
+      <!-- TEMPORARY demo link — remove with the /demo mount in app.ts -->
+      <a href="/demo">Demo</a>
       <a href="/app">Sign in</a>
       <a href="/app?signup=1" class="btn btn-primary">Start free</a>
     </nav>

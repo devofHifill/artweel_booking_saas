@@ -228,6 +228,8 @@ const NAV = `
     <nav>
       <a href="/pricing">Pricing</a>
       <a href="/guides/pricing-mobile-pottery-parties">Guides</a>
+      <!-- TEMPORARY demo link — remove with the /demo mount in app.ts -->
+      <a href="/demo">Demo</a>
       <a href="/app">Sign in</a>
       <a class="btn sm" href="/app?signup=1">Start free</a>
     </nav>

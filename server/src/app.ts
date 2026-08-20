@@ -1,3 +1,4 @@
+import path from 'node:path';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -104,6 +105,29 @@ export function createApp() {
   // The widget loader. Served from the root because a studio pastes an
   // absolute URL into their own site.
   app.use(embedRouter);
+
+  /* ------------------------------------------------------------------ *
+   * TEMPORARY — product demos at /demo.
+   *
+   * Static prototypes (plain HTML/CSS/JS, no server involvement) served so
+   * they can be shown from this host. They share nothing with the app: no
+   * database, no session, no API. Nothing else imports this.
+   *
+   * TO REMOVE: delete this block, the `Demo` links in
+   * modules/marketing/landing.ts and modules/marketing/render.ts, the
+   * `COPY demos ./demos` line in the Dockerfile, and the server/demos
+   * directory. Nothing else references them.
+   *
+   * __dirname resolves to src/ in development and dist/ in the image, and
+   * demos/ sits beside both, hence the '..'.
+   * ------------------------------------------------------------------ */
+  app.use(
+    '/demo',
+    express.static(path.join(__dirname, '..', 'demos'), {
+      extensions: ['html'],
+      maxAge: '1h',
+    }),
+  );
 
   /**
    * The marketing site sits at the root and is mounted LAST.
