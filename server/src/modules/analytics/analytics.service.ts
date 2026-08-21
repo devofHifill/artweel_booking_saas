@@ -430,3 +430,213 @@ export async function uncollectedPieces(
     },
   });
 }
+
+// --- Reporting aggregates ---------------------------------------------------
+//
+// Added for the Reports screen. They live here rather than beside it for the
+// same reason the rest of this module exists: the dashboard already answers
+// "how are we doing" and the two screens must not answer it differently.
+
+export type BookingBreakdown = {
+  total: number;
+  seats: number;
+  byStatus: { status: string; count: number }[];
+  cancellationRate: number;
+};
+
+/**
+ * What happened to the bookings in a window.
+ *
+ * Includes CANCELLED, unlike almost every other aggregate here — the
+ * cancellation rate is the number this tab exists for, and it cannot be
+ * computed from a set that excludes cancellations. Everything else stays
+ * consistent by dividing rather than by filtering.
+ */
+export async function bookingBreakdown(
+  organizationId: string,
+  opts: { days: number; now?: Date },
+): Promise<BookingBreakdown> {
+  const now = opts.now ?? new Date();
+  const since = new Date(now.getTime() - opts.days * 86_400_000);
+
+  const rows = await prisma.booking.findMany({
+    where: { organizationId, startsAt: { gte: since, lte: now } },
+    select: { status: true, seats: true },
+  });
+
+  const byStatus = new Map<string, number>();
+  let seats = 0;
+
+  for (const row of rows) {
+    byStatus.set(row.status, (byStatus.get(row.status) ?? 0) + 1);
+    if (row.status !== 'CANCELLED') seats += row.seats;
+  }
+
+  const cancelled = byStatus.get('CANCELLED') ?? 0;
+
+  return {
+    total: rows.length,
+    seats,
+    byStatus: [...byStatus.entries()]
+      .map(([status, count]) => ({ status, count }))
+      .sort((a, b) => b.count - a.count),
+    /* Rounded to a whole percent. A cancellation rate quoted to two decimals
+       implies a precision that a studio doing forty bookings a month does not
+       have. */
+    cancellationRate: rows.length
+      ? Math.round((cancelled / rows.length) * 100)
+      : 0,
+  };
+}
+
+export type CustomerStats = {
+  newCustomers: number;
+  returning: number;
+  top: { id: string; name: string; bookings: number; spentCents: number }[];
+};
+
+/**
+ * Who is booking.
+ *
+ * "New" is measured by when the CUSTOMER record was created, not by whether
+ * this is their first booking in the window — somebody who joined two years ago
+ * and came back last week is a returning customer, and counting them as new
+ * would flatter the number that a studio uses to judge its marketing.
+ */
+export async function customerStats(
+  organizationId: string,
+  opts: { days: number; limit?: number; now?: Date },
+): Promise<CustomerStats> {
+  const now = opts.now ?? new Date();
+  const since = new Date(now.getTime() - opts.days * 86_400_000);
+
+  const [newCustomers, bookings] = await Promise.all([
+    prisma.customer.count({
+      where: { organizationId, createdAt: { gte: since, lte: now } },
+    }),
+
+    prisma.booking.findMany({
+      where: {
+        organizationId,
+        ...LIVE_BOOKING,
+        startsAt: { gte: since, lte: now },
+      },
+      select: {
+        customerId: true,
+        customer: { select: { id: true, name: true, createdAt: true } },
+        payments: { select: { amountCents: true, refundedCents: true, status: true } },
+      },
+    }),
+  ]);
+
+  const byCustomer = new Map<
+    string,
+    { id: string; name: string; bookings: number; spentCents: number; joinedAt: Date }
+  >();
+
+  for (const booking of bookings) {
+    const entry = byCustomer.get(booking.customerId) ?? {
+      id: booking.customer.id,
+      name: booking.customer.name,
+      bookings: 0,
+      spentCents: 0,
+      joinedAt: booking.customer.createdAt,
+    };
+
+    entry.bookings += 1;
+    entry.spentCents += booking.payments
+      .filter((p) => MONEY_IN_STATUSES.includes(p.status))
+      .reduce((sum, p) => sum + net(p), 0);
+
+    byCustomer.set(booking.customerId, entry);
+  }
+
+  const everyone = [...byCustomer.values()];
+
+  return {
+    newCustomers,
+    returning: everyone.filter((c) => c.joinedAt < since).length,
+    top: everyone
+      .sort((a, b) => b.spentCents - a.spentCents || b.bookings - a.bookings)
+      .slice(0, opts.limit ?? 5)
+      .map(({ id, name, bookings: count, spentCents }) => ({
+        id,
+        name,
+        bookings: count,
+        spentCents,
+      })),
+  };
+}
+
+export type StaffPerformance = {
+  staffId: string;
+  name: string;
+  classes: number;
+  seats: number;
+  revenueCents: number;
+};
+
+/**
+ * What each instructor actually taught.
+ *
+ * Counted from SESSIONS, not from bookings — a class with nobody in it was
+ * still taught, still occupied a kiln and still cost the studio an instructor's
+ * evening. Counting bookings would make a quiet week look like an instructor
+ * who did not work.
+ */
+export async function staffPerformance(
+  organizationId: string,
+  opts: { days: number; now?: Date },
+): Promise<StaffPerformance[]> {
+  const now = opts.now ?? new Date();
+  const since = new Date(now.getTime() - opts.days * 86_400_000);
+
+  const sessions = await prisma.session.findMany({
+    where: {
+      organizationId,
+      staffId: { not: null },
+      startsAt: { gte: since, lte: now },
+      status: 'SCHEDULED',
+    },
+    select: {
+      staffId: true,
+      seatsTaken: true,
+      staff: { select: { id: true, name: true } },
+      bookings: {
+        where: { status: { in: LIVE_BOOKING_STATUSES } },
+        select: {
+          payments: { select: { amountCents: true, refundedCents: true, status: true } },
+        },
+      },
+    },
+  });
+
+  const byStaff = new Map<string, StaffPerformance>();
+
+  for (const session of sessions) {
+    if (!session.staff) continue;
+
+    const entry = byStaff.get(session.staff.id) ?? {
+      staffId: session.staff.id,
+      name: session.staff.name,
+      classes: 0,
+      seats: 0,
+      revenueCents: 0,
+    };
+
+    entry.classes += 1;
+    entry.seats += session.seatsTaken;
+    entry.revenueCents += session.bookings.reduce(
+      (sum, booking) =>
+        sum +
+        booking.payments
+          .filter((p) => MONEY_IN_STATUSES.includes(p.status))
+          .reduce((s, p) => s + net(p), 0),
+      0,
+    );
+
+    byStaff.set(session.staff.id, entry);
+  }
+
+  return [...byStaff.values()].sort((a, b) => b.classes - a.classes);
+}

@@ -27,6 +27,8 @@ import {
 import { onboardingRouter } from '../modules/onboarding/onboarding.route';
 import { shellRouter } from '../modules/shell/shell.route';
 import { dashboardRouter } from '../modules/dashboard/dashboard.route';
+import { integrationRouter } from '../modules/integrations/integration.route';
+import { reportRouter } from '../modules/reports/report.route';
 import { getTrafficSummary } from '../modules/marketing/marketing.route';
 import { asyncHandler } from '../lib/async-handler';
 import { requireMember } from '../middleware/authenticate';
@@ -106,3 +108,9 @@ orgScopedRouter.use('/shell', shellRouter);
 
 /** The landing page. Composes analytics with today's operating picture. */
 orgScopedRouter.use('/dashboard', dashboardRouter);
+
+/** Four existing truths — Stripe, calendars, SMS — on one screen. */
+orgScopedRouter.use('/integrations', integrationRouter);
+
+/** Six views over one window. Admin-only: this is the studio's commercial position. */
+orgScopedRouter.use('/reports', reportRouter);

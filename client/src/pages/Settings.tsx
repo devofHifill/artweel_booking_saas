@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { api, money } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import { setBrand, type BrandScheme, type ThemeResponse } from '../lib/brand';
 import { useTheme, type Theme } from '../lib/theme';
-import { LoadingRegion, SkeletonCard } from '../components/states';
-import { PageHead, SegRange } from '../components/layout';
+import { EmptyState, LoadingRegion, SkeletonCard } from '../components/states';
+import { PageHead, SegRange, StatusPill } from '../components/layout';
 
 /**
  * Settings.
  *
- * One section for now. The sub-navigation TourFlow uses arrives with the rest
- * of the sections rather than ahead of them — a left-hand nav listing a single
- * item reads as a page that failed to load the other twelve.
+ * Four sections behind a sub-navigation. Classes & credits is the one that
+ * matters most: `makeUpCreditsEnabled` and its five siblings have been in the
+ * database since the credits migration, with readers, a shipped workstream, and
+ * no way for a studio owner to reach them. The column defaults to false, so
+ * until this screen every studio in production had make-up credits switched off
+ * and no switch.
  *
- * Two settings live here that look alike and are not:
+ * Two settings under Appearance look alike and are not:
  *
  *   Light/dark   personal, per browser, stored in localStorage. Changing it
  *                affects the person who clicked it and nobody else.
@@ -39,15 +42,56 @@ const THEMES: { value: Theme; label: string }[] = [
   { value: 'system', label: 'System' },
 ];
 
+/**
+ * The sections, in the order a studio meets them.
+ *
+ * Studio first because it is the thing with a name on it; Appearance second
+ * because it shipped first and people will look for it; the two rule-heavy ones
+ * last. The sub-navigation only exists now that there is more than one — a
+ * left-hand nav listing a single item reads as a page that failed to load the
+ * rest of itself.
+ */
+const SECTIONS = [
+  { id: 'studio', label: 'Studio' },
+  { id: 'appearance', label: 'Appearance' },
+  { id: 'classes', label: 'Classes & credits' },
+  { id: 'cancellation', label: 'Cancellation' },
+] as const;
+
+type SectionId = (typeof SECTIONS)[number]['id'];
+
 export default function Settings() {
+  const [section, setSection] = useState<SectionId>('studio');
+
   return (
     <>
       <PageHead
         title="Settings"
-        lede="How your studio looks, to you and to your customers."
+        lede="How your studio runs, and how it looks to your customers."
       />
 
-      <Appearance />
+      <div className="settings-wrap">
+        <nav className="settings-nav" aria-label="Settings sections">
+          {SECTIONS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={section === item.id ? 'on' : ''}
+              aria-current={section === item.id ? 'page' : undefined}
+              onClick={() => setSection(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="settings-panel">
+          {section === 'studio' && <StudioSection />}
+          {section === 'appearance' && <Appearance />}
+          {section === 'classes' && <ClassesSection />}
+          {section === 'cancellation' && <CancellationSection />}
+        </div>
+      </div>
     </>
   );
 }
@@ -289,5 +333,539 @@ function Preview() {
         <span className="preview-tint">Tinted panel</span>
       </div>
     </div>
+  );
+}
+
+// --- Studio -----------------------------------------------------------------
+
+type Organization = {
+  id: string;
+  name: string;
+  timezone: string;
+  currency: string;
+  makeUpCreditsEnabled: boolean;
+  makeUpCreditDays: number;
+  makeUpRequiresNotice: boolean;
+  makeUpNoticeHours: number;
+  makeUpCrossCohort: boolean;
+  pieceHoldDays: number;
+};
+
+/**
+ * Loads the organization once per section.
+ *
+ * Two sections read the same row, and both are one PATCH away from changing it.
+ * Sharing a cached copy between them would mean the Classes panel showing a name
+ * the Studio panel had already changed — the classic stale-parent bug. A section
+ * is opened rarely and the row is tiny; fetching on mount is the honest option.
+ */
+function useOrganization() {
+  const base = useOrgBase();
+  const [org, setOrg] = useState<Organization | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.get<{ organization: Organization }>(base);
+      setOrg(res.organization);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load settings.');
+    }
+  }, [base]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return { org, setOrg, error, setError, reload: load, base };
+}
+
+/** A common shape for the timezones a US studio actually picks. */
+const TIMEZONES = [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Phoenix',
+  'America/Los_Angeles',
+  'America/Anchorage',
+  'Pacific/Honolulu',
+];
+
+function StudioSection() {
+  const { org, error, setError, base, reload } = useOrganization();
+  const { role } = useActiveOrg() ?? {};
+  const canEdit = role === 'OWNER' || role === 'ADMIN';
+
+  const [form, setForm] = useState({ name: '', timezone: '', currency: '' });
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (org) setForm({ name: org.name, timezone: org.timezone, currency: org.currency });
+  }, [org]);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setSaved(false);
+    try {
+      await api.patch(base, {
+        name: form.name.trim(),
+        timezone: form.timezone,
+        currency: form.currency,
+      });
+      await reload();
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error) return <div className="err">{error}</div>;
+  if (!org) {
+    return (
+      <LoadingRegion label="Loading studio settings">
+        <SkeletonCard lines={3} />
+      </LoadingRegion>
+    );
+  }
+
+  return (
+    <section className="card settings-section">
+      <h2>Studio</h2>
+
+      <form onSubmit={(e) => void save(e)}>
+        <div className="fields">
+          <label>
+            Studio name
+            <input
+              value={form.name}
+              disabled={!canEdit}
+              maxLength={120}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+            <span className="sub">Customers see this on your booking page.</span>
+          </label>
+
+          <label>
+            Timezone
+            <select
+              value={form.timezone}
+              disabled={!canEdit}
+              onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+            >
+              {/* The stored value may be outside the shortlist — a studio set up
+                  by hand, or one that moved. Showing it keeps the select honest
+                  rather than silently reassigning them to New York. */}
+              {!TIMEZONES.includes(form.timezone) && form.timezone && (
+                <option value={form.timezone}>{form.timezone}</option>
+              )}
+              {TIMEZONES.map((tz) => (
+                <option key={tz} value={tz}>
+                  {tz.replace('_', ' ')}
+                </option>
+              ))}
+            </select>
+            <span className="sub">
+              Every class time, reminder and report is written in this zone.
+            </span>
+          </label>
+
+          <label>
+            Currency
+            <input
+              value={form.currency}
+              disabled={!canEdit}
+              maxLength={3}
+              style={{ textTransform: 'uppercase', width: '8ch' }}
+              onChange={(e) =>
+                setForm({ ...form, currency: e.target.value.toUpperCase() })
+              }
+            />
+          </label>
+        </div>
+
+        {canEdit && (
+          <div className="toolbar">
+            <button className="primary" disabled={busy}>
+              Save
+            </button>
+            {saved && <span className="saved-note">Saved.</span>}
+          </div>
+        )}
+      </form>
+    </section>
+  );
+}
+
+// --- Classes & credits ------------------------------------------------------
+
+/**
+ * The six policy columns.
+ *
+ * These have been in the database since the credits migration, with readers, a
+ * whole workstream built on them, and — until the organization PATCH route — no
+ * writer at all. Then a writer with no screen. This is the screen: the first
+ * point at which a studio owner can turn make-up credits on without somebody
+ * opening psql for them.
+ *
+ * `makeUpCreditsEnabled` defaults to FALSE, so until now every studio in
+ * production had the feature switched off and no switch.
+ */
+function ClassesSection() {
+  const { org, error, setError, base, reload } = useOrganization();
+  const { role } = useActiveOrg() ?? {};
+  const canEdit = role === 'OWNER' || role === 'ADMIN';
+
+  const [form, setForm] = useState({
+    makeUpCreditsEnabled: false,
+    makeUpCreditDays: 90,
+    makeUpRequiresNotice: true,
+    makeUpNoticeHours: 24,
+    makeUpCrossCohort: true,
+    pieceHoldDays: 30,
+  });
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!org) return;
+    setForm({
+      makeUpCreditsEnabled: org.makeUpCreditsEnabled,
+      makeUpCreditDays: org.makeUpCreditDays,
+      makeUpRequiresNotice: org.makeUpRequiresNotice,
+      makeUpNoticeHours: org.makeUpNoticeHours,
+      makeUpCrossCohort: org.makeUpCrossCohort,
+      pieceHoldDays: org.pieceHoldDays,
+    });
+  }, [org]);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setSaved(false);
+    try {
+      await api.patch(base, {
+        ...form,
+        makeUpCreditDays: Number(form.makeUpCreditDays),
+        makeUpNoticeHours: Number(form.makeUpNoticeHours),
+        pieceHoldDays: Number(form.pieceHoldDays),
+      });
+      await reload();
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error) return <div className="err">{error}</div>;
+  if (!org) {
+    return (
+      <LoadingRegion label="Loading class settings">
+        <SkeletonCard lines={3} />
+      </LoadingRegion>
+    );
+  }
+
+  return (
+    <section className="card settings-section">
+      <h2>Classes &amp; credits</h2>
+
+      <form onSubmit={(e) => void save(e)}>
+        <div className="setting">
+          <div className="setting-label">
+            <h3>Make-up credits</h3>
+            <p className="sub">
+              When a student misses a class, give them a credit to use on another
+              one. Off by default — a studio that has never offered make-ups
+              should not start silently.
+            </p>
+          </div>
+
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={form.makeUpCreditsEnabled}
+              disabled={!canEdit}
+              onChange={(e) =>
+                setForm({ ...form, makeUpCreditsEnabled: e.target.checked })
+              }
+            />
+            Offer make-up credits
+          </label>
+        </div>
+
+        {/*
+          The rules only exist if the feature does. Showing four inputs that
+          govern something switched off invites somebody to set them carefully
+          and wonder later why nothing happened.
+        */}
+        {form.makeUpCreditsEnabled && (
+          <div className="fields indent">
+            <label>
+              Credits expire after
+              <span className="with-unit">
+                <input
+                  type="number"
+                  min={0}
+                  max={3650}
+                  value={form.makeUpCreditDays}
+                  disabled={!canEdit}
+                  onChange={(e) =>
+                    setForm({ ...form, makeUpCreditDays: Number(e.target.value) })
+                  }
+                />
+                <span>days</span>
+              </span>
+              <span className="sub">0 means they never expire.</span>
+            </label>
+
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.makeUpRequiresNotice}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  setForm({ ...form, makeUpRequiresNotice: e.target.checked })
+                }
+              />
+              Only if they tell you in advance
+            </label>
+
+            {form.makeUpRequiresNotice && (
+              <label>
+                How much notice
+                <span className="with-unit">
+                  <input
+                    type="number"
+                    min={0}
+                    max={720}
+                    value={form.makeUpNoticeHours}
+                    disabled={!canEdit}
+                    onChange={(e) =>
+                      setForm({ ...form, makeUpNoticeHours: Number(e.target.value) })
+                    }
+                  />
+                  <span>hours</span>
+                </span>
+              </label>
+            )}
+
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.makeUpCrossCohort}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  setForm({ ...form, makeUpCrossCohort: e.target.checked })
+                }
+              />
+              Usable on any class, not just their own course
+            </label>
+          </div>
+        )}
+
+        <hr />
+
+        <div className="setting">
+          <div className="setting-label">
+            <h3>Finished pieces</h3>
+            <p className="sub">
+              How long a finished piece waits on the shelf before your dashboard
+              starts asking about it.
+            </p>
+          </div>
+
+          <label>
+            <span className="with-unit">
+              <input
+                type="number"
+                min={0}
+                max={3650}
+                value={form.pieceHoldDays}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  setForm({ ...form, pieceHoldDays: Number(e.target.value) })
+                }
+              />
+              <span>days</span>
+            </span>
+            <span className="sub">0 means never chase.</span>
+          </label>
+        </div>
+
+        {canEdit ? (
+          <div className="toolbar">
+            <button className="primary" disabled={busy}>
+              Save
+            </button>
+            {saved && <span className="saved-note">Saved.</span>}
+          </div>
+        ) : (
+          <p className="sub">Only an owner or admin can change these.</p>
+        )}
+      </form>
+    </section>
+  );
+}
+
+// --- Cancellation -----------------------------------------------------------
+
+type Tier = { hoursBefore: number; refundPercent: number; creditPercent?: number };
+
+/**
+ * How much notice a tier covers, in words.
+ *
+ * The zero tier is the catch-all at the bottom of the ladder — it matches any
+ * cancellation that did not qualify for a tier above it. Rendering it literally
+ * as "0 hours or more" is technically what the number says and tells an owner
+ * nothing about when it applies.
+ *
+ * And a day is a day: "1 days or more" is the kind of thing that makes a
+ * carefully built settings screen look unfinished.
+ */
+function noticeLabel(hoursBefore: number): string {
+  if (hoursBefore === 0) return 'Any later than that';
+
+  if (hoursBefore >= 24) {
+    const days = Math.round(hoursBefore / 24);
+    return `${days} ${days === 1 ? 'day' : 'days'} or more`;
+  }
+
+  return `${hoursBefore} ${hoursBefore === 1 ? 'hour' : 'hours'} or more`;
+}
+
+type Policy = {
+  id: string;
+  name: string;
+  tiers: Tier[];
+  isDefault: boolean;
+  noShowFeeCents: number;
+  allowReschedule: boolean;
+  rescheduleCutoffHours: number;
+};
+
+/**
+ * Cancellation policies.
+ *
+ * Read-only here, deliberately. The tiers are an ordered ladder — "24 hours
+ * before: 100% refund; 6 hours: 50% and a credit; after that: nothing" — and an
+ * editor for that is a real piece of interface with reordering, validation and
+ * a live preview of what a given notice period would pay out. Half-building it
+ * would produce something that saves a ladder nobody can reason about, against
+ * the one setting in the product that decides who gets their money back.
+ *
+ * What this does instead is make the current rules VISIBLE, which they have
+ * never been outside the database, and say plainly where the gap is.
+ */
+function CancellationSection() {
+  const base = useOrgBase();
+  const org = useActiveOrg();
+  const currency = org?.organization.currency ?? 'USD';
+
+  const [policies, setPolicies] = useState<Policy[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ policies: Policy[] }>(`${base}/cancellation-policies`)
+      .then((res) => !cancelled && setPolicies(res.policies))
+      .catch(
+        (err) =>
+          !cancelled &&
+          setError(err instanceof Error ? err.message : 'Could not load policies.'),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [base]);
+
+  if (error) return <div className="err">{error}</div>;
+  if (!policies) {
+    return (
+      <LoadingRegion label="Loading cancellation policies">
+        <SkeletonCard lines={3} />
+      </LoadingRegion>
+    );
+  }
+
+  return (
+    <section className="card settings-section">
+      <h2>Cancellation</h2>
+      <p className="sub">
+        What a customer gets back when they cancel, by how much notice they give.
+      </p>
+
+      {policies.length === 0 ? (
+        <EmptyState hint="Without one, a cancellation refunds in full.">
+          No cancellation policy set.
+        </EmptyState>
+      ) : (
+        <div className="policy-list">
+          {policies.map((policy) => (
+            <div className="policy" key={policy.id}>
+              <div className="policy-head">
+                <h3>
+                  {policy.name}
+                  {policy.isDefault && <StatusPill status="ACTIVE">Default</StatusPill>}
+                </h3>
+              </div>
+
+              <ol className="tiers">
+                {[...policy.tiers]
+                  .sort((a, b) => b.hoursBefore - a.hoursBefore)
+                  .map((tier) => (
+                    <li key={tier.hoursBefore}>
+                      <span className="tier-when">{noticeLabel(tier.hoursBefore)}</span>
+                      <span className="tier-what">
+                        {tier.refundPercent}% refunded
+                        {tier.creditPercent
+                          ? ` · ${tier.creditPercent}% as credit`
+                          : ''}
+                      </span>
+                    </li>
+                  ))}
+              </ol>
+
+              <dl className="policy-meta">
+                <div>
+                  <dt>No-show fee</dt>
+                  <dd>
+                    {policy.noShowFeeCents > 0
+                      ? money(policy.noShowFeeCents, currency)
+                      : 'None'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Rescheduling</dt>
+                  <dd>
+                    {policy.allowReschedule
+                      ? `Allowed up to ${policy.rescheduleCutoffHours}h before`
+                      : 'Not allowed'}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/*
+        Said out loud rather than left as a missing button. An owner who cannot
+        find the edit control should know it does not exist yet, not conclude
+        they lack permission.
+      */}
+      <p className="sub">
+        Editing the refund ladder is not built yet — it needs its own screen, with
+        a preview of what each notice period actually pays out. Ask and it can be
+        changed for you in the meantime.
+      </p>
+    </section>
   );
 }

@@ -1,5 +1,32 @@
 import request from 'supertest';
 import type { Express } from 'express';
+import { resetRateLimits } from '../../src/middleware/rate-limit';
+
+/**
+ * Fixture registrations must never be throttled.
+ *
+ * `tests/setup.ts` raises the auth limits far above anything a suite generates,
+ * which works right up until `tests/auth/rate-limit.test.ts` runs. That file
+ * lowers them deliberately — it is the one file that proves the limiters bite —
+ * and `src/config` validates the environment ONCE at import time, so the low
+ * values are frozen into config for the rest of the process. Every file that
+ * happens to run after it inherits a budget of three registrations.
+ *
+ * That is invisible until the file order changes. Adding four test files in
+ * Phase B moved `staff-delete` behind `rate-limit`, and it failed its fourth
+ * through seventh tests with 429s while passing perfectly on its own.
+ *
+ * Two files had already patched this for themselves with a `resetRateLimits()`
+ * in their own `beforeEach`. Doing it here instead fixes every file that exists
+ * and every file anyone writes later, none of which should have to know that a
+ * suite three directories away edits a global.
+ *
+ * Safe for the rate-limit suite itself: it does not use these helpers — it
+ * builds its requests directly and manages `resetRateLimits` on its own terms.
+ */
+function clearRateLimitBudget() {
+  resetRateLimits();
+}
 
 /**
  * A signed-in studio, ready to make authenticated calls.
@@ -34,6 +61,8 @@ export async function signUpStudio(
     plan?: 'SOLO' | 'STUDIO' | 'PRO';
   } = {},
 ): Promise<Studio> {
+  clearRateLimitBudget();
+
   const suffix = Math.random().toString(36).slice(2, 10);
 
   const res = await request(app)
@@ -72,6 +101,8 @@ export async function addMemberToStudio(
   organizationId: string,
   role: 'ADMIN' | 'INSTRUCTOR' | 'FRONT_DESK',
 ): Promise<Studio> {
+  clearRateLimitBudget();
+
   const { prisma } = await import('../../src/lib/prisma');
   const suffix = Math.random().toString(36).slice(2, 10);
 

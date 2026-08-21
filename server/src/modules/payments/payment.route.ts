@@ -6,12 +6,62 @@ import { requireAdmin, requireMember } from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import { prisma } from '../../lib/prisma';
 import * as service from './payment.service';
+import * as list from './payment.list';
+import { validateQuery } from '../../middleware/validate';
 
 /**
  * Studio-side payment settings. Mounted under the org-scoped router, so
  * membership is already proved.
  */
 export const paymentRouter = Router({ mergeParams: true });
+
+/**
+ * The money itself, listed.
+ *
+ * Declared before '/status' would be harmless — these are distinct literal
+ * paths — but it is first because it is the route this screen is built on and
+ * the rest of the file is Connect plumbing.
+ *
+ * `requireMember`, not `requireAdmin`: front desk needs to answer "did that
+ * payment go through" without being able to move money. Refunding is already
+ * admin-only on its own route.
+ */
+paymentRouter.get(
+  '/',
+  requireMember,
+  validateQuery(
+    z.object({
+      from: z.coerce.date().optional(),
+      to: z.coerce.date().optional(),
+      status: z
+        .enum([
+          'PENDING',
+          'SUCCEEDED',
+          'FAILED',
+          'CANCELLED',
+          'REFUNDED',
+          'PARTIALLY_REFUNDED',
+        ])
+        .optional(),
+      search: z.string().max(120).optional(),
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      cursor: z.string().uuid().optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const filters = req.query as unknown as list.PaymentFilters;
+    const organizationId = req.tenant!.organizationId;
+
+    /* Totals cover the whole filtered set, so they are queried alongside the
+       page rather than derived from it. */
+    const [page, totals] = await Promise.all([
+      list.listPayments(organizationId, filters),
+      list.paymentTotals(organizationId, filters),
+    ]);
+
+    res.json({ ...page, totals });
+  }),
+);
 
 paymentRouter.get(
   '/status',

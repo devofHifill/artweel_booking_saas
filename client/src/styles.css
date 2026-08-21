@@ -2313,3 +2313,255 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* Money columns line up on the decimal, and headers sit over them. */
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.strong { font-weight: 600; }
+
+/* --- Settings sections ---------------------------------------------------- */
+
+.settings-wrap {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+/* Below this the sidebar and a readable panel stop fitting side by side, so the
+   nav becomes a scrolling row of tabs above the panel. */
+@media (max-width: 860px) {
+  .settings-wrap { grid-template-columns: minmax(0, 1fr); }
+
+  /*
+     Scoped through .settings-wrap on purpose.
+
+     The base .settings-nav rule below sets flex-direction: column and sits
+     LATER in this file. A media query adds no specificity, so an unscoped
+     .settings-nav here would lose to it on source order and the nav would stay
+     vertical on a phone — which is exactly what happened first time.
+  */
+  .settings-wrap .settings-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    position: static;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding-right: 0;
+    padding-bottom: var(--space-2);
+  }
+  .settings-wrap .settings-nav button { white-space: nowrap; }
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: calc(var(--space-10) + var(--space-4));
+}
+.settings-nav button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.settings-nav button:hover { background: var(--clay-lt); color: var(--ink); }
+.settings-nav button.on { background: var(--clay); color: #fff; }
+
+.settings-panel { min-width: 0; }
+
+/* Nested rules that only apply while their parent switch is on. The rule sits
+   in the accent so the indent reads as "these belong to that", not as a stray
+   left margin. */
+.fields.indent {
+  margin: var(--space-4) 0 0;
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--clay-lt);
+}
+
+.with-unit { display: inline-flex; align-items: center; gap: var(--space-2); }
+.with-unit input { width: 7ch; }
+.with-unit span { color: var(--muted); font-size: var(--text-sm); }
+
+.saved-note { color: var(--ok); font-size: var(--text-sm); font-weight: 600; }
+
+/* --- Cancellation policies ------------------------------------------------ */
+.policy-list { display: flex; flex-direction: column; gap: var(--space-5); }
+.policy {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+}
+.policy-head h3 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-base);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/*
+   A ladder, read top down: most notice first, least last. Ordered <ol> because
+   that is what it is — the tiers are evaluated in sequence, and a screen reader
+   announcing "list of 3" carries that.
+*/
+.tiers { list-style: none; margin: 0; padding: 0; }
+.tiers li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: var(--text-sm);
+}
+.tiers li:last-child { border-bottom: 0; }
+.tier-when { color: var(--muted); }
+.tier-what { font-weight: 600; text-align: right; }
+
+.policy-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  margin: var(--space-4) 0 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.policy-meta dt {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+}
+.policy-meta dd { margin: 2px 0 0; font-size: var(--text-sm); font-weight: 600; }
+
+/* --- Notification templates ------------------------------------------------ */
+.template-list { display: flex; flex-direction: column; gap: var(--space-4); }
+.template { padding: var(--space-4) var(--space-5); }
+.template-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.template-head h3 {
+  margin: 0;
+  font-size: var(--text-base);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/*
+   The message body, shown as written.
+
+   A <pre> because these templates are line-broken on purpose — an SMS with two
+   paragraphs is two paragraphs, and collapsing the whitespace would show the
+   studio something other than what their customer receives. Wrapped rather than
+   scrolled, since the point is to read it.
+*/
+.template-body {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.template-edit { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3); }
+.template-edit textarea { width: 100%; font-family: inherit; resize: vertical; }
+.template-edit code {
+  background: var(--clay-lt);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: .95em;
+}
+
+.template-preview {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+.preview-subject { margin: 0; font-weight: 700; font-size: var(--text-sm); }
+
+/* An email address or phone number must be allowed to break, or one long
+   address widens the whole table. */
+.wrap-any { overflow-wrap: anywhere; }
+.reason { max-width: 28ch; }
+
+/* --- Integrations ---------------------------------------------------------- */
+.integrations { display: flex; flex-direction: column; gap: var(--space-4); }
+.integration { padding: 0; }
+.integration-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--line);
+}
+.integration-head h2 { margin: 0; font-size: var(--text-base); }
+.integration-head .sub { margin: 2px 0 0; max-width: 52ch; }
+.integration-body {
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.integration-facts { display: flex; flex-wrap: wrap; gap: var(--space-6); margin: 0; }
+.integration-facts dt {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+}
+.integration-facts dd { margin: 2px 0 0; font-weight: 600; font-size: var(--text-sm); }
+
+.calendar-list { list-style: none; margin: 0; padding: 0; width: 100%; }
+.calendar-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-sm);
+}
+.calendar-list li:last-child { border-bottom: 0; }
+.cal-name { font-weight: 600; min-width: 12ch; }
+/* The account address gives up its space first — the name and the status are
+   what the row is for. */
+.cal-account { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .calendar-list li { flex-wrap: wrap; }
+  .cal-account { flex-basis: 100%; order: 3; }
+}
+
+/* --- Reports --------------------------------------------------------------- */
+/* A 90-day chart drops its labels rather than crushing them; the hover title
+   and aria-label still name every bar. */
+.chart-bars.dense { gap: 1px; grid-template-columns: repeat(auto-fit, minmax(2px, 1fr)); }
+.chart-bars.dense .chart-bar { border-radius: 2px 2px 0 0; }
+
+.single-day { font-size: var(--text-lg); margin: 0; }
+
+.bar-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  margin-bottom: 4px;
+}

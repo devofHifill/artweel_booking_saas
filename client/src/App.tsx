@@ -27,6 +27,10 @@ import CustomerDetail from './pages/CustomerDetail';
 import Billing from './pages/Billing';
 import SettingsPage from './pages/Settings';
 import StaffPage from './pages/Staff';
+import PaymentsPage from './pages/Payments';
+import NotificationsPage from './pages/Notifications';
+import IntegrationsPage from './pages/Integrations';
+import ReportsPage from './pages/Reports';
 import AdminApp from './admin/AdminApp';
 import { Shell } from './components/Shell';
 import { Icon } from './components/Icon';
@@ -214,6 +218,14 @@ export default function App() {
               <Icon name="staff" />
               Staff &amp; Guides
             </NavLink>
+            <NavLink to="/payments">
+              <Icon name="plan" />
+              Payments
+            </NavLink>
+            <NavLink to="/reports">
+              <Icon name="health" />
+              Reports
+            </NavLink>
             <NavLink to="/register">
               <Icon name="register" />
               Daily Manifest
@@ -237,6 +249,14 @@ export default function App() {
                 as B5, B6 and B8 land; the order below is already their final
                 one, so adding each is an insert rather than a reshuffle. */}
             <p className="nav-label">Growth &amp; setup</p>
+            <NavLink to="/notifications">
+              <Icon name="bell" />
+              Notifications
+            </NavLink>
+            <NavLink to="/integrations">
+              <Icon name="plug" />
+              Integrations
+            </NavLink>
             <NavLink to="/settings">
               <Icon name="settings" />
               Settings
@@ -292,6 +312,10 @@ export default function App() {
         <Route path="/packs" element={<Packs />} />
         <Route path="/billing" element={<Billing />} />
         <Route path="/staff" element={<StaffPage />} />
+        <Route path="/payments" element={<PaymentsPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/integrations" element={<IntegrationsPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

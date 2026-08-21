@@ -65,6 +65,60 @@ notificationRouter.get(
   }),
 );
 
+/**
+ * Send a failed message again.
+ *
+ * This is what turns the dashboard's "3 customers were not sent a confirmation"
+ * from a statement into something an owner can act on. Until now a permanent
+ * failure — a bounced address that has since been corrected, a provider outage
+ * that has passed — stayed failed forever, and the only remedy was psql.
+ *
+ * `attempts` is reset to zero, and that is the load-bearing line. The worker
+ * claims rows with `attempts < NOTIFICATION_MAX_ATTEMPTS`, so a row that
+ * exhausted its budget would be flipped back to PENDING and then never picked
+ * up again — a Retry button that reports success, changes a row, and sends
+ * nothing. The lack of an error message is what would make that one hard to
+ * notice.
+ *
+ * Only FAILED rows. Retrying a PENDING one would reset a backoff that is
+ * working correctly, and retrying a SENT one would send a customer a second
+ * copy of a message they already have.
+ */
+notificationRouter.post(
+  '/:notificationId/retry',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const notificationId = req.params.notificationId;
+    if (!notificationId) throw AppError.badRequest('Missing notificationId.');
+
+    const existing = await prisma.notification.findFirst({
+      where: { id: notificationId, organizationId: req.tenant!.organizationId },
+      select: { id: true, status: true },
+    });
+    if (!existing) throw AppError.notFound('Message not found.');
+
+    if (existing.status !== 'FAILED') {
+      throw AppError.badRequest(
+        `Only failed messages can be sent again. This one is ${existing.status.toLowerCase()}.`,
+        'NOT_RETRYABLE',
+      );
+    }
+
+    const notification = await prisma.notification.update({
+      where: { id: notificationId },
+      data: {
+        status: 'PENDING',
+        attempts: 0,
+        lastError: null,
+        scheduledFor: new Date(),
+      },
+      select: { id: true, status: true, attempts: true, scheduledFor: true },
+    });
+
+    res.json({ notification });
+  }),
+);
+
 /** Built-in defaults alongside any studio overrides, so the UI can diff them. */
 notificationRouter.get(
   '/templates',

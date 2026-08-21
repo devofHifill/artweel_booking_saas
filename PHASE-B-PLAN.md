@@ -80,18 +80,57 @@ get their own group rather than being scattered through the other two.
 
 ## Phase map
 
-| | | Ships | Size |
+Status as of 2026-08-20.
+
+| | | Ships | Status |
 | --- | --- | --- | --- |
-| **B0** | Analytics core | nothing visible | 1.5 |
-| **B1** | Dashboard + sidebar | the whole landing page | 2 |
-| **B2** | Staff & Guides | UI over existing CRUD | 1 |
-| **B3** | Payments | list, detail, refunds | 1.5 |
-| **B4** | Settings | the rest of the sections | 1.5 |
-| **B5** | Notifications | templates, log, retry | 1.5 |
-| **B6** | Integrations | one status surface | 1 |
-| **B7** | Reports | six tabs over B0 | 1.5 |
-| **B8** | Website & Widget | storefront + embed | 2 |
-| **B9** | Daily Manifest | the sheet an instructor carries | 1 |
+| **B0** | Analytics core | nothing visible | **DONE** — 22 tests |
+| **B1** | Dashboard + sidebar | the whole landing page | **DONE** — 11 tests, `Today.tsx` deleted |
+| **B2** | Staff & Guides | UI over existing CRUD | **DONE** — 7 tests, delete guard fixed |
+| **B3** | Payments | list and totals | **DONE** — 10 tests |
+| **B4** | Settings | the rest of the sections | **DONE** — no new server code |
+| **B5** | Notifications | templates, log, retry | **DONE** — 6 tests, retry added |
+| **B6** | Integrations | one status surface | **DONE** — 12 tests |
+| **B7** | Reports | six tabs over B0 | **DONE** — 11 tests, 3 aggregates added |
+| **B8** | Website & Widget | storefront + embed | not started |
+| **B9** | Daily Manifest | the sheet an instructor carries | not started |
+
+**Suite: 48 files, 700 tests, all passing** as of B4. B5 adds a retry endpoint
+and 6 tests. B4 itself adds no server code — every endpoint it uses already
+existed and was already tested — so the count did not move for it.
+
+### Two things that changed under the plan as it was written
+
+**B3 ships no refund button.** The existing refund endpoint applies the studio's
+CANCELLATION POLICY, so for a late cancellation it may refund nothing and grant a
+credit instead. That is correct inside the cancellation flow and misleading on a
+screen where "Refund" reads as "give this money back". A refund of an arbitrary
+amount is a separate feature needing its own amount field and provider call;
+it moves to Phase C.
+
+**B4 ships cancellation read-only.** The refund ladder needs reordering,
+validation and a preview of what a given notice period pays out. Half-building
+that against the one setting that decides who gets their money back is worse than
+not building it. The screen makes the current rules visible — which they have
+never been outside the database — and says editing is not built yet.
+
+### Found and fixed along the way
+
+**A latent delete bug (B2).** `deleteStaff` counted only `booking.staffId`, which
+is set for appointments. A group class hangs off a session, and
+`Session.staff` is `onDelete: SetNull` — so an instructor who had only ever
+taught group classes could be hard-deleted, and every class they ever taught
+silently lost its instructor, past ones included. Nothing in the product could
+reach the delete path until the Staff page shipped a Remove button.
+
+**A test-isolation bug (B2/B3).** `tests/auth/rate-limit.test.ts` lowers the auth
+budgets deliberately, and `src/config` validates the environment once at import
+time — so the low limits froze into config for every file that ran afterwards.
+Invisible until file order changed; adding Phase B test files moved
+`staff-delete` behind it and it failed with 429s while passing alone. Fixed in
+`tests/helpers/api.ts` so no future file has to know.
+
+---
 
 Roughly fourteen sessions. Ordered cheapest-server-work-first after B0 and B1,
 which are the two that unblock everything else.
