@@ -576,7 +576,50 @@ booking inside WordPress" is still unproven, and belongs with C7.
 
 ---
 
-## C7 — rehearse the Phase 2 exit gate (2 days)
+## C7 — rehearse the Phase 2 exit gate — COURSE HALF DONE 2026-08-14
+
+Both halves of the gate have now been driven through the product rather than
+only asserted by tests. The firing half was done during C4.3 (six pots from wet
+clay to collected, with six `piece.ready` notifications in the database). The
+course half is now done too: a six-week cohort, two students enrolled, the
+week-one register taken through the Register screen with one present and one
+absent, the absence minting a make-up credit, and that credit redeemed into a
+real seat in another class — `source = make-up-credit`, credit `REDEEMED` with
+its booking link intact.
+
+**The rehearsal found two things the tests could not.**
+
+**1. Make-up credits were switched off, permanently, for every studio.**
+`makeUpCreditsEnabled` defaults to false, and NOTHING could write it — not the
+organization PATCH route, not onboarding, not the seed. Only the test suite,
+reaching past the API to set the column directly. So W2.2b shipped complete,
+tested and unreachable: a studio could never turn it on. The same was true of
+`makeUpRequiresNotice`, `makeUpNoticeHours`, `makeUpCreditDays`,
+`makeUpCrossCohort` and `pieceHoldDays` — six policy columns with readers and
+no writers.
+
+This is the failure mode a green suite is worst at catching, because the tests
+set up the state they need and never ask whether a customer could reach it. The
+organization PATCH now accepts all six, bounded to match the migration's CHECK
+constraints, and the regression test asserts it **through the API** and then
+checks an absence actually mints a credit.
+
+**2. A credit could be seen but not spent.** The credits panel from C4.4 showed
+what a customer was owed and offered Sell, Give and Withdraw — no way to redeem.
+A studio could see a student was owed a make-up class and had no way to book it,
+which is the entire point of the credit. Added a "Book a class" action that
+lists upcoming sessions with a free seat and redeems against the chosen one,
+surfacing the API's refusal verbatim when a rule says no.
+
+**Still not done, and it is the part the gate literally asks for:** a real
+studio running a real six-week course. What exists now is proof the software
+does what it claims end to end, which is the precondition for that conversation
+rather than a substitute for it.
+
+<details>
+<summary>Original plan for this chunk</summary>
+
+## C7-plan — rehearse the Phase 2 exit gate (2 days)
 
 The gate: a studio runs a full six-week course (enrolment, attendance, one
 absence, a redeemed make-up credit) *and* a full firing cycle (piece created →
@@ -591,6 +634,8 @@ studio owner would, and write down every place the UI fights back.
 
 **Caveat:** the pickup notification will not arrive by SMS until 10DLC clears
 (below). Verify it via the outbox row and email, and treat SMS as pending.
+
+</details>
 
 ---
 

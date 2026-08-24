@@ -13,6 +13,10 @@ The TourFlow prototype is complete and works end to end. It is wired into the
 Artweel app at `/demo` and the `Demo` nav link renders on the marketing site.
 Nothing has been pushed or deployed — git is yours.
 
+Working tree was on **`feature/auth-redesign`** when this was written, with the
+demo changes uncommitted on top. Read step 2 below before committing — the
+branch choice decides what else ships to staging.
+
 ---
 
 ## What exists
@@ -85,15 +89,77 @@ npm test --prefix D:/Projects/2026/booking-saas/server
 
 Expect the existing suite to pass unchanged (499+ tests as of Phase 2 closeout).
 
-### 2. Commit and push — your step
+### 2. Decide which branch this ships on
 
-Git is yours; I do not run it. The change set is `server/demos/` (new) plus the
-four edits listed above.
+**As of 2026-08-19 the working tree is on `feature/auth-redesign`, and the demo
+changes are uncommitted on top of it.** That matters because the VPS deploys
+whatever branch it has checked out — commit the demo there and pull that branch
+on the box, and the auth redesign ships with it, finished or not.
 
-### 3. Deploy to staging
+| Option | When it fits |
+| --- | --- |
+| Commit to `feature/auth-redesign` and deploy it | the auth redesign is already staging-ready |
+| Commit there, then merge only into the deployed branch | normal flow, slightly more git |
+| Put the demo on its own branch off the deployed one | cleanest separation, most fiddly since the changes are uncommitted |
+
+Remote is `https://github.com/devofHifill/artweel_booking_saas.git`.
+
+### 3. Commit and push — your step
+
+Git is yours; Claude does not run it. `PHASE-2-CLOSEOUT.md` is dirty from
+earlier work, so the `add` below names paths explicitly and leaves it alone.
+
+```bash
+git -C D:/Projects/2026/booking-saas status --short
+```
+
+```bash
+git -C D:/Projects/2026/booking-saas diff server/src/app.ts server/Dockerfile server/src/modules/marketing/landing.ts server/src/modules/marketing/render.ts
+```
+
+```bash
+git -C D:/Projects/2026/booking-saas add server/demos server/src/app.ts server/Dockerfile server/src/modules/marketing/landing.ts server/src/modules/marketing/render.ts
+```
+
+```bash
+git -C D:/Projects/2026/booking-saas commit -m @'
+Add TourFlow prototype under a temporary /demo mount
+
+Static front-end prototype of a tours & activities booking SaaS, served
+from server/demos at /demo. Plain HTML/CSS/vanilla JS, no dependencies,
+no database, no API — it shares nothing with the app.
+
+Wiring is deliberately minimal and marked TEMPORARY in all four places:
+express.static mount in app.ts, COPY demos in the Dockerfile, and the
+Demo nav link in marketing/landing.ts and marketing/render.ts. Removal
+instructions live in server/demos/README.md.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+'@
+```
+
+```bash
+git -C D:/Projects/2026/booking-saas push -u origin feature/auth-redesign
+```
+
+### 4. Deploy to staging
 
 Claude cannot SSH this box (root is password-only), so these are for you to
-paste. On `root@fillforge`, in the repo directory:
+paste. The `my-vps` SSH alias points at a **different** machine — connect by IP.
+
+```bash
+ssh root@187.127.186.115
+```
+
+```bash
+cd ~/artweel
+```
+
+Check which branch the box is actually on before pulling:
+
+```bash
+git status -sb
+```
 
 ```bash
 git pull
@@ -107,17 +173,47 @@ docker compose -f docker-compose.prod.yml build api
 docker compose -f docker-compose.prod.yml up -d api
 ```
 
-No migration is needed — this change adds no schema.
+**No migration is needed** — this change adds no schema. Only if the branch you
+deploy carries new migrations from other work, run this before `up -d`:
 
-**Verify by the startup logs, not the health check.** A deploy that shipped
-nothing looks identical from outside: health green, routes 200, fresh uptime.
+```bash
+docker compose -f docker-compose.prod.yml run --rm api npx prisma migrate deploy
+```
+
+### 5. Verify — by the startup logs, not the health check
+
+A deploy that shipped nothing looks identical from outside: health green,
+routes 200, genuinely fresh uptime, because the container did restart — on the
+old image.
 
 ```bash
 docker compose -f docker-compose.prod.yml logs --tail=80 api
 ```
 
-Then check `https://artweel.fillforge.cloud/demo/` loads the gallery and
-`https://artweel.fillforge.cloud/demo/tourflow/` loads the launcher.
+```bash
+curl -sI https://artweel.fillforge.cloud/demo/ | head -1
+```
+
+```bash
+curl -s https://artweel.fillforge.cloud/demo/tourflow/ | grep -o '<title>.*</title>'
+```
+
+Expect `HTTP/2 200` and
+`<title>TourFlow — All-in-one booking & management platform</title>`. Then open
+`https://artweel.fillforge.cloud/` and confirm the `Demo` link is in the header.
+
+### 6. Rollback, if needed
+
+Nothing here touches the database, so a rollback is just the image — no data to
+unwind.
+
+```bash
+git -C ~/artweel checkout HEAD~1
+```
+
+```bash
+docker compose -f docker-compose.prod.yml build api && docker compose -f docker-compose.prod.yml up -d api
+```
 
 ---
 
