@@ -87,8 +87,29 @@ export const createOrganizationSchema = z.object({
   currency: z.string().length(3).optional(),
 });
 
+/**
+ * No OWNER in the enum, and that is load-bearing rather than an oversight.
+ *
+ * Ownership is TRANSFERRED between people who already have accounts — a
+ * different operation with a different guard, `changeMemberRole`, which
+ * protects the last owner. Letting an invitation mint one would create a
+ * second path to ownership that skips that guard entirely. The database
+ * carries the same rule as a CHECK constraint, for anything that reaches the
+ * table another way.
+ */
 export const inviteMemberSchema = z.object({
   email: z.string().email().max(255),
   name: z.string().min(1).max(120),
   role: z.enum(['ADMIN', 'INSTRUCTOR', 'FRONT_DESK']),
+});
+
+/**
+ * The password is optional because half the people accepting an invitation
+ * already have an account — a freelance instructor who teaches at three
+ * studios. The service decides which case this is and refuses with
+ * `PASSWORD_REQUIRED` if one was needed and not given, rather than the schema
+ * demanding a password from somebody who already has one.
+ */
+export const acceptInvitationSchema = z.object({
+  password: passwordSchema.optional(),
 });

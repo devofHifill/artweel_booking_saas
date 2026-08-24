@@ -62,7 +62,21 @@ the pattern in them is the useful part —
 Five were found by writing a test that could distinguish the two cases; three only
 by opening the page and looking at it. Neither method would have found the other's.
 
-**Stage 2 — the next tier.** S7–S10. Support visibility and user administration.
+**Stage 2 — the next tier. COMPLETE 2026-08-24.** S7–S10, in one day. Support
+visibility and user administration: a bounded way into a studio, an account
+switch, the invitation flow that finally makes three of the four roles
+reachable, and one screen for what a studio is plugged into.
+
+**Four defects found by opening the page, none by the suite.** Three in S7's
+client handover, caught during S8's browser pass (see S8), and one in the
+sidebar, caught by logging in as the first instructor the product has ever been
+able to create (see S9). Stage 1 recorded that tests and browsers catch
+disjoint classes of bug; Stage 2 is the second data point, and both times the
+browser found the ones that would have shipped.
+
+Worth noting what the shared shape is: every one of the four was a thing that
+became reachable only when something else shipped. A green suite tests what it
+sets up, and none of these were states any test would have thought to set up.
 
 **Stage 3 — each its own decision.** S11–S14. Deferred deliberately; see the
 reasoning at each.
@@ -745,7 +759,55 @@ against finished endpoints is faster than building both at once.
 
 # STAGE 2 — the next tier
 
-## S7 — read-only support sessions into a studio (2 days)
+## S7 — read-only support sessions into a studio — **DONE 2026-08-24**
+
+21 tests, one migration (`support_sessions`), and no module edited to
+accommodate it — the exception lives in `withOrganization`, which already owns
+the decision.
+
+**The token is the RFC 8693 shape, and the split does real work.** `sub` is
+`support:<organizationId>` — synthetic, because there is no studio user being
+impersonated and borrowing a real one would put a member's id on actions they
+did not take. `act` carries the human. `authenticate` resolves `req.auth` from
+`act` and never from `sub`, so every downstream writer records the operator
+rather than the studio.
+
+**The row, not the token, decides.** `authenticate` reads the session row on
+every request carrying a support token. That is what makes a JWT revocable:
+ending a session takes effect on the operator's next request rather than
+whenever the token happens to lapse. There is a test that ends a session and
+then proves the still-valid, still-unexpired token now 401s.
+
+**ADMIN, never OWNER.** A write-enabled session reaches every operational
+surface and still cannot change member roles or remove the studio's owner —
+`requireRole('OWNER')` keeps ownership out of reach. This is the gradient the
+"why not a bypass" argument demands, and it is asserted rather than assumed.
+
+**One trap found while wiring the client.** The dashboard's api client refreshes
+on 401. Left alone, the moment a 30-minute support token expired it would have
+refreshed using the OPERATOR'S OWN refresh token and carried on — as an ordinary
+session, inside a studio they are very likely not a member of, with no support
+row, no banner and nothing in the audit log. `tokens.refresh` now returns null
+whenever a support token is present. The expiry is only a wall if the client
+cannot walk around it.
+
+**The studio is told.** Active sessions ride on `/shell/summary`, which the
+shell already polls, and render as a non-dismissible banner naming the operator,
+the reason, whether they can write, and the expiry time. Surfaced to the studio
+rather than only to the platform: somebody reading a studio's customer list is
+something that studio is entitled to know while it happens, not afterwards in a
+log they cannot see.
+
+Verified in a browser 2026-08-24: session opened from the admin client, banner
+appeared on the studio's own dashboard in a tab holding no support token, read
+returned 200, write returned 403 `SUPPORT_READ_ONLY`, another studio returned
+404, the platform surface returned 404, and ending the session turned the live
+token into a 401.
+
+<details>
+<summary>Original plan for this stage</summary>
+
+## S7-plan — read-only support sessions into a studio (2 days)
 
 The only stage that touches the tenant choke point. Out of Stage 1 only because
 you have database access and you are the sole operator. **Tripwire for pulling
@@ -783,7 +845,71 @@ count and the endpoints touched on the session row instead.
 **Dashboard banner** whenever a support session is active: which studio, whose
 session, read-only or not, and the expiry time.
 
-## S8 — global users list and disable (half a day)
+</details>
+
+---
+
+## S8 — global users list and disable — **DONE 2026-08-24**
+
+14 tests, one migration (`disabled_at` / `disabled_reason` on `users`).
+
+**Refused after the password check, not before.** Checking the disabled column
+first would make login an oracle: a wrong password on a disabled account would
+answer differently from a wrong password on a live one, and anybody could
+enumerate disabled addresses with junk. There is a test asserting a wrong
+password on a disabled account is byte-identical to one on an address that does
+not exist.
+
+**Revoking the refresh tokens is half the feature.** Setting the column alone
+leaves the account working for thirty days, renewing itself silently. The test
+that catches this logs in, disables, and then proves the *existing* refresh
+token no longer works — a test that only checked login would report the broken
+version as working.
+
+**The window this leaves, stated rather than papered over.** Access tokens are
+stateless JWTs with a 15-minute life, so a user disabled mid-session keeps
+working until theirs expires. Closing it would mean a database read on every
+authenticated request across the whole product, which is the cost the token
+design exists to avoid. Suspending the studio is immediate and is the right
+tool if fifteen minutes is ever unacceptable.
+
+**An operator cannot disable themselves.** Not paternalism: every route that
+could undo it is behind the platform gate, and the gate needs the session they
+would have just revoked.
+
+### Found by opening the page — two bugs no test would have caught
+
+Both are in S7's client handover, found while doing S8's browser pass, and both
+are the same shape as the Phase 2 findings: the server tests were green
+throughout.
+
+**1 — the operator's own console broke on opening a session.** The first
+implementation wrote the support token into `sessionStorage` in the ADMIN tab
+before `window.open`. `tokens.access` prefers a support token, so every
+`/api/platform/*` call the admin surface made immediately began presenting a
+token that cannot reach it. Opening a support session logged the operator out
+of their own console.
+
+**2 — the handover may never have arrived.** That same design relied on
+`window.open` copying `sessionStorage` into the new tab, which does not happen
+when the tab is opened with `noopener` — and dropping `noopener` on a window
+opened from an operator console is not the trade to make.
+
+Both are fixed by handing the grant over in the URL **fragment**: never sent to
+the server, read before React mounts, and stripped from the address bar with
+`replaceState` before anything can bookmark or screenshot it.
+
+**And a third, in the same area.** A support session has no refresh token, so
+the client's 401 handler — gated on `tokens.refresh` — skipped it entirely and
+never cleared the dead token. Since `access` prefers it, the tab would present a
+refused token forever, and signing in again would not help because that only
+writes localStorage. `dropSupport()` now runs on a 401, leaving the operator's
+own credentials untouched.
+
+<details>
+<summary>Original plan for this stage</summary>
+
+## S8-plan — global users list and disable (half a day)
 
 `User` has **no active/disabled column** — that is the whole migration. Disabling
 must also revoke every refresh token, or the account keeps working until each
@@ -793,7 +919,62 @@ password resets).
 Cross-tenant PII, so it is behind audit from day one. **Tripwire:** your first
 "I can't log in" email.
 
-## S9 — invites and cross-tenant role assignment (1 day)
+</details>
+
+## S9 — invites and cross-tenant role assignment — **DONE 2026-08-24**
+
+23 tests, one migration (`invitations`). `inviteMemberSchema` finally has a
+consumer, and `ADMIN` / `INSTRUCTOR` / `FRONT_DESK` are reachable for the first
+time.
+
+**An `Invitation` is its own table, not a `VerificationToken`.** That model
+hangs off a `userId` and an invitee usually has no account. Creating a
+placeholder User to hold the token leaves phantom rows for invitations nobody
+accepts — and `User.email` is globally unique, so inviting somebody who already
+works at another studio would collide with their real account.
+
+**One open invitation per person per studio**, as a PARTIAL unique index on
+`(organization_id, lower(email))` where not accepted and not revoked. Partial so
+a withdrawn invitation does not block re-inviting somebody later; `lower()`
+because everything else here treats an address case-insensitively, and without
+it `Sam@` and `sam@` would be two live invitations to one person.
+
+**No OWNER in the enum, enforced twice.** Ownership is transferred between
+people who already have accounts — `changeMemberRole`, which protects the last
+owner. An invitation that could mint an OWNER would be a second path to
+ownership that skips that guard. zod refuses it and a CHECK constraint refuses
+it again.
+
+**Accepting is idempotent and does not touch an existing password.** A
+freelance instructor teaching at three studios is the ordinary case: accepting
+adds a membership and leaves their account alone. A brand-new account is
+created email-verified, because receiving the link IS proof of control of the
+address.
+
+**The platform half delegates rather than writes.** `setMemberRole` calls
+`changeMemberRole` instead of updating the row, so an operator gets no path
+around the last-owner invariant — asserted by a test that tries to demote the
+only owner and gets `LAST_OWNER`.
+
+### The gap S9 exposed, and closed
+
+**The sidebar was not role-aware, and nothing had ever noticed.** Until
+invitations existed, `register` only ever created an OWNER — so every signed-in
+user could reach every route, and a nav that rendered all seventeen items was
+accidentally correct. The first invited instructor was shown Reports, Payments,
+Notifications, Integrations, Website & widget, Settings and Plan, every one of
+which answers 403.
+
+Found by logging in as the invited instructor, not by any test. The nav now
+mirrors the gates actually on the routes, and the admin-only routes redirect
+home as well as being hidden — hiding a link is not access control, but a
+bookmark that renders a full page which then fails every request it makes reads
+as a broken product rather than a scoped account.
+
+<details>
+<summary>Original plan for this stage</summary>
+
+## S9-plan — invites and cross-tenant role assignment (1 day)
 
 **This unblocks three of the four roles.** Signup only ever mints an `OWNER`, and
 `inviteMemberSchema` — carrying exactly `ADMIN | INSTRUCTOR | FRONT_DESK` — sits
@@ -806,11 +987,47 @@ expose cross-tenant role assignment to the platform on top of it. Reuse
 `changeMemberRole`, and **do not let the platform bypass the LAST_OWNER guard** —
 a studio with zero owners is not a state worth being able to create.
 
-## S10 — integrations status (half a day)
+</details>
+
+---
+
+## S10 — integrations status — **DONE 2026-08-24**
+
+11 tests, no migration. **Stage 2 is complete.**
+
+**The read is the studio's own function, not a second query.** B6 built this
+picture inline in the studio route; S10 extracted it to
+`integration.service.getIntegrationStatus` and both surfaces now call it. Two
+implementations of "is their Stripe connected" drift the first time one learns
+about a new state, and the drift surfaces as an operator and an owner reading
+the same studio differently *while on the phone to each other about it* — the
+moment they most need to agree. There is a test comparing both responses field
+for field, because otherwise the sharing is a convention that survives until
+somebody adds a field to one route.
+
+**One write, and it delegates.** `disconnect` in `calendar.service` already
+stops the Google watch channel and deletes the mirrored busy blocks. Deleting
+the row directly would have skipped the second, leaving the instructor
+permanently unavailable for times their calendar no longer claims, with nothing
+left to ever clear them — which a studio would report as "support broke my
+availability", correctly. A test asserts the busy blocks go.
+
+**Not wrapped in the audit transaction.** `disconnect` makes a network call to
+Google, and holding a database transaction open across a third-party request is
+how a slow provider becomes a lock nobody can explain. The trade is stated in
+the code: the failure mode is an audit row for a disconnect that threw, which is
+visible, rather than a disconnect with no record, which is not.
+
+<details>
+<summary>Original plan for this stage</summary>
+
+## S10-plan — integrations status (half a day)
 
 Read-only per studio: Stripe Connect account state, which instructors have
 connected Google Calendar, Twilio/messaging state. Plus a disconnect action for
 support ("their calendar sync is wedged, disconnect and let them re-auth").
+
+</details>
 
 ---
 
@@ -841,18 +1058,71 @@ You have three plans and you change them approximately never. Editing an enum
 and deploying is currently cheaper *and* safer than building the machine that
 edits them at runtime. Revisit when a pricing experiment is actually planned.
 
-## S13 — permissions as data
+## S13 — permissions as data — **HALF DONE 2026-08-24**
 
-Only worth doing after the roles mean something. `requireAdmin` is
-`OWNER + ADMIN` and `requireMember` is all four, so **`INSTRUCTOR` and
-`FRONT_DESK` are currently identical** — an instructor can issue refunds, edit
-pricing and change cancellation policies. A permissions UI today would edit a
-distinction the backend does not make.
+The valuable half — splitting `INSTRUCTOR` from `FRONT_DESK` — is done. The
+expensive half — permissions as a data-driven matrix — is still deliberately
+not, for the reasons below.
 
-The valuable half is splitting those two roles properly. Turning 144 hardcoded
-guards into a data-driven matrix is the expensive half, with a real chance of
-introducing an authorization hole, and it buys little while you are the only one
-configuring it.
+### Why now, when this section said "later"
+
+The trigger this section named has fired. "Only worth doing after the roles mean
+something" was correct when nothing could mint an `INSTRUCTOR`; S9 shipped
+invitations the same day, so the roles became reachable and the gap went from
+theoretical to live.
+
+### What was actually exposed, checked rather than assumed
+
+The specific claims above were **stale**. Refunds, service pricing and
+cancellation policies are all `requireAdmin` today — that was fixed at some
+point and this section never caught up. The underlying point held, though:
+`requireMember` covers all four roles, so an instructor could
+
+- cancel or reschedule **any** booking in the studio (the cancel path runs the
+  refund ladder, so it moves money)
+- take a booking at the counter
+- sell a class pack
+- redeem a credit
+- **rewrite any colleague's availability**, which decides who gets offered work
+- force a calendar sync for any staff member
+
+### The three guards whose comments already disagreed with them
+
+Worth recording separately, because it is the most useful signal in this stage:
+three of the routes changed here carried a comment stating the rule the guard
+did not enforce.
+
+- `schedules/:staffId/overrides` — *"Instructors may mark their own time off"*,
+  gated `requireMember`, which does not contain the word "own"
+- `packs/:packId/sell` — the module header says *"selling one to somebody
+  standing at the desk is front desk work"*, gated `requireMember`
+- `credits/:creditId/redeem` — the header calls it *"front desk booking a
+  student into a make-up class"*, gated `requireMember`
+
+In each case the intent was written down, the vocabulary to express it did not
+exist, and the comment quietly became fiction. That is a better argument for
+splitting the roles than any threat model.
+
+### What shipped
+
+Two new guards and one relationship check, in `middleware/authenticate.ts`:
+
+- `requireFrontDesk` — OWNER, ADMIN, FRONT_DESK. Taking and cancelling
+  bookings, selling packs, redeeming credits.
+- `requireInstructor` — OWNER, ADMIN, INSTRUCTOR. Available for the teaching
+  side; the register already sits behind `requireMember` and stays there,
+  because front desk genuinely does mark people in.
+- `requireAdminOrSelf(param)` — an admin, or the staff member the route is
+  about, resolved through `Staff.userId`. That column is nullable, so an
+  unlinked staff record belongs to nobody and nobody passes as "self" for it —
+  there is a test for exactly that, because a null matching a null would have
+  made every unlinked instructor editable by anyone.
+
+### The expensive half, still not done
+
+Turning 144 hardcoded guards into a permission matrix remains a real chance of
+an authorization hole in exchange for configurability nobody has asked for.
+Revisit when a studio wants a role this product does not have — not before.
 
 ## S14 — global settings, maintenance mode, log access
 

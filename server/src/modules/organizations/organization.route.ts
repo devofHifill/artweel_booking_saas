@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { config } from '../../config';
 import { asyncHandler } from '../../lib/async-handler';
 import { validateBody } from '../../middleware/validate';
 import {
@@ -10,8 +11,9 @@ import {
   withOrganization,
 } from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
-import { createOrganizationSchema } from '../auth/auth.schema';
+import { createOrganizationSchema, inviteMemberSchema } from '../auth/auth.schema';
 import * as service from './organization.service';
+import * as invitations from './invitation.service';
 import { listMemberships } from '../auth/auth.service';
 
 export const organizationRouter = Router();
@@ -194,6 +196,72 @@ organizationRouter.get(
   requireMember,
   asyncHandler(async (req, res) => {
     res.json({ members: await service.listMembers(req.tenant!.organizationId) });
+  }),
+);
+
+// --- Invitations (S9) -----------------------------------------------------
+//
+// The path by which anybody other than a founder gets into a studio. `register`
+// only ever mints an OWNER, so until these routes existed ADMIN, INSTRUCTOR and
+// FRONT_DESK were enforced everywhere and grantable nowhere.
+//
+// `requireAdmin`, not `requireRole('OWNER')`: adding an instructor is ordinary
+// studio administration. Handing over OWNERSHIP is not, and is not something
+// these routes can do — `inviteMemberSchema` has no OWNER in its enum and the
+// database has a CHECK constraint saying the same.
+
+organizationRouter.get(
+  '/:organizationId/invitations',
+  withOrganization(),
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    res.json({
+      invitations: await invitations.listInvitations(req.tenant!.organizationId),
+    });
+  }),
+);
+
+organizationRouter.post(
+  '/:organizationId/invitations',
+  withOrganization(),
+  requireAdmin,
+  validateBody(inviteMemberSchema),
+  asyncHandler(async (req, res) => {
+    const result = await invitations.inviteMember(
+      req.tenant!.organizationId,
+      req.auth!.userId,
+      req.body,
+    );
+
+    res.status(201).json({
+      invitation: result.invitation,
+      /**
+       * The link, handed back to the admin who created it.
+       *
+       * Not a leak — they already administer this studio — and it is what lets
+       * an owner pass the link along by hand when their invitation email lands
+       * in somebody's spam folder. Without it that is a support ticket nobody
+       * can resolve.
+       */
+      inviteUrl: `${config.APP_URL}/invite/${encodeURIComponent(result.token)}`,
+    });
+  }),
+);
+
+organizationRouter.delete(
+  '/:organizationId/invitations/:invitationId',
+  withOrganization(),
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const invitationId = req.params.invitationId;
+    if (!invitationId) throw AppError.badRequest('Missing invitationId.');
+
+    res.json(
+      await invitations.revokeInvitation(
+        req.tenant!.organizationId,
+        invitationId,
+      ),
+    );
   }),
 );
 

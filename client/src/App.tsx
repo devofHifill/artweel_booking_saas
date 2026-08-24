@@ -32,6 +32,7 @@ import NotificationsPage from './pages/Notifications';
 import IntegrationsPage from './pages/Integrations';
 import ReportsPage from './pages/Reports';
 import Website from './pages/Website';
+import AcceptInvite from './pages/AcceptInvite';
 import AdminApp from './admin/AdminApp';
 import { Shell } from './components/Shell';
 import { Icon } from './components/Icon';
@@ -52,7 +53,49 @@ export default function App() {
      does not run. */
   const summary = useShellSummary();
 
+  /**
+   * Which nav items this person can actually reach.
+   *
+   * Not cosmetic. Until S9 shipped invitations, `register` only ever created an
+   * OWNER, so every signed-in user could reach every route and a nav that
+   * rendered everything was accidentally correct. The moment an instructor can
+   * log in, that same nav offers them seven screens that answer 403 — and a
+   * sidebar full of links that fail is worse than a shorter one, because it
+   * reads as a broken product rather than a scoped account.
+   *
+   * The server is what enforces these; this mirrors the gates that are actually
+   * on the routes so the two agree:
+   *
+   *   Reports          requireAdmin
+   *   Notifications    requireAdmin on everything but the log
+   *   Website & widget requireAdmin to save
+   *   Settings         requireAdmin for every section that writes
+   *   Plan             requireAdmin for checkout and the billing portal
+   *   Payments         requireAdmin
+   *   Staff & Guides   requireAdmin to change anybody
+   */
+  const isAdmin = org?.role === 'OWNER' || org?.role === 'ADMIN';
+
   if (loading) return <div className="empty">Loading…</div>;
+
+  /**
+   * Accepting an invitation, ABOVE the signed-in check.
+   *
+   * The person following an invitation link usually has no account, so the
+   * ordinary `!user` branch would show them a login screen for credentials
+   * they do not have — a dead end at exactly the moment they were trying to
+   * join. It sits above the signed-in branch too, deliberately: a freelance
+   * instructor already signed in to another studio must still be able to
+   * accept, and bouncing them to their own dashboard would silently swallow
+   * the invitation.
+   */
+  if (location.pathname.startsWith('/invite/')) {
+    return (
+      <Routes>
+        <Route path="/invite/:token" element={<AcceptInvite />} />
+      </Routes>
+    );
+  }
 
   if (!user) {
     // The flip between the two screens lives INSIDE the auth layout now, so it
@@ -215,18 +258,24 @@ export default function App() {
               <Icon name="customers" />
               Customers
             </NavLink>
-            <NavLink to="/staff">
-              <Icon name="staff" />
-              Staff &amp; Guides
-            </NavLink>
-            <NavLink to="/payments">
-              <Icon name="plan" />
-              Payments
-            </NavLink>
-            <NavLink to="/reports">
-              <Icon name="health" />
-              Reports
-            </NavLink>
+            {isAdmin && (
+              <NavLink to="/staff">
+                <Icon name="staff" />
+                Staff &amp; Guides
+              </NavLink>
+            )}
+            {isAdmin && (
+              <NavLink to="/payments">
+                <Icon name="plan" />
+                Payments
+              </NavLink>
+            )}
+            {isAdmin && (
+              <NavLink to="/reports">
+                <Icon name="health" />
+                Reports
+              </NavLink>
+            )}
             <NavLink to="/register">
               <Icon name="register" />
               Daily Manifest
@@ -249,27 +298,34 @@ export default function App() {
             {/* Notifications, Integrations and Website & Widget join this group
                 as B5, B6 and B8 land; the order below is already their final
                 one, so adding each is an insert rather than a reshuffle. */}
-            <p className="nav-label">Growth &amp; setup</p>
-            <NavLink to="/notifications">
-              <Icon name="bell" />
-              Notifications
-            </NavLink>
-            <NavLink to="/integrations">
-              <Icon name="plug" />
-              Integrations
-            </NavLink>
-            <NavLink to="/website">
-              <Icon name="site" />
-              Website &amp; widget
-            </NavLink>
-            <NavLink to="/settings">
-              <Icon name="settings" />
-              Settings
-            </NavLink>
-            <NavLink to="/billing">
-              <Icon name="plan" />
-              Plan
-            </NavLink>
+            {/* The whole group is owner/admin work — how the studio presents
+                itself, what it sends, what it pays. An instructor has nothing
+                to do here and every screen in it would refuse them. */}
+            {isAdmin && (
+              <>
+                <p className="nav-label">Growth &amp; setup</p>
+                <NavLink to="/notifications">
+                  <Icon name="bell" />
+                  Notifications
+                </NavLink>
+                <NavLink to="/integrations">
+                  <Icon name="plug" />
+                  Integrations
+                </NavLink>
+                <NavLink to="/website">
+                  <Icon name="site" />
+                  Website &amp; widget
+                </NavLink>
+                <NavLink to="/settings">
+                  <Icon name="settings" />
+                  Settings
+                </NavLink>
+                <NavLink to="/billing">
+                  <Icon name="plan" />
+                  Plan
+                </NavLink>
+              </>
+            )}
           </nav>
 
           <div className="spacer" />
@@ -299,6 +355,7 @@ export default function App() {
         </>
       }
     >
+      <SupportBanner sessions={summary.support ?? []} />
       <BillingBanner />
       <Routes>
         <Route path="/" element={<Home />} />
@@ -315,14 +372,48 @@ export default function App() {
         <Route path="/customers" element={<Customers />} />
         <Route path="/customers/:customerId" element={<CustomerDetail />} />
         <Route path="/packs" element={<Packs />} />
-        <Route path="/billing" element={<Billing />} />
-        <Route path="/staff" element={<StaffPage />} />
-        <Route path="/payments" element={<PaymentsPage />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
-        <Route path="/integrations" element={<IntegrationsPage />} />
-        <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/website" element={<Website />} />
-        <Route path="/settings" element={<SettingsPage />} />
+
+        {/*
+          Admin-only, and guarded here as well as hidden from the nav.
+
+          Hiding a link is not access control — the server is what refuses
+          these — but a bookmark or a typed URL would otherwise render a full
+          page that then fails every request it makes, which reads as broken
+          rather than as "not yours". Redirecting home is the honest answer to
+          a screen this account does not have.
+        */}
+        <Route
+          path="/billing"
+          element={isAdmin ? <Billing /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/staff"
+          element={isAdmin ? <StaffPage /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/payments"
+          element={isAdmin ? <PaymentsPage /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/notifications"
+          element={isAdmin ? <NotificationsPage /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/integrations"
+          element={isAdmin ? <IntegrationsPage /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/reports"
+          element={isAdmin ? <ReportsPage /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/website"
+          element={isAdmin ? <Website /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/settings"
+          element={isAdmin ? <SettingsPage /> : <Navigate to="/" replace />}
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>
@@ -358,6 +449,49 @@ function Home() {
 function SetupRoute() {
   const navigate = useNavigate();
   return <Onboarding onDone={() => navigate('/')} />;
+}
+
+/**
+ * "Somebody from Artweel is looking at your studio."
+ *
+ * Shown to the STUDIO while it is happening, not to the operator. A support
+ * session is somebody reading a studio's customer list and bookings, and the
+ * studio is entitled to know at the time rather than afterwards in a log they
+ * cannot see.
+ *
+ * It names the person, says whether they can change anything, and gives the
+ * reason — because a banner that says somebody is here and will not say why is
+ * worse than no banner at all. It is deliberately not dismissible: it is not a
+ * notification, it is the state of the room.
+ */
+function SupportBanner({
+  sessions,
+}: {
+  sessions: import('./lib/useShellSummary').SupportPresence[];
+}) {
+  if (sessions.length === 0) return null;
+
+  return (
+    <>
+      {sessions.map((session) => (
+        <div key={session.id} className="alert warn support-banner" role="status">
+          <strong>Artweel support is viewing your studio.</strong>{' '}
+          {session.by} — {session.reason}.{' '}
+          {session.readOnly
+            ? 'They can look, but cannot change anything.'
+            : 'They can make changes on your behalf.'}{' '}
+          <span className="muted">
+            Access ends at{' '}
+            {new Date(session.expiresAt).toLocaleTimeString([], {
+              hour: 'numeric',
+              minute: '2-digit',
+            })}
+            .
+          </span>
+        </div>
+      ))}
+    </>
+  );
 }
 
 /** Trial and payment warnings, on every page rather than only on billing. */

@@ -166,6 +166,26 @@ export async function login(input: LoginInput) {
   const ok = await verifyPassword(input.password, user.passwordHash);
   if (!ok) throw invalid();
 
+  /**
+   * A disabled account (S8) is refused AFTER the password check, on purpose.
+   *
+   * Checking it first would make this endpoint an oracle: a wrong password on a
+   * disabled account would answer differently from a wrong password on a live
+   * one, and anyone could learn which addresses had been disabled by trying
+   * junk. The password comparison has already happened by the time we get here,
+   * so the timing matches too.
+   *
+   * The message is deliberately its own, not the generic one. Somebody whose
+   * account was disabled needs to know to ask rather than to keep trying
+   * passwords they know are right.
+   */
+  if (user.disabledAt) {
+    throw AppError.forbidden(
+      'This account has been disabled. Please contact support.',
+      'ACCOUNT_DISABLED',
+    );
+  }
+
   // Transparent upgrade when the cost parameters have been raised.
   if (needsRehash(user.passwordHash)) {
     const upgraded = await hashPassword(input.password);

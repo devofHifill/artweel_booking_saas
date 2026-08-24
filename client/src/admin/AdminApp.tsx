@@ -7,6 +7,7 @@ import Studios from './Studios';
 import StudioDetail from './StudioDetail';
 import Health from './Health';
 import Audit from './Audit';
+import Users from './Users';
 import { Shell } from '../components/Shell';
 import { Icon } from '../components/Icon';
 import { LoadingRegion, SkeletonList } from '../components/states';
@@ -105,6 +106,10 @@ export default function AdminApp() {
               <Icon name="studios" />
               Studios
             </NavLink>
+            <NavLink to="/admin/users">
+              <Icon name="customers" />
+              Users
+            </NavLink>
             <NavLink to="/admin/health">
               <Icon name="health" />
               Health
@@ -155,6 +160,7 @@ export default function AdminApp() {
           path="/admin/studios/:organizationId"
           element={<StudioDetail />}
         />
+        <Route path="/admin/users" element={<Users />} />
         <Route path="/admin/health" element={<Health />} />
         <Route path="/admin/audit" element={<Audit />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />

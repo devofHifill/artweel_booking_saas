@@ -1,6 +1,10 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../lib/async-handler';
-import { requireAdmin, requireMember } from '../../middleware/authenticate';
+import {
+  requireAdmin,
+  requireAdminOrSelf,
+  requireMember,
+} from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import { logger } from '../../lib/logger';
 import * as service from './calendar.service';
@@ -69,7 +73,9 @@ calendarRouter.delete(
 /** Manual pull, for an instructor who has just changed something and is watching. */
 calendarRouter.post(
   '/:staffId/sync',
-  requireMember,
+  // Their own calendar, or an admin's. Forcing a colleague's sync is not
+  // dangerous, but it is not theirs to trigger either.
+  requireAdminOrSelf(),
   asyncHandler(async (req, res) => {
     const connection = await prisma.calendarConnection.findFirst({
       where: {

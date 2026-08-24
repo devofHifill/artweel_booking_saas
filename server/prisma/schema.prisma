@@ -259,6 +259,8 @@ model Organization {
   notifications        Notification[]
   notificationTemplates NotificationTemplate[]
   calendarConnections  CalendarConnection[]
+  supportSessions      SupportSession[]
+  invitations          Invitation[]
 
   @@map("organizations")
 }
@@ -273,6 +275,23 @@ model User {
 
   emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
 
+  /**
+   * Set when the platform disables the account (S8).
+   *
+   * A timestamp rather than an `isActive` boolean, for the same reason
+   * `revokedAt` and `endedAt` are timestamps elsewhere here: "when" is a
+   * question somebody will ask, and a boolean has already thrown the answer
+   * away by the time they do.
+   *
+   * Disabling REVOKES every refresh token as well as setting this. Without
+   * that the account keeps working until each one expires — the access token
+   * is stateless and short-lived, but a refresh token is fourteen days, and an
+   * account you disabled that keeps refreshing itself is not disabled.
+   */
+  disabledAt     DateTime? @map("disabled_at") @db.Timestamptz(3)
+  /// Operator-facing only. Never shown to the user it describes.
+  disabledReason String?   @map("disabled_reason")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -282,6 +301,9 @@ model User {
   verificationTokens VerificationToken[]
   platformAdmin      PlatformAdmin[]
   platformGrants     PlatformAdmin[] @relation("PlatformAdminGrantedBy")
+  supportSessions    SupportSession[]
+  invitationsSent     Invitation[] @relation("InvitationInvitedBy")
+  invitationsAccepted Invitation[] @relation("InvitationAcceptedBy")
 
   @@map("users")
 }
@@ -1969,6 +1991,116 @@ enum NotificationStatus {
 ///
 /// Workers claim rows with SELECT ... FOR UPDATE SKIP LOCKED, so several can
 /// run without ever handing the same message to two of them.
+/**
+ * An invitation to join a studio (S9).
+ *
+ * Its own table rather than a `VerificationToken`, because that model hangs off
+ * a `userId` and an invitee usually has no account yet. Creating a placeholder
+ * User to hold the token was the alternative and is worse in two ways: it
+ * leaves phantom rows for invitations nobody accepts, and `User.email` is
+ * globally unique — so inviting somebody who already works at another studio
+ * would collide with their real account.
+ *
+ * Modelling it properly also makes the questions an owner actually asks
+ * answerable: who have I invited, who has not replied, and can I take it back.
+ */
+model Invitation {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  /// Stored as given, matched case-insensitively — see the partial unique
+  /// index in the migration.
+  email          String
+  name           String
+  /// Never OWNER. Enforced by a CHECK constraint as well as by zod: ownership
+  /// is transferred between people who already have accounts, not handed to a
+  /// stranger who has not clicked a link yet.
+  role           MembershipRole
+
+  /// 32 random bytes, stored hashed — the same shape as every other token in
+  /// this codebase. The raw value exists only in the email.
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  invitedByUserId String    @map("invited_by_user_id") @db.Uuid
+  acceptedAt      DateTime? @map("accepted_at") @db.Timestamptz(3)
+  acceptedUserId  String?   @map("accepted_user_id") @db.Uuid
+  /// Taken back before it was used. Kept rather than deleted: "we invited the
+  /// wrong person and withdrew it" is a thing worth being able to show.
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InvitationInvitedBy", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+  acceptedUser User?        @relation("InvitationAcceptedBy", fields: [acceptedUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([expiresAt])
+  @@map("invitations")
+}
+
+/**
+ * A platform operator looking inside one studio, for a bounded window.
+ *
+ * The row exists so the session is a THING rather than just a token in
+ * somebody's clipboard: it can be listed, ended early, and answered for
+ * afterwards. A JWT alone would be none of those — stateless means
+ * unrevokable, and "we issued something 25 minutes ago" is not an answer to
+ * "who was in my studio".
+ *
+ * `authenticate` reads this row on every request carrying a support token, so
+ * ending a session takes effect immediately rather than at expiry.
+ */
+model SupportSession {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  /// The human at the keyboard — always a platform admin's user id, never the
+  /// studio's. This is the field the audit log must never lose.
+  actorUserId String @map("actor_user_id") @db.Uuid
+  actorEmail  String @map("actor_email")
+
+  /// Why. Required, minimum length enforced at the route: a reason that can be
+  /// satisfied with "x" records only that somebody typed a character.
+  reason String
+
+  /// Defaults to true. A write-enabled session is the unusual one and has to be
+  /// asked for explicitly.
+  readOnly Boolean @default(true) @map("read_only")
+
+  /// A hard wall. Nothing extends a session; you start another one, which is
+  /// another row and another reason.
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  /// Set when an operator ends it early, or when it is revoked.
+  endedAt   DateTime? @map("ended_at") @db.Timestamptz(3)
+
+  /**
+   * Reads are COUNTED, not logged.
+   *
+   * One audit row per read would bury the writes — a support session browsing a
+   * calendar makes dozens of GETs and perhaps one change, and the log exists to
+   * surface the change. So the reads accumulate here and the writes get their
+   * own rows in platform_audit_log.
+   */
+  readCount  Int   @default(0) @map("read_count")
+  writeCount Int   @default(0) @map("write_count")
+  /// Distinct route paths touched, capped. Enough to answer "what did they
+  /// look at" without reconstructing a session replay.
+  endpoints  Json? @map("endpoints")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User         @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  /// The banner query: "is anyone in this studio right now".
+  @@index([organizationId, expiresAt])
+  @@index([actorUserId, createdAt])
+  @@map("support_sessions")
+}
+
 model Notification {
   id             String  @id @default(uuid()) @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid

@@ -53,6 +53,7 @@ const THEMES: { value: Theme; label: string }[] = [
  */
 const SECTIONS = [
   { id: 'studio', label: 'Studio' },
+  { id: 'team', label: 'Team' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'classes', label: 'Classes & credits' },
   { id: 'cancellation', label: 'Cancellation' },
@@ -87,12 +88,325 @@ export default function Settings() {
 
         <div className="settings-panel">
           {section === 'studio' && <StudioSection />}
+          {section === 'team' && <TeamSection />}
           {section === 'appearance' && <Appearance />}
           {section === 'classes' && <ClassesSection />}
           {section === 'cancellation' && <CancellationSection />}
         </div>
       </div>
     </>
+  );
+}
+
+// --- Team -------------------------------------------------------------------
+
+type Member = {
+  membershipId: string;
+  role: 'OWNER' | 'ADMIN' | 'INSTRUCTOR' | 'FRONT_DESK';
+  user: { id: string; name: string; email: string; emailVerified: boolean };
+};
+
+type Invitation = {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  status: 'PENDING' | 'ACCEPTED' | 'REVOKED' | 'EXPIRED';
+  expiresAt: string;
+  invitedBy: string | null;
+};
+
+const ROLES = [
+  {
+    value: 'ADMIN',
+    label: 'Admin',
+    help: 'Everything except billing and removing owners.',
+  },
+  {
+    value: 'INSTRUCTOR',
+    label: 'Instructor',
+    help: 'Their own classes, the manifest, and taking the register.',
+  },
+  {
+    value: 'FRONT_DESK',
+    label: 'Front desk',
+    help: 'Bookings, customers and payments. Cannot change how the studio runs.',
+  },
+] as const;
+
+/**
+ * Who works here, and how somebody new gets in.
+ *
+ * This is the screen the role model was waiting for. `register` only ever
+ * creates an OWNER, so until invitations shipped, ADMIN, INSTRUCTOR and
+ * FRONT_DESK were enforced on every route and grantable nowhere — the Staff
+ * page described people who could not sign in.
+ *
+ * Note the two lists are different things and are labelled as such: STAFF are
+ * people the studio schedules classes for, TEAM are people with a login. They
+ * overlap and are not the same, and conflating them is how an instructor ends
+ * up on a rota with no way to see it.
+ */
+function TeamSection() {
+  const base = useOrgBase();
+  const org = useActiveOrg();
+  const canEdit = org?.role === 'OWNER' || org?.role === 'ADMIN';
+
+  const [members, setMembers] = useState<Member[] | null>(null);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [team, invites] = await Promise.all([
+        api.get<{ members: Member[] }>(`${base}/members`),
+        canEdit
+          ? api.get<{ invitations: Invitation[] }>(`${base}/invitations`)
+          : Promise.resolve({ invitations: [] as Invitation[] }),
+      ]);
+      setMembers(team.members);
+      setInvitations(invites.invitations);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load your team.');
+    }
+  }, [base, canEdit]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const pending = invitations.filter((i) => i.status === 'PENDING');
+
+  return (
+    <section className="card settings-section">
+      <h2>Team</h2>
+      <p className="sub">
+        People who can sign in to {org?.organization.name ?? 'your studio'}.
+        Instructors you schedule but who never log in belong on{' '}
+        <a href="/staff">Staff &amp; guides</a> instead.
+      </p>
+
+      {error && (
+        <div className="alert danger" role="alert">
+          {error}
+        </div>
+      )}
+
+      {!members && !error && (
+        <LoadingRegion label="Loading your team">
+          <SkeletonCard lines={3} />
+        </LoadingRegion>
+      )}
+
+      {members && (
+        <table className="roll">
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Role</th>
+              <th scope="col" />
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((member) => (
+              <tr key={member.membershipId}>
+                <td>
+                  <span className="roll-name">{member.user.name}</span>
+                  <div className="tiny muted">{member.user.email}</div>
+                </td>
+                <td>
+                  <span className="tag">{member.role.toLowerCase().replace('_', ' ')}</span>
+                </td>
+                <td />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {pending.length > 0 && (
+        <>
+          <hr />
+          <h3>Waiting to accept</h3>
+          <table className="roll">
+            <tbody>
+              {pending.map((invitation) => (
+                <tr key={invitation.id}>
+                  <td>
+                    <span className="roll-name">{invitation.name}</span>
+                    <div className="tiny muted">{invitation.email}</div>
+                  </td>
+                  <td>
+                    <span className="tag">
+                      {invitation.role.toLowerCase().replace('_', ' ')}
+                    </span>
+                  </td>
+                  <td className="num">
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await api
+                            .del(`${base}/invitations/${invitation.id}`)
+                            .catch(() => {});
+                          void load();
+                        }}
+                      >
+                        Withdraw
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {canEdit && (
+        <>
+          <hr />
+          <InviteForm
+            base={base}
+            onInvited={(url) => {
+              setInviteUrl(url);
+              void load();
+            }}
+          />
+
+          {inviteUrl && (
+            <div className="alert ok" role="status">
+              <p>Invitation sent. If it does not arrive, send them this link:</p>
+              {/*
+                Shown because studio email lands in spam constantly, and
+                without a copyable link that is a support request nobody can
+                resolve. It is safe to show: whoever is reading this screen
+                already administers the studio.
+              */}
+              <input
+                type="text"
+                readOnly
+                value={inviteUrl}
+                onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
+              />
+            </div>
+          )}
+        </>
+      )}
+
+      {!canEdit && (
+        <p className="sub">Only an owner or admin can invite people.</p>
+      )}
+    </section>
+  );
+}
+
+function InviteForm({
+  base,
+  onInvited,
+}: {
+  base: string;
+  onInvited: (inviteUrl: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState<string>('INSTRUCTOR');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+
+    try {
+      const res = await api.post<{ inviteUrl: string }>(`${base}/invitations`, {
+        name: name.trim(),
+        email: email.trim(),
+        role,
+      });
+      setName('');
+      setEmail('');
+      onInvited(res.inviteUrl);
+    } catch (err) {
+      // The server knows why it refused — already a member, already invited —
+      // and paraphrasing here would mean two places to keep in agreement.
+      setError(err instanceof Error ? err.message : 'Could not send the invitation.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const chosen = ROLES.find((r) => r.value === role);
+
+  return (
+    <form onSubmit={submit}>
+      <h3>Invite somebody</h3>
+
+      <div className="row">
+        <div>
+          <label htmlFor="inviteName">Name</label>
+          <input
+            id="inviteName"
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="inviteEmail">Email</label>
+          <input
+            id="inviteEmail"
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <label htmlFor="inviteRole">Role</label>
+      <select
+        id="inviteRole"
+        value={role}
+        onChange={(e) => setRole(e.target.value)}
+      >
+        {ROLES.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {/*
+        The consequence, not just the name. "Front desk" tells somebody nothing
+        about what they are handing over, and picking a role is the one moment
+        they are thinking about it.
+      */}
+      <p className="tiny muted">{chosen?.help}</p>
+
+      {/*
+        Owner is absent on purpose and it is worth saying why on the screen —
+        otherwise its absence reads as an oversight and somebody files a bug.
+      */}
+      <p className="tiny muted">
+        To make somebody an owner, invite them first and change their role once
+        they have accepted.
+      </p>
+
+      {error && (
+        <div className="alert danger" role="alert">
+          {error}
+        </div>
+      )}
+
+      <div className="page-actions">
+        <button type="submit" className="primary" disabled={busy}>
+          {busy ? 'Sending…' : 'Send invitation'}
+        </button>
+      </div>
+    </form>
   );
 }
 

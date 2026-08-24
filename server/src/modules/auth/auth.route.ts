@@ -6,6 +6,7 @@ import { authenticate } from '../../middleware/authenticate';
 import { rateLimit } from '../../middleware/rate-limit';
 import * as controller from './auth.controller';
 import {
+  acceptInvitationSchema,
   changePasswordSchema,
   forgotPasswordSchema,
   loginSchema,
@@ -116,6 +117,31 @@ authRouter.post(
   resetLimit,
   validateBody(resetPasswordSchema),
   asyncHandler(controller.resetPassword),
+);
+
+/**
+ * Accepting an invitation (S9).
+ *
+ * Public by necessity: the recipient usually has no account yet, which is the
+ * whole point of an invitation. Both routes consume a 32-byte token that only
+ * exists in one email.
+ *
+ * Limited on the REGISTER budget rather than the login one, because accepting
+ * is a registration in every way that matters — it can create a user and it
+ * always creates a membership. Sharing the register budget also means an
+ * invitation cannot be used to sidestep the signup limiter.
+ */
+authRouter.get(
+  '/invitations/:token',
+  registerLimit,
+  asyncHandler(controller.readInvitation),
+);
+
+authRouter.post(
+  '/invitations/:token/accept',
+  registerLimit,
+  validateBody(acceptInvitationSchema),
+  asyncHandler(controller.acceptInvitation),
 );
 
 // --- Authenticated --------------------------------------------------------

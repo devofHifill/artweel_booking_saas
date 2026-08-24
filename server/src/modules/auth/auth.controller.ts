@@ -65,6 +65,43 @@ export async function me(req: Request, res: Response) {
     where: { id: req.auth.userId },
   });
 
+  /**
+   * A support session reports the studio it is scoped to, and ONLY that one.
+   *
+   * The operator's own memberships are deliberately not returned here. They
+   * are real — a platform admin may also own a studio of their own — but a
+   * support token cannot reach them, so listing them would put studios in the
+   * dashboard's switcher that every request for would 404. The client renders
+   * what it is told; telling it the truth about this token's reach is what
+   * keeps the two in agreement.
+   */
+  if (req.support) {
+    const organization = await prisma.organization.findUniqueOrThrow({
+      where: { id: req.support.organizationId },
+      select: { id: true, name: true, slug: true, timezone: true, currency: true },
+    });
+
+    res.json({
+      user: authService.publicUser(user),
+      memberships: [
+        {
+          organizationId: organization.id,
+          // Matches what `withOrganization` grants, so the client hides the
+          // same controls the server would refuse.
+          role: 'ADMIN' as const,
+          organization,
+        },
+      ],
+      support: {
+        sessionId: req.support.sessionId,
+        organizationId: req.support.organizationId,
+        readOnly: req.support.readOnly,
+        studioName: organization.name,
+      },
+    });
+    return;
+  }
+
   res.json({
     user: authService.publicUser(user),
     memberships: await authService.listMemberships(user.id),
@@ -111,4 +148,41 @@ export async function changePassword(req: Request, res: Response) {
   );
 
   res.json(result);
+}
+
+// --- Invitations (S9) -----------------------------------------------------
+
+function inviteToken(req: Request): string {
+  const token = req.params.token;
+  if (!token) throw AppError.notFound('That invitation link is not valid.');
+  return token;
+}
+
+/** Describes an invitation so the accept page can say what it is offering. */
+export async function readInvitation(req: Request, res: Response) {
+  const { getInvitation } = await import(
+    '../organizations/invitation.service'
+  );
+  res.json(await getInvitation(inviteToken(req)));
+}
+
+/**
+ * Accepting signs them straight in.
+ *
+ * Landing on the login screen after clicking "join the team" and choosing a
+ * password is a dead end — they have just proved who they are twice over, and
+ * asking again reads as the product having lost track.
+ */
+export async function acceptInvitation(req: Request, res: Response) {
+  const { acceptInvitation: accept } = await import(
+    '../organizations/invitation.service'
+  );
+
+  const result = await accept({
+    token: inviteToken(req),
+    password: req.body.password,
+    ...clientContext(req),
+  });
+
+  res.status(201).json(result);
 }

@@ -22,14 +22,26 @@ export type ShellAlert = {
   message: string;
 };
 
+/** Somebody from Artweel is inside this studio right now. See S7. */
+export type SupportPresence = {
+  id: string;
+  by: string;
+  reason: string;
+  readOnly: boolean;
+  expiresAt: string;
+};
+
 export type ShellSummary = {
   counts: { today: number; pendingBookings: number };
   alerts: ShellAlert[];
+  /** Optional so an older server that does not send it renders no banner. */
+  support?: SupportPresence[];
 };
 
 const EMPTY: ShellSummary = {
   counts: { today: 0, pendingBookings: 0 },
   alerts: [],
+  support: [],
 };
 
 export function useShellSummary(): ShellSummary {

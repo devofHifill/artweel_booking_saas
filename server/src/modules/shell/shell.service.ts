@@ -105,9 +105,34 @@ export async function getSummary(organizationId: string, now = new Date()) {
     });
   }
 
+  /**
+   * Somebody from Artweel is inside this studio right now (S7).
+   *
+   * Surfaced to the STUDIO, not only to the platform. A support session is
+   * somebody reading a studio's customer list and bookings, and that studio is
+   * entitled to know while it is happening rather than afterwards in a log
+   * they cannot see. The reason is included deliberately: a banner that says
+   * somebody is here and will not say why is worse than no banner.
+   *
+   * It rides on the summary the shell already polls rather than getting its
+   * own endpoint, so the banner appears without the dashboard learning a new
+   * request — and disappears the same way when the session ends.
+   */
+  const { activeSessionsForStudio } = await import(
+    '../platform/support.service'
+  );
+  const supportSessions = await activeSessionsForStudio(organizationId);
+
   return {
     counts: { today: todayCount, pendingBookings },
     alerts,
+    support: supportSessions.map((session) => ({
+      id: session.id,
+      by: session.actorEmail,
+      reason: session.reason,
+      readOnly: session.readOnly,
+      expiresAt: session.expiresAt,
+    })),
   };
 }
 

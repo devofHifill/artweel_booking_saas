@@ -2,7 +2,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../lib/async-handler';
 import { validateBody, validateQuery } from '../../middleware/validate';
-import { requireAdmin, requireMember } from '../../middleware/authenticate';
+import {
+  requireAdmin,
+  requireFrontDesk,
+  requireMember,
+} from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import * as service from './booking.admin.service';
 
@@ -117,7 +121,9 @@ bookingAdminRouter.get(
 /** A booking taken over the phone or at the counter. */
 bookingAdminRouter.post(
   '/',
-  requireMember,
+  // The counter's job, and the counter's role. An instructor teaching a class
+  // has no reason to be selling a place in it.
+  requireFrontDesk,
   validateBody(
     z.object({
       serviceTypeId: z.string().uuid(),
@@ -145,7 +151,12 @@ bookingAdminRouter.post(
 
 bookingAdminRouter.post(
   '/:bookingId/cancel',
-  requireMember,
+  /*
+    Cancelling moves money — the refund ladder runs on this path — and it
+    cancels somebody's plans. It was reachable by every member, which since S9
+    means any instructor could cancel any booking in the studio.
+  */
+  requireFrontDesk,
   validateBody(
     z.object({
       /** Studios sometimes cancel and settle the refund off-platform. */
@@ -183,7 +194,9 @@ bookingAdminRouter.get(
 
 bookingAdminRouter.post(
   '/:bookingId/reschedule',
-  requireMember,
+  // Same reasoning as cancel: it moves a customer's booking, and the customer
+  // called the counter about it, not the person teaching.
+  requireFrontDesk,
   validateBody(z.object({ startsAt: z.coerce.date() })),
   asyncHandler(async (req, res) => {
     res.json({

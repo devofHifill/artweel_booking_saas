@@ -17,6 +17,15 @@
 const ACCESS_KEY = 'bsaas.access';
 const REFRESH_KEY = 'bsaas.refresh';
 
+/**
+ * A platform support session (S7), handed over by the /admin client.
+ *
+ * In sessionStorage, not localStorage, and deliberately: it dies with the tab,
+ * which is about the lifetime of the session anyway, and it does not follow the
+ * operator into every other tab they have open.
+ */
+const SUPPORT_KEY = 'bsaas.support';
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -29,20 +38,109 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Picks up a support session handed over in the URL fragment, and strips it.
+ *
+ * Runs before React mounts, from main.tsx, because `tokens.access` is consulted
+ * by the very first request the app makes.
+ *
+ * WHY A FRAGMENT, given a token in a URL is normally a smell. Two other
+ * options were tried and are worse:
+ *
+ *   sessionStorage written by the ADMIN tab before `window.open` — this poisons
+ *   the operator's own tab. `tokens.access` prefers a support token, so every
+ *   `/api/platform/*` call the admin surface makes would start using a token
+ *   that cannot reach it, and the operator's console breaks the moment they
+ *   open a session. Found by opening the page rather than by any test.
+ *
+ *   Relying on `window.open` to COPY sessionStorage into the new tab — it does
+ *   not when the tab is opened with `noopener`, which is not something to give
+ *   up on a window opened from an operator console.
+ *
+ * A fragment is never sent to the server, never reaches a log, and lives in the
+ * new tab's address bar for a single paint before `replaceState` removes it —
+ * so it does not enter history and is not in the URL if the operator later
+ * screenshots the page. That is a better exposure profile than either
+ * alternative, not merely a different one.
+ */
+export function adoptSupportTokenFromUrl(): void {
+  const hash = window.location.hash;
+  if (!hash.startsWith('#support=')) return;
+
+  const token = decodeURIComponent(hash.slice('#support='.length));
+
+  try {
+    sessionStorage.setItem(SUPPORT_KEY, token);
+  } catch {
+    /* Private mode. The session simply will not start, which is safe. */
+  }
+
+  // Out of the address bar before anything can screenshot or bookmark it.
+  window.history.replaceState(
+    null,
+    '',
+    window.location.pathname + window.location.search,
+  );
+}
+
 export const tokens = {
-  get access() {
-    return localStorage.getItem(ACCESS_KEY);
+  /** Set while this tab is driving a support session. */
+  get support() {
+    try {
+      return sessionStorage.getItem(SUPPORT_KEY);
+    } catch {
+      return null;
+    }
   },
+
+  /** A support token wins for this tab, so the whole client works unchanged. */
+  get access() {
+    return this.support ?? localStorage.getItem(ACCESS_KEY);
+  },
+
+  /**
+   * A support session has NO refresh token, and must never borrow the
+   * operator's own.
+   *
+   * This guard is the whole reason `refresh` is not just a localStorage read.
+   * Without it, the moment the 30-minute support token expired the client would
+   * quietly refresh using the operator's personal credentials and carry on —
+   * except now as an ordinary session for a studio they are very likely not a
+   * member of, with no support row, no banner on the studio's dashboard, and
+   * nothing in the audit log. The expiry is supposed to be a wall; this is what
+   * stops the client from walking around it.
+   */
   get refresh() {
+    if (this.support) return null;
     return localStorage.getItem(REFRESH_KEY);
   },
+
   set(access: string, refresh: string) {
     localStorage.setItem(ACCESS_KEY, access);
     localStorage.setItem(REFRESH_KEY, refresh);
   },
+
+  /**
+   * Lets go of a finished support session without touching the operator's own
+   * credentials.
+   *
+   * Separate from `clear()` because a dead support token must not sign the
+   * operator out of everything — and because leaving it in place is worse than
+   * either: `access` prefers it, so the tab would keep sending a token the
+   * server has already refused, including after a fresh login.
+   */
+  dropSupport() {
+    try {
+      sessionStorage.removeItem(SUPPORT_KEY);
+    } catch {
+      /* Nothing was stored, so nothing to remove. */
+    }
+  },
+
   clear() {
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
+    this.dropSupport();
   },
 };
 
@@ -101,12 +199,27 @@ async function request<T>(
 
   const response = await fetch(path, { ...init, headers });
 
-  if (response.status === 401 && !retrying && tokens.refresh) {
-    if (await refreshTokens()) {
-      return request<T>(path, init, true);
+  if (response.status === 401 && !retrying) {
+    /**
+     * A support session cannot refresh — it has no refresh token, by design.
+     * What it must do instead is LET GO.
+     *
+     * Leaving the dead token in sessionStorage is the failure worth naming:
+     * `tokens.access` prefers it, so the tab would go on presenting a token
+     * the server has already refused — and because signing in again only
+     * writes localStorage, even a fresh login would not rescue it. The tab
+     * 401s forever.
+     */
+    if (tokens.support) {
+      tokens.dropSupport();
+      window.dispatchEvent(new CustomEvent('bsaas:signed-out'));
+    } else if (tokens.refresh) {
+      if (await refreshTokens()) {
+        return request<T>(path, init, true);
+      }
+      // Refresh failed — the session is genuinely over.
+      window.dispatchEvent(new CustomEvent('bsaas:signed-out'));
     }
-    // Refresh failed — the session is genuinely over.
-    window.dispatchEvent(new CustomEvent('bsaas:signed-out'));
   }
 
   if (response.status === 204) return undefined as T;

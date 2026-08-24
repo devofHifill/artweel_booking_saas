@@ -12,7 +12,13 @@ import {
 } from './types';
 import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
-type ActionId = 'trial' | 'plan' | 'comp' | 'suspend' | 'unsuspend';
+type ActionId =
+  | 'trial'
+  | 'plan'
+  | 'comp'
+  | 'suspend'
+  | 'unsuspend'
+  | 'support';
 
 /**
  * One studio, and everything an operator can do to it.
@@ -204,6 +210,9 @@ export default function StudioDetail() {
           <button onClick={() => setOpen(open === 'comp' ? null : 'comp')}>
             {studio.compedAt ? 'Remove comp' : 'Comp this studio'}
           </button>
+          <button onClick={() => setOpen(open === 'support' ? null : 'support')}>
+            Look inside
+          </button>
           {studio.suspendedByPlatformAt ? (
             <button
               className="primary"
@@ -343,7 +352,58 @@ export default function StudioDetail() {
             }}
           />
         )}
+        {open === 'support' && (
+          <ActionForm
+            title="Open a support session"
+            note="Opens their dashboard as you, for 30 minutes, scoped to this studio only. The studio sees a banner naming you and this reason for as long as it lasts. Read-only unless you tick the box — and even with writes on, you cannot change who owns the studio."
+            submitLabel="Open session"
+            extraFields={(set) => (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  onChange={(e) => set({ readOnly: !e.target.checked })}
+                />
+                <span>
+                  Allow changes. Leave this off unless you are fixing something
+                  they have asked you to fix.
+                </span>
+              </label>
+            )}
+            onSubmit={(body) =>
+              api
+                .post<{ accessToken: string }>(
+                  `/api/platform/organizations/${studio.id}/support-sessions`,
+                  { readOnly: true, ...body },
+                )
+                .then((res) => {
+                  /*
+                    Handed over in the FRAGMENT of the tab being opened, and
+                    deliberately never written into this tab's storage.
+
+                    Writing it to sessionStorage here was the first attempt and
+                    it breaks the operator's own console: `tokens.access`
+                    prefers a support token, so every /api/platform/* call this
+                    surface makes would start presenting a token that cannot
+                    reach it. The admin UI dies the moment you open a session.
+
+                    The dashboard reads the fragment before React mounts and
+                    strips it from the address bar — see `adoptSupportTokenFromUrl`,
+                    which carries the full reasoning. A fragment never reaches
+                    the server or a log.
+                  */
+                  window.open(
+                    `/#support=${encodeURIComponent(res.accessToken)}`,
+                    '_blank',
+                    'noopener',
+                  );
+                })
+            }
+            onDone={() => setOpen(null)}
+          />
+        )}
       </section>
+
+      <Integrations organizationId={studio.id} />
 
       <section className="card">
         <h2>History</h2>
@@ -360,6 +420,179 @@ export default function StudioDetail() {
         )}
       </section>
     </>
+  );
+}
+
+// --- Integrations (S10) -----------------------------------------------------
+
+type IntegrationStatus = {
+  payments: {
+    connected: boolean;
+    chargesEnabled: boolean;
+    payoutsEnabled: boolean;
+  };
+  calendars: {
+    staffId: string;
+    staffName: string;
+    connected: boolean;
+    status: string | null;
+    accountEmail: string | null;
+    lastChangedAt: string | null;
+  }[];
+  sms: { available: boolean; optedOutCustomers: number };
+};
+
+/**
+ * What this studio is plugged into, and the one thing support can do about it.
+ *
+ * Read-only apart from the disconnect, deliberately. Everything here is a fact
+ * mirrored from somewhere else — Stripe's own verdict, a calendar connection's
+ * status — and an operator who could edit those would be editing a cache of
+ * another system's opinion.
+ *
+ * Loaded separately from the studio detail above rather than folded into it: a
+ * calendar status is the thing most likely to have changed since the page was
+ * opened, and it is the reason somebody is looking.
+ */
+function Integrations({ organizationId }: { organizationId: string }) {
+  const [status, setStatus] = useState<IntegrationStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setStatus(
+        await api.get<IntegrationStatus>(
+          `/api/platform/organizations/${organizationId}/integrations`,
+        ),
+      );
+    } catch {
+      setError('Could not load integrations.');
+    }
+  }, [organizationId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const wedged = status?.calendars.filter(
+    (c) => c.connected && c.status !== 'ACTIVE',
+  );
+
+  return (
+    <section className="card">
+      <h2>Integrations</h2>
+
+      {error && (
+        <div className="alert danger" role="alert">
+          {error}
+        </div>
+      )}
+
+      {!status && !error && (
+        <LoadingRegion label="Loading integrations">
+          <SkeletonList count={1} lines={3} />
+        </LoadingRegion>
+      )}
+
+      {status && (
+        <>
+          <dl className="detail-list">
+            <Row label="Payments">
+              {status.payments.connected ? (
+                <>
+                  Stripe connected
+                  {!status.payments.chargesEnabled && (
+                    <span className="tag off"> charges disabled</span>
+                  )}
+                  {!status.payments.payoutsEnabled && (
+                    <span className="tag off"> payouts disabled</span>
+                  )}
+                </>
+              ) : (
+                <span className="muted">not connected</span>
+              )}
+            </Row>
+            <Row label="Messaging">
+              {status.sms.available ? 'SMS available' : 'SMS not configured'}
+              {status.sms.optedOutCustomers > 0 && (
+                <span className="tiny muted">
+                  {' '}
+                  · {status.sms.optedOutCustomers} opted out
+                </span>
+              )}
+            </Row>
+          </dl>
+
+          <h3>Calendars</h3>
+          {status.calendars.length === 0 ? (
+            <p className="sub">No active instructors.</p>
+          ) : (
+            <table className="admin-table">
+              <tbody>
+                {status.calendars.map((calendar) => (
+                  <tr key={calendar.staffId}>
+                    <td>
+                      <strong>{calendar.staffName}</strong>
+                      {calendar.accountEmail && (
+                        <div className="tiny muted">{calendar.accountEmail}</div>
+                      )}
+                    </td>
+                    <td>
+                      {!calendar.connected ? (
+                        <span className="tiny muted">not connected</span>
+                      ) : calendar.status === 'ACTIVE' ? (
+                        <span className="tag">syncing</span>
+                      ) : (
+                        <span className="tag off">
+                          {calendar.status?.toLowerCase().replace('_', ' ')}
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {calendar.connected && (
+                        <button
+                          onClick={() => setDisconnecting(calendar.staffId)}
+                        >
+                          Disconnect
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {wedged && wedged.length > 0 && (
+            <p className="sub">
+              A wedged connection usually clears by disconnecting it here and
+              asking the instructor to reconnect from their own Integrations
+              screen. Nothing else of theirs is affected.
+            </p>
+          )}
+
+          {disconnecting && (
+            <ActionForm
+              title="Disconnect this calendar"
+              note="Their calendar stops syncing and the times it had mirrored in are cleared, so they are bookable again. They reconnect it themselves from their own Integrations screen — you cannot do that for them."
+              submitLabel="Disconnect"
+              danger
+              onSubmit={(body) =>
+                api.post(
+                  `/api/platform/organizations/${organizationId}/integrations/calendar/${disconnecting}/disconnect`,
+                  body,
+                )
+              }
+              onDone={() => {
+                setDisconnecting(null);
+                void load();
+              }}
+            />
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

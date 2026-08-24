@@ -2607,6 +2607,24 @@ td.strong { font-weight: 600; }
    to live rather than being scattered across the JSX. */
 .widget-preview { margin-top: var(--space-3); }
 
+/* A switched-off thing — a disabled account (S8). Its own class rather than
+   borrowing one of the booking-status tags above: those are a closed set that
+   means something specific, and reusing NO_SHOW for a person reads as careless
+   the first time somebody greps for it. */
+.tag.off { color: var(--danger); border-color: currentColor; }
+
+/* --- Support session banner (S7) ----------------------------------------- */
+/*
+   Not dismissible, and it sits above everything including the billing notice.
+   This is not a notification the studio can acknowledge and move past — it is
+   the state of the room, and it disappears on its own when the session ends.
+*/
+.support-banner {
+  margin-bottom: var(--space-4);
+  border-left: 4px solid var(--warn);
+}
+.support-banner strong { display: inline-block; margin-right: var(--space-1); }
+
 /* --- Daily manifest ------------------------------------------------------ */
 .manifest-nav { display: flex; gap: var(--space-2); align-items: center; }
 .manifest-nav button { padding: 8px 10px; }

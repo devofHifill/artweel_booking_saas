@@ -19,6 +19,16 @@ import {
   suspendStudio,
   unsuspendStudio,
 } from './studio-admin.service';
+import {
+  endSupportSession,
+  listSupportSessions,
+  startSupportSession,
+} from './support.service';
+import { listUsers, setMemberRole, setUserDisabled } from './users.service';
+import {
+  disconnectStudioCalendar,
+  getStudioIntegrations,
+} from './integrations.service';
 
 /**
  * `/api/platform/*` — Artweel's own operator surface.
@@ -239,6 +249,196 @@ platformRouter.get(
   '/plans',
   asyncHandler(async (_req, res) => {
     res.json({ plans: availablePlans() });
+  }),
+);
+
+// --- Support sessions (S7) ------------------------------------------------
+//
+// The only platform capability that reaches INSIDE a studio. Everything else
+// on this router acts on platform data — which studios exist, what they pay —
+// and has no tenant to scope to. This one does, and it goes through the same
+// choke point every studio request does rather than around it.
+
+const startSupportSchema = z.object({
+  reason: reasonSchema,
+  /**
+   * Read-only unless asked otherwise. A support session that can write is the
+   * unusual case and should have to be requested, not defaulted into — the
+   * whole argument against a platform bypass is that it collapses the distance
+   * between looking and changing.
+   */
+  readOnly: z.boolean().default(true),
+});
+
+platformRouter.post(
+  '/organizations/:organizationId/support-sessions',
+  validateBody(startSupportSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof startSupportSchema>;
+
+    res.status(201).json(
+      await startSupportSession(auditContext(req), studioId(req), {
+        reason: body.reason,
+        readOnly: body.readOnly,
+      }),
+    );
+  }),
+);
+
+const supportListQuerySchema = z.object({
+  organizationId: z.string().uuid().optional(),
+  activeOnly: z.coerce.boolean().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+platformRouter.get(
+  '/support-sessions',
+  validateQuery(supportListQuerySchema),
+  asyncHandler(async (req, res) => {
+    const query = req.query as z.infer<typeof supportListQuerySchema>;
+    res.json({ sessions: await listSupportSessions(query) });
+  }),
+);
+
+/**
+ * Ends a session early.
+ *
+ * POST rather than DELETE: the row is kept forever — it is the record of a
+ * visit — and DELETE on a resource that is not deleted reads as a promise the
+ * endpoint does not keep.
+ */
+platformRouter.post(
+  '/support-sessions/:sessionId/end',
+  asyncHandler(async (req, res) => {
+    const parsed = z.string().uuid().safeParse(req.params.sessionId);
+    if (!parsed.success) {
+      throw AppError.notFound('Support session not found.', 'SESSION_NOT_FOUND');
+    }
+
+    res.json(await endSupportSession(auditContext(req), parsed.data));
+  }),
+);
+
+// --- Integrations (S10) ---------------------------------------------------
+//
+// Read-only, plus the one action support actually needs. The read is the
+// studio's own `getIntegrationStatus`, so an operator and an owner cannot end
+// up reading the same studio differently.
+
+platformRouter.get(
+  '/organizations/:organizationId/integrations',
+  asyncHandler(async (req, res) => {
+    res.json(await getStudioIntegrations(studioId(req)));
+  }),
+);
+
+platformRouter.post(
+  '/organizations/:organizationId/integrations/calendar/:staffId/disconnect',
+  validateBody(reasonOnlySchema),
+  asyncHandler(async (req, res) => {
+    const staffId = z.string().uuid().safeParse(req.params.staffId);
+    if (!staffId.success) {
+      throw AppError.notFound('Instructor not found.', 'STAFF_NOT_FOUND');
+    }
+
+    const { reason } = req.body as z.infer<typeof reasonOnlySchema>;
+
+    res.json(
+      await disconnectStudioCalendar(
+        auditContext(req),
+        studioId(req),
+        staffId.data,
+        reason,
+      ),
+    );
+  }),
+);
+
+// --- Users (S8) -----------------------------------------------------------
+//
+// The only surface in the product that reads across every tenant's people at
+// once. Behind the platform gate, and audited from the first line rather than
+// "once it matters" — a cross-tenant list of names and addresses is precisely
+// the thing worth having a record of somebody having opened.
+
+const userListQuerySchema = z.object({
+  search: z.string().trim().min(1).max(120).optional(),
+  status: z.enum(['active', 'disabled', 'unverified']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
+platformRouter.get(
+  '/users',
+  validateQuery(userListQuerySchema),
+  asyncHandler(async (req, res) => {
+    const query = req.query as z.infer<typeof userListQuerySchema>;
+    res.json(await listUsers(query));
+  }),
+);
+
+const disableUserSchema = z.object({
+  /**
+   * Explicit rather than a toggle. A route that flips whatever it finds does
+   * the wrong thing when two operators click at once, and reads ambiguously in
+   * the audit log afterwards — "user.toggle" tells a reader nothing about what
+   * the account ended up as.
+   */
+  disabled: z.boolean(),
+  reason: reasonSchema,
+});
+
+platformRouter.post(
+  '/users/:userId/disabled',
+  validateBody(disableUserSchema),
+  asyncHandler(async (req, res) => {
+    const parsed = z.string().uuid().safeParse(req.params.userId);
+    if (!parsed.success) {
+      throw AppError.notFound('User not found.', 'USER_NOT_FOUND');
+    }
+
+    const body = req.body as z.infer<typeof disableUserSchema>;
+
+    res.json(
+      await setUserDisabled(auditContext(req), parsed.data, {
+        disabled: body.disabled,
+        reason: body.reason,
+      }),
+    );
+  }),
+);
+
+/**
+ * Cross-tenant role assignment (S9).
+ *
+ * OWNER *is* in this enum, unlike the invitation schema — an operator restoring
+ * a studio that lost its owner is exactly the support case this exists for. The
+ * last-owner guard still applies: `setMemberRole` delegates to
+ * `changeMemberRole` rather than writing the row, so the platform gets no path
+ * around the invariant that a studio always has an owner.
+ */
+const setRoleSchema = z.object({
+  role: z.enum(['OWNER', 'ADMIN', 'INSTRUCTOR', 'FRONT_DESK']),
+  reason: reasonSchema,
+});
+
+platformRouter.post(
+  '/organizations/:organizationId/members/:membershipId/role',
+  validateBody(setRoleSchema),
+  asyncHandler(async (req, res) => {
+    const membershipId = z.string().uuid().safeParse(req.params.membershipId);
+    if (!membershipId.success) {
+      throw AppError.notFound('Member not found.', 'MEMBER_NOT_FOUND');
+    }
+
+    const body = req.body as z.infer<typeof setRoleSchema>;
+
+    res.json(
+      await setMemberRole(auditContext(req), studioId(req), membershipId.data, {
+        role: body.role,
+        reason: body.reason,
+      }),
+    );
   }),
 );
 

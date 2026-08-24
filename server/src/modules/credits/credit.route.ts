@@ -2,16 +2,22 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../lib/async-handler';
 import { validateBody, validateQuery } from '../../middleware/validate';
-import { requireAdmin, requireMember } from '../../middleware/authenticate';
+import {
+  requireAdmin,
+  requireFrontDesk,
+  requireMember,
+} from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import * as credits from './credit.service';
 
 /**
  * Mounted under /api/organizations/:organizationId/credits.
  *
- * Reading and redeeming are `requireMember`: front desk booking a student into
- * a make-up class is routine. Granting one out of thin air, or withdrawing
- * one, is an owner decision — it is the studio giving away a seat.
+ * Reading is `requireMember` — an instructor wants to know what the person in
+ * front of them is owed. REDEEMING is front desk: booking a student into a
+ * make-up class is routine counter work, and it spends something. Granting one
+ * out of thin air, or withdrawing one, is an owner decision — it is the studio
+ * giving away a seat.
  */
 export const creditRouter = Router({ mergeParams: true });
 
@@ -59,7 +65,7 @@ creditRouter.post(
 
 creditRouter.post(
   '/:creditId/redeem',
-  requireMember,
+  requireFrontDesk,
   validateBody(z.object({ sessionId: z.string().uuid() })),
   asyncHandler(async (req, res) => {
     res.status(201).json(
