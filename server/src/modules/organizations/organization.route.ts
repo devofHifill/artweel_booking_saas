@@ -146,6 +146,48 @@ organizationRouter.patch(
   }),
 );
 
+// --- Storefront copy -----------------------------------------------------
+//
+// The paired shape borrows straight from /theme: the fields are read together
+// on the Website & Widget page and written together when the studio hits Save,
+// and folding them into the settings PATCH would have made an owner's edit to
+// their tagline share a request with their cancellation rules.
+//
+// The bounds mirror the CHECK constraints in the migration, so a value the
+// database would reject is refused here with a readable message rather than
+// a 500. Every field accepts null explicitly, so the UI can clear a value
+// back to the fallback rather than only ever appending to it.
+
+organizationRouter.get(
+  '/:organizationId/page',
+  withOrganization(),
+  requireMember,
+  asyncHandler(async (req, res) => {
+    res.json(await service.getPageContent(req.tenant!.organizationId));
+  }),
+);
+
+organizationRouter.patch(
+  '/:organizationId/page',
+  withOrganization(),
+  requireAdmin,
+  validateBody(
+    z.object({
+      tagline: z.string().max(160).nullish(),
+      about: z.string().max(2000).nullish(),
+      contactEmail: z.string().email().max(254).nullish().or(z.literal('')),
+      contactPhone: z.string().max(40).nullish(),
+      seoTitle: z.string().max(70).nullish(),
+      seoDescription: z.string().max(200).nullish(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    res.json(
+      await service.updatePageContent(req.tenant!.organizationId, req.body),
+    );
+  }),
+);
+
 organizationRouter.get(
   '/:organizationId/members',
   withOrganization(),

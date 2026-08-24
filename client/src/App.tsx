@@ -31,6 +31,7 @@ import PaymentsPage from './pages/Payments';
 import NotificationsPage from './pages/Notifications';
 import IntegrationsPage from './pages/Integrations';
 import ReportsPage from './pages/Reports';
+import Website from './pages/Website';
 import AdminApp from './admin/AdminApp';
 import { Shell } from './components/Shell';
 import { Icon } from './components/Icon';
@@ -257,6 +258,10 @@ export default function App() {
               <Icon name="plug" />
               Integrations
             </NavLink>
+            <NavLink to="/website">
+              <Icon name="site" />
+              Website &amp; widget
+            </NavLink>
             <NavLink to="/settings">
               <Icon name="settings" />
               Settings
@@ -316,6 +321,7 @@ export default function App() {
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/integrations" element={<IntegrationsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/website" element={<Website />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -173,13 +173,21 @@ publicRouter.post(
       /** TCPA: explicit, unbundled, and recorded with a timestamp. */
       smsConsent: z.boolean().default(false),
       notes: z.string().max(2000).optional(),
+      /*
+        Which surface the booking came from. Whitelisted rather than free-form
+        so a caller cannot make up its own channel and end up in the dashboard
+        donut as a slice nobody recognises. The embedded widget is the only
+        thing that says anything other than 'web'; new channels get added here
+        and to the SOURCE_LABELS map on the dashboard.
+      */
+      source: z.enum(['web', 'embed']).optional(),
     }),
   ),
   asyncHandler(async (req, res) => {
     const booking = await service.createPublicBooking({
       ...req.body,
       slug: param(req, 'slug'),
-      source: 'web',
+      source: req.body.source ?? 'web',
     });
 
     res.status(201).json({

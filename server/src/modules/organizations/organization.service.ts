@@ -1,6 +1,7 @@
 import { Prisma, type MembershipRole } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
+import { config } from '../../config';
 import { TRIAL_DAYS } from '../billing/billing.service';
 import {
   BRAND_PRESETS,
@@ -9,6 +10,7 @@ import {
   findPreset,
   resolveBrand,
 } from '../../lib/brand';
+import { embedSnippet } from '../public/embed';
 
 function slugify(input: string): string {
   return input
@@ -271,4 +273,99 @@ export async function updateTheme(
     adjusted: false,
     notes: [] as string[],
   };
+}
+
+// --- Storefront copy ------------------------------------------------------
+//
+// Its own pair of routes rather than more fields on the settings PATCH:
+// hero/about/SEO are what the storefront LOOKS like, cancellation rules are
+// how the studio runs. Folding them together made a Website & Widget page
+// that had to build a request out of half of one endpoint plus half of
+// another, and made the settings response mention six string fields no
+// settings screen would show.
+
+/**
+ * What is saved for the studio's public page. Every field may be null, and
+ * every renderer that reads them has a fallback — an untouched studio still
+ * gets a working page.
+ */
+export async function getPageContent(organizationId: string) {
+  const organization = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: {
+      slug: true,
+      tagline: true,
+      about: true,
+      contactEmail: true,
+      contactPhone: true,
+      seoTitle: true,
+      seoDescription: true,
+    },
+  });
+
+  /*
+    The Website & Widget page renders the embed snippet and a link to the
+    live booking page next to the copy fields, and all three are decided by
+    the same URLs — the public origin and the studio slug. Returning them
+    together means the client renders on the first response, without a
+    second round trip to build one string.
+  */
+  const publicUrl = config.PUBLIC_URL;
+  const bookingUrl = `${publicUrl}/public/${organization.slug}`;
+
+  const { slug, ...page } = organization;
+
+  return {
+    page,
+    embed: {
+      snippet: embedSnippet(slug),
+      scriptUrl: `${publicUrl}/embed.js`,
+      bookingUrl,
+    },
+  };
+}
+
+/**
+ * Trims to null so the CHECK-constrained columns never carry a lone space.
+ *
+ * Empty strings are treated the same as absent, so a studio that types text
+ * into a field and then clears it lands back at the fallback rather than at
+ * a stored empty value that reads as "yes there is a tagline, it is nothing".
+ */
+function trimToNull(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+export async function updatePageContent(
+  organizationId: string,
+  input: {
+    tagline?: string | null;
+    about?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    seoTitle?: string | null;
+    seoDescription?: string | null;
+  },
+) {
+  const data: Prisma.OrganizationUpdateInput = {};
+
+  const tagline = trimToNull(input.tagline);
+  if (tagline !== undefined) data.tagline = tagline;
+  const about = trimToNull(input.about);
+  if (about !== undefined) data.about = about;
+  const contactEmail = trimToNull(input.contactEmail);
+  if (contactEmail !== undefined) data.contactEmail = contactEmail;
+  const contactPhone = trimToNull(input.contactPhone);
+  if (contactPhone !== undefined) data.contactPhone = contactPhone;
+  const seoTitle = trimToNull(input.seoTitle);
+  if (seoTitle !== undefined) data.seoTitle = seoTitle;
+  const seoDescription = trimToNull(input.seoDescription);
+  if (seoDescription !== undefined) data.seoDescription = seoDescription;
+
+  await prisma.organization.update({ where: { id: organizationId }, data });
+
+  return getPageContent(organizationId);
 }

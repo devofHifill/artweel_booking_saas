@@ -133,6 +133,117 @@ describe('the booking page can be embedded', () => {
 });
 
 /**
+ * B8 gave the widget its own booking source, so the dashboard donut can
+ * separate a booking placed on the studio's own page from one placed through
+ * an iframe on somebody else's site. Before B8 both wrote `web`, and the
+ * dashboard rendered a caveat explaining that the two shares were hidden
+ * inside one slice; that caveat is now null.
+ */
+describe('a booking placed through the widget is attributed to the widget', () => {
+  it('writes source = embed when the request says so', async () => {
+    // Set up the smallest possible bookable class so a POST /bookings goes
+    // all the way through.
+    const service = await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send({
+        name: 'Handbuilding',
+        bookingMode: 'EVENT',
+        durationMinutes: 120,
+        capacityMax: 4,
+        priceCents: 5000,
+      })
+      .expect(201);
+
+    const { createSession } = await import(
+      '../../src/scheduling/session.service'
+    );
+    const session = await createSession({
+      organizationId: studio.organizationId,
+      serviceTypeId: service.body.service.id,
+      startsAt: new Date('2026-10-01T18:00:00Z'),
+      endsAt: new Date('2026-10-01T20:00:00Z'),
+      timezone: 'America/New_York',
+      localStartTime: '14:00',
+      capacity: 4,
+    });
+
+    await request(app)
+      .post(`/public/${slug}/bookings`)
+      .send({
+        serviceTypeId: service.body.service.id,
+        sessionId: session.id,
+        seats: 1,
+        customer: { name: 'Ada', email: 'ada@student.test' },
+        source: 'embed',
+      })
+      .expect(201);
+
+    const stored = await prisma.booking.findFirstOrThrow({
+      where: { organizationId: studio.organizationId },
+      select: { source: true },
+    });
+    expect(stored.source).toBe('embed');
+  });
+
+  it('refuses a source the whitelist does not know about', async () => {
+    // Free-form would let a caller invent its own channel and end up as a
+    // slice nobody recognises on somebody else's dashboard.
+    const service = await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send({
+        name: 'Handbuilding',
+        bookingMode: 'EVENT',
+        durationMinutes: 120,
+        capacityMax: 4,
+        priceCents: 5000,
+      })
+      .expect(201);
+
+    const { createSession } = await import(
+      '../../src/scheduling/session.service'
+    );
+    const session = await createSession({
+      organizationId: studio.organizationId,
+      serviceTypeId: service.body.service.id,
+      startsAt: new Date('2026-10-01T18:00:00Z'),
+      endsAt: new Date('2026-10-01T20:00:00Z'),
+      timezone: 'America/New_York',
+      localStartTime: '14:00',
+      capacity: 4,
+    });
+
+    await request(app)
+      .post(`/public/${slug}/bookings`)
+      .send({
+        serviceTypeId: service.body.service.id,
+        sessionId: session.id,
+        seats: 1,
+        customer: { name: 'Ada', email: 'ada@student.test' },
+        source: 'sneaky',
+      })
+      .expect(422);
+  });
+
+  it('has a client that reads ?embed=1 and posts source = embed', async () => {
+    /*
+      The loader appends `?embed=1` when it mounts the iframe. The booking
+      page reads that once at startup and sends it back with the booking
+      POST. This test asserts the wiring rather than the header alone: the
+      constant, the read of location.search, and the field in the body all
+      have to line up for the widget slice to appear on the dashboard.
+    */
+    const res = await request(app).get(`/public/${slug}`);
+
+    expect(res.text).toContain('IS_EMBED');
+    expect(res.text).toContain("embed=1");
+    expect(res.text).toContain('BOOKING_SOURCE');
+    expect(res.text).toContain('source: BOOKING_SOURCE');
+  });
+});
+
+/**
  * THE GUARD. Everything below must refuse to be framed, forever.
  */
 describe('everything else refuses to be framed', () => {

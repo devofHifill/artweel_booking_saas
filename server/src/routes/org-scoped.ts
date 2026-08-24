@@ -29,6 +29,7 @@ import { shellRouter } from '../modules/shell/shell.route';
 import { dashboardRouter } from '../modules/dashboard/dashboard.route';
 import { integrationRouter } from '../modules/integrations/integration.route';
 import { reportRouter } from '../modules/reports/report.route';
+import { manifestRouter } from '../modules/manifest/manifest.route';
 import { getTrafficSummary } from '../modules/marketing/marketing.route';
 import { asyncHandler } from '../lib/async-handler';
 import { requireMember } from '../middleware/authenticate';
@@ -114,3 +115,6 @@ orgScopedRouter.use('/integrations', integrationRouter);
 
 /** Six views over one window. Admin-only: this is the studio's commercial position. */
 orgScopedRouter.use('/reports', reportRouter);
+
+/** The day's sheet — every class, every name, every balance, on one surface. */
+orgScopedRouter.use('/manifest', manifestRouter);

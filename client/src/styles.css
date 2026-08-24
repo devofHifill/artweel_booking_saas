@@ -2565,3 +2565,195 @@ td.strong { font-weight: 600; }
   font-weight: 600;
   margin-bottom: 4px;
 }
+
+/* --- Website & Widget ---------------------------------------------------- */
+/* One row of Save + a secondary link. Wraps to two rows on a narrow panel. */
+.page-actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: var(--space-5);
+}
+
+/* A single search-result card. Deliberately understated: it is a preview,
+   not decoration. Its job is to look like Google, not like the dashboard. */
+.seo-preview { margin: var(--space-5) 0 0; }
+.seo-preview .preview-label {
+  display: block;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: var(--space-2);
+}
+.seo-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  background: var(--card);
+  max-width: 60ch;
+}
+.seo-card .seo-url { margin: 0 0 4px; font-size: var(--text-xs); color: var(--muted); }
+.seo-card .seo-title { margin: 0 0 4px; color: #1a0dab; font-size: var(--text-base); font-weight: 500; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .seo-card .seo-title { color: #8ab4f8; }
+}
+:root[data-theme="dark"] .seo-card .seo-title { color: #8ab4f8; }
+.seo-card .seo-desc { margin: 0; font-size: var(--text-sm); color: var(--ink); }
+
+/* Wraps the iframe. The frame itself has its inline style for size; this only
+   exists so a future decoration (rounded corners, drop shadow) has one place
+   to live rather than being scattered across the JSX. */
+.widget-preview { margin-top: var(--space-3); }
+
+/* --- Daily manifest ------------------------------------------------------ */
+.manifest-nav { display: flex; gap: var(--space-2); align-items: center; }
+.manifest-nav button { padding: 8px 10px; }
+
+.manifest-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  margin-bottom: var(--space-4);
+}
+.manifest-figure { display: flex; flex-direction: column; gap: 2px; }
+.manifest-figure b { font-size: var(--text-lg); }
+
+.manifest-actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+
+.manifest-session { padding: var(--space-5); margin-bottom: var(--space-4); }
+
+.ms-head {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--space-4);
+}
+.ms-swatch { width: 4px; align-self: stretch; border-radius: 2px; flex: 0 0 4px; }
+.ms-when { display: flex; flex-direction: column; min-width: 8ch; }
+.ms-what { flex: 1; min-width: 0; }
+.ms-what h2 {
+  margin: 0 0 2px;
+  font-size: var(--text-base);
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ms-what .sub { margin: 0; }
+.ms-count { text-align: right; display: flex; flex-direction: column; gap: 2px; }
+.ms-count b.full { color: var(--warn); }
+
+/* Money still to collect. Loud enough to notice at the door, not so loud the
+   sheet looks like a debt collection notice. */
+.owed { color: var(--warn); font-weight: 600; }
+
+.roll { width: 100%; border-collapse: collapse; }
+.roll th {
+  text-align: left;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 0 var(--space-3) var(--space-2) 0;
+  font-weight: 600;
+}
+.roll td { padding: var(--space-3) var(--space-3) var(--space-3) 0; border-top: 1px solid var(--line); vertical-align: top; }
+.roll .num { text-align: right; }
+.roll-name { font-weight: 600; }
+.roll-note { margin: 2px 0 0; max-width: 40ch; }
+.tag.first { background: var(--clay-lt); color: var(--clay-text); }
+
+.ms-actions { display: flex; gap: var(--space-3); align-items: center; margin-top: var(--space-4); }
+.ms-actions .spacer { flex: 1; }
+
+@media (max-width: 640px) {
+  /* The contact column is the first thing to go: a phone number is a tap on
+     the customer record away, and the names must stay readable. */
+  .roll th:nth-child(2), .roll td:nth-child(2) { display: none; }
+  .ms-head { flex-wrap: wrap; }
+}
+
+/* --- Print --------------------------------------------------------------- */
+/*
+   The manifest is the one screen in the product whose output is paper. A
+   studio without wifi in the kiln room prints it, ticks it with a pen, and
+   types the marks in later — so the printed sheet is a real deliverable
+   rather than a courtesy, and it gets a real stylesheet.
+*/
+.print-only { display: none; }
+
+@media print {
+  /* Everything that is not the sheet. The shell's nav, the date picker, the
+     Save buttons — none of it means anything on paper. */
+  .no-print,
+  .sidebar,
+  .topbar,
+  .bottom-nav,
+  .sidebar-backdrop,
+  .page-head .ph-actions {
+    display: none !important;
+  }
+  .print-only { display: revert; }
+
+  /* Paper is white and ink is black, whatever the person at the keyboard has
+     their dashboard set to. Printing a dark theme wastes a cartridge and
+     produces a sheet nobody can read in daylight. */
+  :root, :root[data-theme="dark"] {
+    --bg: #fff; --card: #fff; --ink: #000; --muted: #444; --line: #999;
+    --clay: #000; --clay-dk: #000; --clay-lt: #eee; --clay-text: #000;
+    --warn: #000;
+  }
+  body { background: #fff; color: #000; }
+
+  /* The shell is a grid with a sidebar column; on paper it is one column. */
+  .shell, .main { display: block; margin: 0; padding: 0; max-width: none; }
+
+  .manifest-session {
+    border: 1px solid #999;
+    box-shadow: none;
+    /* A class must not be split across a page break with its roll orphaned
+       on the next sheet. */
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 12pt;
+  }
+
+  .print-head {
+    display: flex !important;
+    justify-content: space-between;
+    border-bottom: 2px solid #000;
+    padding-bottom: 6pt;
+    margin-bottom: 12pt;
+    font-size: 12pt;
+  }
+
+  .manifest-summary { border: 0; padding: 0 0 12pt; gap: 18pt; }
+
+  /* The tick box. This is the entire reason an instructor prints the sheet. */
+  .tickbox { width: 3em; }
+  .tickbox::after {
+    content: '';
+    display: block;
+    width: 14pt;
+    height: 14pt;
+    border: 1px solid #000;
+    margin-left: auto;
+  }
+
+  .owed { font-weight: 700; text-decoration: underline; }
+  a[href]::after { content: ''; }
+}

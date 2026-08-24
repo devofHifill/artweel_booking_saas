@@ -59,6 +59,17 @@ export async function signUpStudio(
      * suite opts into SOLO explicitly, because there the limit IS the subject.
      */
     plan?: 'SOLO' | 'STUDIO' | 'PRO';
+    /**
+     * The studio's timezone.
+     *
+     * Registration does not take one, so this is applied afterwards. Worth
+     * having as an option rather than leaning on the default: the manifest and
+     * analytics suites are specifically about the studio's day differing from
+     * UTC's, and a test that silently depends on whatever `createOrganization`
+     * defaults to would start passing for the wrong reason the day that
+     * default changed.
+     */
+    timezone?: string;
   } = {},
 ): Promise<Studio> {
   clearRateLimitBudget();
@@ -83,7 +94,10 @@ export async function signUpStudio(
   const { prisma } = await import('../../src/lib/prisma');
   await prisma.organization.update({
     where: { id: organizationId },
-    data: { plan: opts.plan ?? 'PRO' },
+    data: {
+      plan: opts.plan ?? 'PRO',
+      ...(opts.timezone ? { timezone: opts.timezone } : {}),
+    },
   });
 
   return {

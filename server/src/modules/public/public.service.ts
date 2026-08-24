@@ -60,6 +60,15 @@ export async function getStudio(slug: string) {
          the critical path to buy something is a poor trade for two columns. */
       brandPreset: true,
       brandAccent: true,
+      /* Owner-authored storefront copy. Every field is nullable and the
+         renderer has a fallback for each — same round-trip reasoning as the
+         brand columns. */
+      tagline: true,
+      about: true,
+      contactEmail: true,
+      contactPhone: true,
+      seoTitle: true,
+      seoDescription: true,
     },
   });
 

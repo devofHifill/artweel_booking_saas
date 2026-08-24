@@ -21,7 +21,7 @@ export type IconName =
   | 'studio' | 'customers' | 'packs' | 'plan'
   | 'overview' | 'studios' | 'health' | 'audit'
   | 'menu' | 'close' | 'search' | 'chevron' | 'external' | 'sun' | 'moon'
-  | 'eye' | 'eye-off' | 'signin' | 'settings' | 'bell' | 'staff' | 'plug';
+  | 'eye' | 'eye-off' | 'signin' | 'settings' | 'bell' | 'staff' | 'plug' | 'site';
 
 const PATHS: Record<IconName, string> = {
   today: 'M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
@@ -68,6 +68,11 @@ const PATHS: Record<IconName, string> = {
   staff: 'M9 3h6M12 3v3M5 6h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2ZM12 13a2 2 0 1 0 0-4 2 2 0 0 0 0 4M8.5 18a3.5 3.5 0 0 1 7 0',
   /* A plug with its two pins, mid-connection. */
   plug: 'M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0V8ZM12 17v5',
+  /* A browser window with a "handle" bar — the way an owner recognises the
+     tab their storefront lives in. The row of small marks is a nod to the
+     traffic-light window controls without drawing them literally, which at
+     18px would blur into three dots on any theme. */
+  site: 'M3 4h18a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM2 9h20M6 6.5h.01M9 6.5h.01M12 6.5h.01',
 };
 
 export function Icon({

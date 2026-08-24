@@ -52,6 +52,31 @@ function net(payment: { amountCents: number; refundedCents: number }): number {
   return payment.amountCents - payment.refundedCents;
 }
 
+/**
+ * What has actually been received against a set of payment rows.
+ *
+ * Exported because it is rule 1 above applied to payments already loaded in
+ * memory, and three callers now need exactly that: the dashboard's schedule
+ * revenue, the manifest's balance-owed column, and `outstandingCents`. Each
+ * had grown its own copy of the same four lines — identical today, and one
+ * refund-status change away from the dashboard and the sheet an instructor
+ * carries quoting different money for the same class.
+ *
+ * The queries above cannot use this (they filter in SQL, via MONEY_IN); this
+ * is for the rows a caller has already selected.
+ */
+export function paidCentsOf(
+  payments: {
+    amountCents: number;
+    refundedCents: number;
+    status: PaymentStatus;
+  }[],
+): number {
+  return payments
+    .filter((payment) => MONEY_IN_STATUSES.includes(payment.status))
+    .reduce((sum, payment) => sum + net(payment), 0);
+}
+
 /** Bookings that still count — a cancelled seat is not attendance or demand. */
 const LIVE_BOOKING_STATUSES: BookingStatus[] = [
   'PENDING',

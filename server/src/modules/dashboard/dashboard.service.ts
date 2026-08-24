@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import type { BookingStatus, PaymentStatus } from '@prisma/client';
+import type { BookingStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import * as analytics from '../analytics/analytics.service';
 
@@ -17,17 +17,17 @@ import * as analytics from '../analytics/analytics.service';
  * wrong.
  */
 
-const MONEY_IN_STATUSES: PaymentStatus[] = ['SUCCEEDED', 'PARTIALLY_REFUNDED'];
 const LIVE_BOOKING_STATUSES: BookingStatus[] = ['PENDING', 'CONFIRMED', 'ATTENDED'];
 
-/** Net of refunds — the same rule as analytics and `outstandingCents`. */
-function paidCents(
-  payments: { amountCents: number; refundedCents: number; status: PaymentStatus }[],
-): number {
-  return payments
-    .filter((p) => MONEY_IN_STATUSES.includes(p.status))
-    .reduce((sum, p) => sum + p.amountCents - p.refundedCents, 0);
-}
+/**
+ * Net of refunds.
+ *
+ * Was a local copy of the rule until B9, when the manifest needed a third one.
+ * It now comes from analytics, which is where "money means the same thing
+ * every time" is stated — the alias is kept so the call sites below read the
+ * same as they always did.
+ */
+const paidCents = analytics.paidCentsOf;
 
 export type ScheduleRow = {
   id: string;
@@ -390,11 +390,12 @@ export async function getDashboard(organizationId: string, now = new Date()) {
     attention,
     instructors: instructorsFrom(schedule),
     /*
-      Stated rather than implied. The embed widget posts through the same public
-      route as the booking page, so both write `web` and the donut cannot
-      separate them. The screen says so; presenting two slices as the whole
-      picture would be worse than admitting the gap.
+      The donut used to carry a caveat here: both the booking page and the
+      embed widget wrote `web`, so the widget's slice was hidden inside the
+      page's. B8 gave the widget its own `embed` source and this note is now
+      wrong to render — retained as a null so an older client that still reads
+      the field renders nothing rather than crashing on a missing key.
     */
-    sourcesCaveat: 'web covers both the booking page and the embedded widget',
+    sourcesCaveat: null,
   };
 }

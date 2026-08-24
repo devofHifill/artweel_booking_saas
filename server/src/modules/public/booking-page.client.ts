@@ -16,6 +16,18 @@ export const clientScript = String.raw`
   var app = document.getElementById('app');
   var stepsEl = document.getElementById('steps');
 
+  /*
+    Whether this page is being shown inside the embeddable widget.
+
+    Set once, from the ?embed=1 the loader appends. The alternatives were both
+    worse: sniffing window.parent (a booking page on the studio's own site can
+    be iframed too, and would look identical), or a header (fetch does not
+    let a public page add one). A query flag is simple, testable, and the
+    thing the loader controls anyway.
+  */
+  var IS_EMBED = /(?:^|[?&])embed=1(?:&|$)/.test(location.search);
+  var BOOKING_SOURCE = IS_EMBED ? 'embed' : 'web';
+
   var state = {
     service: null, location: null, staff: null,
     slot: null, session: null, address: null, coverage: null, seats: 1
@@ -332,7 +344,8 @@ export const clientScript = String.raw`
           phone: document.getElementById('phone').value.trim() || undefined
         },
         smsConsent: document.getElementById('sms').checked,
-        notes: document.getElementById('notes').value.trim() || undefined
+        notes: document.getElementById('notes').value.trim() || undefined,
+        source: BOOKING_SOURCE
       };
       if (state.location) body.locationId = state.location.id;
       if (state.address) body.serviceAddress = state.address;

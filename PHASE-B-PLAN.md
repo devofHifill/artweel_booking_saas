@@ -92,12 +92,21 @@ Status as of 2026-08-20.
 | **B5** | Notifications | templates, log, retry | **DONE** — 6 tests, retry added |
 | **B6** | Integrations | one status surface | **DONE** — 12 tests |
 | **B7** | Reports | six tabs over B0 | **DONE** — 11 tests, 3 aggregates added |
-| **B8** | Website & Widget | storefront + embed | not started |
-| **B9** | Daily Manifest | the sheet an instructor carries | not started |
+| **B8** | Website & Widget | storefront + embed | **DONE** — 9 tests, 1 migration |
+| **B9** | Daily Manifest | the sheet an instructor carries | **DONE** — 20 tests, no migration |
 
-**Suite: 48 files, 700 tests, all passing** as of B4. B5 adds a retry endpoint
-and 6 tests. B4 itself adds no server code — every endpoint it uses already
-existed and was already tested — so the count did not move for it.
+**Suite: 54 files, 772 tests, all passing** as of B9 — B8 adds
+`tests/admin/website.test.ts` (10) plus three cases to the embed suite, B9 adds
+`tests/admin/manifest.test.ts` (20).
+
+Both phases were verified in a browser on 2026-08-24, per constraint 3:
+`20260824120000_storefront_copy` applied clean to an empty database; copy saved
+on Website & Widget reached `/public/clay-and-co` (tagline, both about
+paragraphs, `mailto:` contact) while the untouched SEO title correctly kept its
+fallback; the widget snippet and its `?embed=1` preview frame render; check-in
+on the manifest saved and moved the day's figure from 0/3 to 3/3;
+send-to-instructor queued a row that the worker then delivered to the staff
+address with the FIRST VISIT flag and the paid-in-full line intact.
 
 ### Two things that changed under the plan as it was written
 
@@ -122,6 +131,15 @@ is set for appointments. A group class hangs off a session, and
 taught group classes could be hard-deleted, and every class they ever taught
 silently lost its instructor, past ones included. Nothing in the product could
 reach the delete path until the Staff page shipped a Remove button.
+
+**A third copy of the money rule (B9).** `paidCents` in `dashboard.service` was
+a hand-copied duplicate of `net` + `MONEY_IN_STATUSES` in `analytics.service`,
+and `outstandingCents` in `booking.admin.service` a third. Identical on the day
+they were written, and exactly the drift constraint 1 exists to prevent — the
+manifest needed a fourth, so the rule was extracted as
+`analytics.paidCentsOf` and the dashboard now aliases it. Nothing behavioural
+changed; the point is that the next change to what counts as money received
+happens once.
 
 **A test-isolation bug (B2/B3).** `tests/auth/rate-limit.test.ts` lowers the auth
 budgets deliberately, and `src/config` validates the environment once at import
@@ -299,6 +317,24 @@ Also gives the embed widget its own booking source, which is what fills out the
 dashboard donut. That is why this sits after the dashboard rather than before
 it: the dashboard states the limitation, and this removes it.
 
+### As shipped
+
+Six nullable columns in one migration — `tagline`, `about`, `contact_email`,
+`contact_phone`, `seo_title`, `seo_description` — behind `GET/PATCH /page`,
+with CHECK bounds mirroring the zod ones. Every field has a fallback in
+`renderBookingPage`, so an untouched studio still gets exactly the page it had
+before.
+
+**Branding is a link, not a second picker.** The screen sends the owner to
+Settings → Appearance rather than rendering its own swatches. Two colour
+pickers writing one column is the shape of thing that drifts, and the accent
+belongs next to the Light/Dark toggle it is constantly confused with.
+
+**The donut caveat is gone.** `sourcesCaveat` is now `null` rather than
+deleted, so a stale client renders nothing instead of crashing on a missing
+key. The widget posts `source: 'embed'`, whitelisted at the route — free-form
+would let any caller invent a channel and appear as a slice nobody recognises.
+
 ---
 
 ## B9 — Daily Manifest
@@ -308,6 +344,43 @@ printable roll, balances owed, send-to-instructor, and check-in.
 
 Last because it is the only phase whose value depends on a studio running real
 classes, which is also the Phase 2 gate that is still open.
+
+### As shipped
+
+`GET /manifest?date=` composes the whole day in one request, and three things
+go on the sheet that the register could not show:
+
+**Appointments.** They hang off a staff member rather than a session, so a
+studio whose Tuesday is four private lessons opened the register to an empty
+page. The dashboard already learned this in B1; repeating the omission on the
+sheet somebody carries would have been worse.
+
+**Balances.** The question a front desk is actually asked at the door. The rule
+comes from `analytics.paidCentsOf`, extracted in this phase from the copy that
+had grown inside `dashboard.service` — constraint 1 applied to money already
+loaded in memory, so the sheet cannot disagree with Payments about a booking.
+
+**First visits.** One grouped query for the day, not a count per booking. The
+flag is per-DAY rather than per-session on purpose: somebody booked into a 10am
+and a 2pm is new at both.
+
+**The batch stayed the class.** Marks are still held locally and posted once
+per class, which is the register's hard-won rule — a whole-day Save would be
+wrong, because you check the 10am in at 10am.
+
+**Send-to-instructor writes to the outbox**, like everything else that leaves
+the building, and renders its own plain-text body rather than going through the
+studio's notification templates: those are customer messages in a studio's
+voice, and an owner editing them must not be able to break the operational
+sheet their staff work from. The dedupe key carries the MINUTE of the request —
+a fixed key on the date would silently refuse the corrected sheet after an
+11am cancellation, which is the worse of the two failures.
+
+**Print is a real deliverable.** The one screen in the product whose output is
+paper, so it has a real `@media print` block: the shell is stripped, the dark
+theme is forced back to black on white, classes are `break-inside: avoid`, and
+each row gets a tick box — because the studio wifi does not reach the kiln
+room.
 
 ---
 

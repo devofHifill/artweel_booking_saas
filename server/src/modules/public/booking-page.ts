@@ -72,6 +72,15 @@ type PageData = {
        compile: these are decoration, not data the page depends on. */
     brandPreset?: string | null;
     brandAccent?: string | null;
+    /* Owner-authored copy. Every field is optional and every use has a
+       fallback below, so a studio that has not touched Website & Widget still
+       gets a working page — just a generic one. */
+    tagline?: string | null;
+    about?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    seoTitle?: string | null;
+    seoDescription?: string | null;
   };
   acceptingBookings: boolean;
   services: {
@@ -157,19 +166,37 @@ padding:16px;margin:18px 0;text-align:left}
 .empty{color:var(--muted);padding:22px 0;text-align:center}
 .hidden{display:none}
 noscript p{padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
+.about{margin:36px 0 0;padding-top:24px;border-top:1px solid var(--line);color:var(--muted)}
+.about p{margin:0 0 12px}
+.about p:last-child{margin-bottom:0}
+.contact{margin:28px 0 0;padding-top:20px;border-top:1px solid var(--line);
+font-size:.9rem;color:var(--muted);text-align:center}
+.contact p{margin:4px 0}
+.contact a{color:var(--clay);text-decoration:none}
+.contact a:hover{text-decoration:underline}
 `;
 
 export function renderBookingPage(data: PageData): string {
   const { organization, services, locations } = data;
 
-  const title = `Book a class at ${organization.name}`;
+  /*
+    Studio-authored copy wins over the generic fallback. The fallback is what
+    every studio got before B8 and is exactly what an untouched studio still
+    gets — so a customer landing on `slug/` never sees an empty page while
+    the owner works out what to write.
+  */
+  const title =
+    organization.seoTitle?.trim() || `Book a class at ${organization.name}`;
   const description =
-    services.length > 0
+    organization.seoDescription?.trim() ||
+    (services.length > 0
       ? `Book ${services
           .slice(0, 3)
           .map((s) => s.name)
           .join(', ')} at ${organization.name}. Check live availability and reserve your place online.`
-      : `Book online at ${organization.name}.`;
+      : `Book online at ${organization.name}.`);
+  const tagline =
+    organization.tagline?.trim() || 'Choose a class and reserve your place';
 
   /**
    * JSON-LD so a search result can show price and duration directly. This is
@@ -228,7 +255,7 @@ export function renderBookingPage(data: PageData): string {
 <div class="wrap">
   <header class="studio">
     <h1>${escapeHtml(organization.name)}</h1>
-    <p class="sub">Choose a class and reserve your place</p>
+    <p class="sub">${escapeHtml(tagline)}</p>
   </header>
 
   <div class="steps" id="steps"></div>
@@ -256,6 +283,50 @@ export function renderBookingPage(data: PageData): string {
   <noscript>
     <p>Booking needs JavaScript. Please call the studio, or enable it and reload.</p>
   </noscript>
+
+  ${
+    organization.about
+      ? /*
+          Plain text, split on blank lines into paragraphs. The template
+          escapes each paragraph, so a studio pasting from a Word doc gets
+          no markdown, no HTML, and no chance to put a <script> onto their
+          own booking page — the trade for that is that a link in the about
+          box is not clickable, which is fine: this is a description of the
+          studio, not a link farm.
+        */
+        `<section class="about">
+      ${organization.about
+        .split(/\n\s*\n/)
+        .map((p) => `<p>${escapeHtml(p.trim())}</p>`)
+        .join('')}
+    </section>`
+      : ''
+  }
+
+  ${
+    organization.contactEmail || organization.contactPhone
+      ? /*
+          The contact block is the fallback when online booking cannot help —
+          a session is full, an address is out of range, or the flow just
+          confuses somebody. Rendered on every page, not only the not-taking-
+          bookings branch, because a customer's question does not know which
+          branch produced their frustration.
+        */
+        `<footer class="contact">
+      <p class="hint">Prefer to reach the studio directly?</p>
+      ${
+        organization.contactEmail
+          ? `<p><a href="mailto:${escapeHtml(organization.contactEmail)}">${escapeHtml(organization.contactEmail)}</a></p>`
+          : ''
+      }
+      ${
+        organization.contactPhone
+          ? `<p><a href="tel:${escapeHtml(organization.contactPhone.replace(/[^+\d]/g, ''))}">${escapeHtml(organization.contactPhone)}</a></p>`
+          : ''
+      }
+    </footer>`
+      : ''
+  }
 </div>
 
 <script>

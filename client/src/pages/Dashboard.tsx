@@ -84,7 +84,7 @@ type DashboardData = {
     href: string;
   }[];
   instructors: { name: string; classes: number; seats: number }[];
-  sourcesCaveat: string;
+  sourcesCaveat: string | null;
 };
 
 /**
@@ -572,12 +572,20 @@ function Ranked({
 
 const SOURCE_LABELS: Record<string, string> = {
   web: 'Booking page',
+  embed: 'Embed widget',
   admin: 'Added by staff',
   reschedule: 'Rescheduled',
   'admin-reschedule': 'Rescheduled by staff',
+  waitlist: 'Waitlist',
 };
 
-function Sources({ rows, caveat }: { rows: { source: string; bookings: number }[]; caveat: string }) {
+function Sources({
+  rows,
+  caveat,
+}: {
+  rows: { source: string; bookings: number }[];
+  caveat: string | null;
+}) {
   const total = rows.reduce((sum, r) => sum + r.bookings, 0);
 
   if (total === 0) return <p className="sub">No bookings in the last 30 days.</p>;
@@ -619,8 +627,13 @@ function Sources({ rows, caveat }: { rows: { source: string; bookings: number }[
         ))}
       </div>
 
-      {/* Stated, not implied. See the note on `sourcesCaveat` in the service. */}
-      <p className="tiny muted donut-note">{caveat}</p>
+      {/*
+        Rendered only when the server still has something to say. B8 gave the
+        widget its own source and the caveat is now null; the block stays here
+        because a future channel that cannot be attributed cleanly (a partner
+        integration, say) is exactly the shape of thing this line explains.
+      */}
+      {caveat && <p className="tiny muted donut-note">{caveat}</p>}
     </div>
   );
 }
