@@ -3,7 +3,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, dateIn, money, timeIn } from '../lib/api';
 import { useAuth, useActiveOrg, useOrgBase } from '../lib/auth';
 import { Icon } from '../components/Icon';
-import { Kpi, PageHead, PaymentPill, StatusPill } from '../components/layout';
+import {
+  initials,
+  Kpi,
+  PageHead,
+  PaymentPill,
+  StatusPill,
+} from '../components/layout';
 import { EmptyState, LoadingRegion, SkeletonList, SkeletonStats } from '../components/states';
 
 /**
@@ -686,11 +692,3 @@ function Attention({
  * uses for those meanings.
  */
 
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]!.toUpperCase())
-    .join('');
-}

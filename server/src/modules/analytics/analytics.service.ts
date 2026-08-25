@@ -77,6 +77,71 @@ export function paidCentsOf(
     .reduce((sum, payment) => sum + net(payment), 0);
 }
 
+/**
+ * What is still owed on a set of bookings already loaded.
+ *
+ * The other half of rule 1. `paidCentsOf` says what came in; this says what
+ * has not, and the pair were being written out longhand in three places —
+ * `getBooking`, the dashboard summary and now the payments screen. The
+ * `Math.max` matters: an over-refunded or comped booking must read as zero
+ * owed, never as the studio owing the customer money on a figure headed
+ * "outstanding".
+ */
+export function outstandingCentsOf(
+  bookings: {
+    totalCents: number;
+    payments: {
+      amountCents: number;
+      refundedCents: number;
+      status: PaymentStatus;
+    }[];
+  }[],
+): number {
+  return bookings.reduce(
+    (sum, booking) =>
+      sum + Math.max(0, booking.totalCents - paidCentsOf(booking.payments)),
+    0,
+  );
+}
+
+/**
+ * Everything the studio is still owed, as one figure.
+ *
+ * `from` exists because the dashboard and the payments screen want different
+ * windows on the same rule, not different rules. The dashboard asks about
+ * bookings still to come — money it can still collect at the door. Payments
+ * asks with no window at all, because a class somebody attended in March and
+ * never paid for is exactly what a screen headed "owed" is for.
+ *
+ * Free bookings are excluded at the query rather than filtered after: a studio
+ * running a free taster session would otherwise load every one of them to
+ * subtract zero.
+ */
+export async function outstandingTotal(
+  organizationId: string,
+  opts: { from?: Date } = {},
+): Promise<number> {
+  const bookings = await prisma.booking.findMany({
+    where: {
+      organizationId,
+      /* PENDING and CONFIRMED only. An ATTENDED booking that was never paid is
+         a real debt, but it is also how a studio records a comped seat, and
+         chasing those is a decision this figure should not make for them. */
+      status: { in: ['PENDING', 'CONFIRMED'] },
+      totalCents: { gt: 0 },
+      ...(opts.from ? { startsAt: { gte: opts.from } } : {}),
+    },
+    select: {
+      totalCents: true,
+      payments: {
+        select: { amountCents: true, refundedCents: true, status: true },
+      },
+    },
+  });
+
+  return outstandingCentsOf(bookings);
+}
+
 /** Bookings that still count — a cancelled seat is not attendance or demand. */
 const LIVE_BOOKING_STATUSES: BookingStatus[] = [
   'PENDING',

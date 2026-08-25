@@ -3132,3 +3132,66 @@ td.strong { font-weight: 600; }
 .cat-card + .cat-card { border-top: 1px solid var(--line); }
 .cat-swatch { width: 3px; align-self: stretch; min-height: 34px; border-radius: 3px; flex: 0 0 3px; }
 .cat-main { flex: 1; min-width: 0; }
+
+/* --- Payments (D7) -------------------------------------------------------- */
+
+/*
+ * Table beside an aside, collapsing to one column early.
+ *
+ * The breakdown is context for the rows, not a second subject, so it goes
+ * UNDER them on a narrow screen rather than above — 980px because below that
+ * the eight-column table is already scrolling horizontally inside its wrapper
+ * and stealing 340px for a sidebar makes that worse.
+ */
+.pay-split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--space-4); align-items: start; }
+@media (max-width: 980px) { .pay-split { grid-template-columns: minmax(0, 1fr); } }
+
+/* An avatar inside a table row. The 30px one is sized for a list of people;
+   at that size in a seven-column table it sets the row height on its own. */
+.avatar.sm { flex: 0 0 22px; height: 22px; font-size: 10px; }
+
+/* Name beside its avatar, on one line. */
+.row-cell { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+/* Reference ids and amounts. Tabular figures so a column of money lines up on
+   the decimal point — proportional digits make a total look ragged even when
+   every row is right-aligned. */
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--text-xs); }
+.num, .kpi-value { font-variant-numeric: tabular-nums; }
+.nowrap { white-space: nowrap; }
+
+/* A refunded amount, in the product's danger colour. Never colour alone: the row
+   also carries a "Refunded" status pill, because a red number and a black one
+   are the same number to a reader who cannot tell them apart. */
+.money-out { color: var(--danger); }
+
+/* --- Modal ---------------------------------------------------------------- */
+/*
+ * The panel chrome. `.modal` and `.modal-backdrop` above predate this and are
+ * left alone; what was missing was a head, a body and a footer, so every
+ * caller would have invented its own padding.
+ */
+.modal { padding: 0; max-width: 520px; }
+.modal-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.modal-head h2 { font-size: var(--text-lg); }
+.modal-body { padding: var(--space-4); }
+.modal-foot {
+  display: flex; justify-content: flex-end; gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+/* Focus lands on the panel itself when it opens, and a ring around the whole
+   dialog is noise — the dialog appearing IS the feedback. Removed here and
+   nowhere else. */
+.modal:focus { outline: none; }
+
+/* Label/value pairs in a detail. A grid rather than a two-column table so a
+   long value wraps under its own label instead of stretching the column. */
+.dl { display: grid; grid-template-columns: minmax(0, 34%) minmax(0, 1fr); gap: var(--space-2) var(--space-3); margin: 0; }
+.dl dt { color: var(--muted); font-size: var(--text-sm); }
+.dl dd { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }

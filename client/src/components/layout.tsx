@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
 
 /**
@@ -302,4 +302,120 @@ export function SegRange<T extends string | number>({
       ))}
     </div>
   );
+}
+
+/**
+ * A modal dialog.
+ *
+ * The first one in the product — `.modal` and `.modal-backdrop` have been
+ * sitting in styles.css with no consumer, from a screen that was reworked
+ * before it shipped. Payments is where one is genuinely right: a transaction
+ * detail is a DIGRESSION from a list somebody is scanning, and they expect to
+ * come back to the same scroll position with the same filters, which a route
+ * change cannot promise.
+ *
+ * It carries the things a hand-rolled overlay always forgets, because doing
+ * them per screen is how a product ends up with three dialogs that behave
+ * differently:
+ *
+ * - **Escape closes it.** An overlay you cannot dismiss from the keyboard is a
+ *   trap, and it is always the person who cannot use a mouse who is caught.
+ * - **Focus moves in, and comes back out** to whatever opened it. Without the
+ *   return, closing drops a keyboard user at the top of the document and they
+ *   tab through the whole page again to get back to the row they were on.
+ * - **The backdrop closes it, the panel does not.** The click handler is on
+ *   the backdrop element itself and checks the target, so a drag that starts
+ *   inside the panel and ends outside does not dismiss the thing being read.
+ *
+ * Not focus-TRAPPED, deliberately. A real trap means intercepting Tab and
+ * maintaining the tabbable set as content changes, and a half-built one is
+ * worse than none: it either lets focus escape anyway or strands it. Escape,
+ * the return, and `aria-modal` cover what this dialog actually needs.
+ */
+export function Modal({
+  title,
+  subtitle,
+  onClose,
+  children,
+  footer,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const returnTo = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      /* `isConnected` because the trigger is often a row that the reload
+         behind the dialog has since replaced — focusing a detached node
+         silently sends focus to <body>, which is the bug this exists to
+         avoid. */
+      if (returnTo?.isConnected) returnTo.focus();
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+        tabIndex={-1}
+        ref={panelRef}
+      >
+        <div className="modal-head">
+          <div>
+            <h2 id="modal-title">{title}</h2>
+            {subtitle && <p className="sub">{subtitle}</p>}
+          </div>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <Icon name="close" size={18} />
+          </button>
+        </div>
+
+        <div className="modal-body">{children}</div>
+
+        {footer && <div className="modal-foot">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Jane Potter" → "JP".
+ *
+ * Lived in Dashboard.tsx until D7, when the payments table wanted the same
+ * avatar. Two implementations of somebody's initials is a small thing to get
+ * inconsistent and a strange one to see on two screens at once.
+ */
+export function initials(name: string): string {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]!.toUpperCase())
+    .join('');
 }

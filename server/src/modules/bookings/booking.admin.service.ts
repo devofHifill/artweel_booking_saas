@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
 import type { PaymentStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { paidCentsOf } from '../analytics/analytics.service';
+import { outstandingCentsOf, paidCentsOf } from '../analytics/analytics.service';
 import { AppError } from '../../lib/app-error';
 import { logger } from '../../lib/logger';
 import { bookAppointment, bookSeats, cancelBooking } from '../../scheduling/booking.service';
@@ -251,12 +251,11 @@ export async function getToday(organizationId: string, now = new Date()) {
       }),
     ]);
 
-  const outstandingCents = unpaid.reduce((sum, booking) => {
-    const paid = booking.payments
-      .filter((p) => p.status === 'SUCCEEDED' || p.status === 'PARTIALLY_REFUNDED')
-      .reduce((s, p) => s + p.amountCents - p.refundedCents, 0);
-    return sum + Math.max(0, booking.totalCents - paid);
-  }, 0);
+  /* Was a fifth hand-copy of the money rule until D7 — this one had even
+     inlined the status list rather than calling `paidCentsOf`, so a change to
+     what counts as received would have moved every figure in the product
+     except this one. */
+  const outstandingCents = outstandingCentsOf(unpaid);
 
   return {
     timezone: org.timezone,

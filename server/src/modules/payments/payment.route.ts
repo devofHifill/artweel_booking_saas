@@ -7,6 +7,7 @@ import { AppError } from '../../lib/app-error';
 import { prisma } from '../../lib/prisma';
 import * as service from './payment.service';
 import * as list from './payment.list';
+import * as analytics from '../analytics/analytics.service';
 import { validateQuery } from '../../middleware/validate';
 
 /**
@@ -54,12 +55,22 @@ paymentRouter.get(
 
     /* Totals cover the whole filtered set, so they are queried alongside the
        page rather than derived from it. */
-    const [page, totals] = await Promise.all([
+    const [page, totals, outstandingCents] = await Promise.all([
       list.listPayments(organizationId, filters),
       list.paymentTotals(organizationId, filters),
+      analytics.outstandingTotal(organizationId),
     ]);
 
-    res.json({ ...page, totals });
+    /*
+      `outstandingCents` sits OUTSIDE `totals`, deliberately.
+
+      Everything in `totals` obeys the date range and the filters; what a
+      studio is owed does not, and cannot — an unpaid class from March is still
+      owed while you are looking at last week. Nesting it beside figures that
+      do move with the filter would state, by its position, something untrue
+      about it, and the screen labels it accordingly.
+    */
+    res.json({ ...page, totals, outstandingCents });
   }),
 );
 
@@ -158,5 +169,35 @@ paymentRouter.post(
         req.body,
       ),
     );
+  }),
+);
+
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * One transaction.
+ *
+ * LAST in the file, and it has to be. Express matches routes in order, and
+ * '/:paymentId' happily matches '/status' — putting this above it turned the
+ * Connect status endpoint that Integrations and Settings both read into a
+ * lookup for a payment called "status". The uuid guard below made that a 404
+ * rather than a crash, which is exactly how a mistake like this survives a
+ * green test suite. Anything literal added to this router goes ABOVE here.
+ */
+paymentRouter.get(
+  '/:paymentId',
+  requireMember,
+  asyncHandler(async (req, res) => {
+    const paymentId = req.params.paymentId;
+
+    /* A non-uuid cannot be a payment id, so it is a missing page rather than a
+       bad request — same answer the rest of the product gives for an id that
+       belongs to another studio, and for the same reason. */
+    if (!paymentId || !UUID.test(paymentId)) {
+      throw AppError.notFound('Payment not found.');
+    }
+
+    res.json(await list.getPayment(req.tenant!.organizationId, paymentId));
   }),
 );

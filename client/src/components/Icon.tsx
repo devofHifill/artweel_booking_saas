@@ -21,7 +21,8 @@ export type IconName =
   | 'studio' | 'customers' | 'packs' | 'plan'
   | 'overview' | 'studios' | 'health' | 'audit'
   | 'menu' | 'close' | 'search' | 'chevron' | 'external' | 'sun' | 'moon'
-  | 'eye' | 'eye-off' | 'signin' | 'settings' | 'bell' | 'staff' | 'plug' | 'site';
+  | 'eye' | 'eye-off' | 'signin' | 'settings' | 'bell' | 'staff' | 'plug' | 'site'
+  | 'money' | 'refund';
 
 const PATHS: Record<IconName, string> = {
   today: 'M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
@@ -73,6 +74,21 @@ const PATHS: Record<IconName, string> = {
      traffic-light window controls without drawing them literally, which at
      18px would blur into three dots on any theme. */
   site: 'M3 4h18a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM2 9h20M6 6.5h.01M9 6.5h.01M12 6.5h.01',
+  /*
+     Money, and money coming back.
+
+     The payments screen is the first place three amounts sit in a row, and
+     `plan`'s card was going to be the icon on all three — which is the same as
+     having no icons at all.
+
+     Two coins rather than a currency mark. A dollar sign is the obvious glyph
+     and the wrong one here: studios bill in their own currency, and a `$` on a
+     figure denominated in pounds is a small lie told by the interface. Coins
+     mean money in every currency there is. The returning arrow is the pair's
+     opposite and reads as one at 16px.
+  */
+  money: 'M9.5 14.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11M14.5 20.5a5.5 5.5 0 0 0 0-11',
+  refund: 'M3 9h13a5 5 0 0 1 0 10h-2M3 9l4-4M3 9l4 4',
 };
 
 export function Icon({

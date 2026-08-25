@@ -4,16 +4,25 @@
 
 ## RESUMING HERE — state as of 2026-08-25
 
-**Done:** D0, D1, D2, D4, D5, D6. **D3 is PARTIAL** (month + week shipped; day
-view, side panel, block-a-date and add-slot deliberately not built — see its
-section). **D7–D13 not started:** Payments, Reports, Daily Manifest,
-Notifications, Integrations, Website & Widget, Settings.
+**Done:** D0, D1, D2, D4, D5, D6, D7. **D3 is PARTIAL** (month + week shipped;
+day view, side panel, block-a-date and add-slot deliberately not built — see
+its section). **D8–D13 not started:** Reports, Daily Manifest, Notifications,
+Integrations, Website & Widget, Settings.
 
-**Suite: 863 tests, 59 files, green.** Run it with `npm test` from `server/`.
+**Suite: 882 tests, 59 files, green.** Run it with `npm test` from `server/`;
+it takes about 37 minutes, so start it before doing anything else.
 
 **Deployed and verified on staging** (`artweel.fillforge.cloud`): all migrations
 through `default_brand_indigo`, plus the `.dockerignore` fix that keeps
-`prisma/demo.ts` out of the production image.
+`prisma/demo.ts` out of the production image. **D7 adds no migration**, so
+nothing new is owed to staging.
+
+**The demo data cannot exercise everything.** `npm run db:demo` sells classes
+and nothing else — no packs, no courses, no refunds — so the payments
+breakdown draws one bar and no row is ever refunded. D7 was verified by adding
+a pack sale and a partial refund to Kiln House by hand; those rows are still in
+the dev database and a re-seed removes them. Worth knowing before concluding a
+screen is thin when it is the fixture that is.
 
 ### The working method, which is the useful part
 
@@ -37,6 +46,9 @@ by tests:
 - **D4 — a studio could not create an activity.** The client only ever READ
   `/services` while onboarding carried a required "Add a class" step. The worst
   instance of a pattern this codebase keeps hitting.
+- **D7 — the payments search hid rows.** It followed `booking.customer` only,
+  so a customer who had bought a class pack and taken no class came back as
+  "no payments" while their purchase sat in the table.
 - **The sidebar was not role-aware** (found during S13), because until
   invitations shipped every account was an OWNER.
 - **Three support-session client bugs** (found during S8's browser pass).
@@ -196,7 +208,7 @@ prototype has no upside.
 | **D4** | Activities | **the catalogue editor** | **DONE** — closed a blocking gap |
 | **D5** | Customers | spend, last visit, sort | **DONE** — 3 tests |
 | **D6** | Staff & Guides | rota summary | **DONE** — 3 tests |
-| **D7** | Payments | | not started |
+| **D7** | Payments | detail, tabs, breakdown | **DONE** — 19 tests, no migration |
 | **D8** | Reports | | not started |
 | **D9** | Daily Manifest | | not started |
 | **D10** | Notifications | | not started |
@@ -416,6 +428,154 @@ filter. It now calls `paidCentsOf` like everything else.
 by taking a booking, and a customer with no booking is an empty record. The
 server has no create endpoint either, so this would be a new feature rather
 than a wiring gap — unlike D4, where the endpoint was sitting there unused.
+
+### D7 — the differences, 2026-08-25
+
+Written before the code, per step 3. The demo's `payments.js` is 236 lines
+against our 237, which is the first item where the two screens are the same
+size — and the overlap is smaller than that suggests, because half of what the
+prototype shows is money movement this product does not have.
+
+**Layout — close it.**
+
+- A range segmented control (7 / 30 / 90 / All time) in the page head. Ours
+  opens with two raw date pickers, which is a more capable control answering a
+  question nobody asks first: the opening question is "this month", not "the
+  3rd to the 19th". The dates stay, behind a `Custom` segment.
+- The figure row goes through `Kpi` — icons, tones, a footnote under each —
+  like Dashboard, Customers and Staff already do. `Stat` here was the last
+  screen not carrying the D0 tile.
+- The filters move INSIDE the card with a count in its head and a footer line
+  under the rows, which is D2's arrangement and for D2's reason.
+- Table finish: a transaction reference in mono, refunded amounts in the bad
+  colour, initials avatar beside the customer.
+- An aside beside the table. The prototype puts two cards there; see below for
+  what goes in ours.
+
+**Behaviour we lack — close it.**
+
+- **Status tabs with counts.** The same argument as D2, unchanged: a
+  `<select>` cannot say "Failed 2", and a failed payment is the one row on this
+  screen somebody has to act on.
+- **A transaction detail.** `failureReason`, the Stripe payment-intent
+  reference and the `Refund` rows are all recorded and none of them can be
+  seen anywhere in the product. "Why did this card decline" and "what is this
+  charge in my Stripe dashboard" are the two reasons anybody opens a
+  transaction, and today the answer to both is a database query.
+- **The "For" column is wrong on anything that is not a booking.** It falls
+  back to `kind`, which is `FULL` for essentially every row, so a class pack
+  purchase reads "full". The real subject is which of the four foreign keys is
+  set — booking, enrolment, pack purchase, or a hold that never became one.
+- **Export.** A reconciliation CSV is the one export request that comes from
+  outside the studio — an accountant asks for it — which is why it is here and
+  was declined on Bookings.
+
+**What the demo fakes — do not port.**
+
+- **Payment methods.** PayPal, Cash, Bank Transfer, and a "by method"
+  breakdown over them. Every payment here is a Stripe card charge, so that
+  chart is one bar at 100% forever. The aside gets a breakdown by SUBJECT
+  instead — classes, courses, packs — which is real, varies, and answers the
+  question an owner actually has about where the money comes from.
+- **The payout schedule.** `gross * 0.31` for the next payout, `gross * 0.029`
+  for fees. The prototype prints its own disclaimer under it. Real payout data
+  means a Stripe balance/payout call this product does not make, and Connect
+  status already has a home on Integrations — so this is a feature with an
+  owner, not a styling gap.
+- **Refunds as separate negative rows.** Ours are a `refundedCents` column plus
+  a `Refund` ledger hanging off the payment, which is what lets one charge be
+  partly refunded twice. The demo's KPI counts negative rows; ours counts
+  refunded money.
+- **A refund button with a free amount field.** Deferred in B3 with a written
+  reason, and nothing here reopens it: the existing endpoint applies the
+  studio's cancellation policy, and a screen that says "Refund" must not
+  sometimes issue a credit instead. The detail links to the booking, where
+  cancelling lives.
+- **Instant filtering.** It holds every payment in a tab; ours filters on the
+  server, debounced, and is cursor-paginated.
+
+### D7 — as shipped, 2026-08-25
+
+Four of the five layout items landed as written. What changed under the plan is
+that three of the "close it" items turned out to be defects rather than finish,
+which is now the pattern rather than the exception — D4 was the same shape.
+
+**The search was hiding rows.** It followed `booking.customer` and nothing
+else, so a customer who had bought a class pack and taken no class came back
+as "no payments" while their purchase sat in the table underneath. Packs and
+course enrolments both pay without a booking, and both carry a customer of
+their own. An empty result reads as an answer, which is what makes a search
+that hides rows worse than no search at all.
+
+**A route ordering bug, introduced and caught in the same hour.** The new
+`GET /payments/:paymentId` went in directly under `GET /payments`, which put it
+ABOVE `/payments/status` — and `/:paymentId` matches `status` happily. The
+Connect status endpoint that Integrations and Settings both read became a
+lookup for a payment named "status", and because the id guard answers 404 the
+symptom was an integrations card quietly reporting nothing rather than a crash.
+There is now a test asserting the route is not shadowed, because nothing else
+in a green suite would ever have noticed.
+
+**A fifth copy of the money rule.** The dashboard summary's `outstandingCents`
+had not only hand-rolled `paid = successful − refunded`, it had inlined the
+status list rather than calling `paidCentsOf` — so a change to what counts as
+received would have moved every figure in the product except that one. It is
+now `analytics.outstandingCentsOf`, alongside a query-level `outstandingTotal`
+that both the dashboard and this screen use with different WINDOWS on the same
+rule. That is the point of the pair: the dashboard asks about bookings still to
+come, and Payments asks with no window at all, because a class somebody
+attended in March and never paid for is exactly what a figure headed "owed" is
+for.
+
+**Owed does not obey the date range, and says so on the tile.** It is returned
+outside `totals` rather than beside figures that do move with the filter —
+nesting it there would state something untrue about it by position alone. The
+tile's footnote reads "across unpaid bookings, any date" while its three
+neighbours read "in this range".
+
+**The "For" column now names the thing.** It fell back to `kind`, which is
+`FULL` on nearly every row in the product, so a class pack read "full". The
+subject comes from which of the four foreign keys is set — class, course, pack,
+or a checkout still in progress — and the same derivation feeds the breakdown
+in the aside, from columns already on the row rather than three joins across
+every payment in the range.
+
+**The aside is one card, not two.** The breakdown replaced the prototype's "by
+method" chart, for the reason given above — every payment here is a Stripe card
+charge. The payout schedule was dropped rather than substituted: every figure
+in the prototype's version is a multiple of gross takings under its own
+disclaimer, real payout data means asking Stripe, and Stripe's own dashboard is
+where a studio reconciles a payout anyway.
+
+**The product's first modal.** `.modal` and `.modal-backdrop` have been sitting
+in `styles.css` with no consumer since before Phase B; the transaction detail
+is the first thing that genuinely wants one, because it is a digression from a
+list somebody is scanning and they expect their filters and scroll position
+back. `Modal` in `components/layout.tsx` carries Escape, the focus return to
+whatever opened it, and a backdrop that only closes on a click that both starts
+and ends outside the panel. It is deliberately NOT focus-trapped: a real trap
+means intercepting Tab and maintaining the tabbable set as content changes, and
+a half-built one either leaks focus anyway or strands it.
+
+**Export is real, and exports what is on screen.** A reconciliation CSV is the
+one export request that comes from outside the studio — an accountant asks for
+it — which is why it is here and was declined on Bookings. It is built in the
+browser from rows already fetched, like Reports', and the footer under the
+table already states when there are more.
+
+**Left alone, and worth knowing about.** A goodwill refund on a booking that
+was NOT cancelled reads as "Still owed" in the detail's balance card, because
+outstanding is `total − paid` and paid is net of refunds. That rule is the
+product's, not this screen's — `getBooking` and the payment pill on Bookings
+have always said the same thing — so re-deciding it on one panel would have
+made two answers instead of fixing one. The studio-wide Owed tile does not
+show it, because that figure only counts PENDING and CONFIRMED bookings.
+
+**Not built, and not defended:** the refund button, unchanged from B3's
+reasoning. The detail links to the customer instead, where cancelling lives.
+`bookingId` is carried on the subject and currently unused by the screen: a
+"View booking" button has nowhere to go, because bookings have no page of their
+own, only a row in a filtered list.
 
 ### Known per-item notes
 
