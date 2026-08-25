@@ -1,5 +1,75 @@
 # TourFlow parity — implementation plan
 
+---
+
+## RESUMING HERE — state as of 2026-08-25
+
+**Done:** D0, D1, D2, D4, D5, D6. **D3 is PARTIAL** (month + week shipped; day
+view, side panel, block-a-date and add-slot deliberately not built — see its
+section). **D7–D13 not started:** Payments, Reports, Daily Manifest,
+Notifications, Integrations, Website & Widget, Settings.
+
+**Suite: 863 tests, 59 files, green.** Run it with `npm test` from `server/`.
+
+**Deployed and verified on staging** (`artweel.fillforge.cloud`): all migrations
+through `default_brand_indigo`, plus the `.dockerignore` fix that keeps
+`prisma/demo.ts` out of the production image.
+
+### The working method, which is the useful part
+
+Every item followed the same four steps, and the third is where the value was:
+
+1. Read the demo screen (`server/demos/tourflow/js/<name>.js` + its CSS).
+2. Read ours — the React page AND what the API already returns.
+3. **Sort the differences into three piles** before writing code: *layout*,
+   *behaviour we lack*, and **behaviour the demo fakes**. The third pile is
+   large. The prototype has no backend, so it can afford instant filtering, no
+   empty states, no permissions, no failure modes and no tenant scoping.
+   Matching those is regression, not parity.
+4. Close what is worth closing, then verify BOTH: `npm test` green and the
+   screen walked in a browser.
+
+### What that method actually caught
+
+Four items were not styling gaps at all, and none of them would have been found
+by tests:
+
+- **D4 — a studio could not create an activity.** The client only ever READ
+  `/services` while onboarding carried a required "Add a class" step. The worst
+  instance of a pattern this codebase keeps hitting.
+- **The sidebar was not role-aware** (found during S13), because until
+  invitations shipped every account was an OWNER.
+- **Three support-session client bugs** (found during S8's browser pass).
+- **Demo studios landed on the setup wizard**, because `complete` is derived
+  from `onboardingDoneAt` and the script never set it.
+
+### Traps worth not rediscovering
+
+- **Do not edit `src/` or run `psql` while the suite is running.** Doing so
+  once produced 16 failures that never reproduced.
+- **Two dark blocks exist** in `styles.css` — `@media (prefers-color-scheme)`
+  AND `:root[data-theme="dark"]`. Change both or the theme toggle disagrees
+  with the OS setting.
+- **`styles.css` is mirrored** from `server/src/lib/design-tokens.ts` and
+  `tests/design/tokens.test.ts` fails if they disagree. Dashboard-only values
+  go in `DASHBOARD_COLOR_TOKENS`.
+- **Stale Vite HMR** after editing CSS reports wrong computed styles. Hard
+  reload before believing a measurement.
+- **Extract, do not duplicate.** `Kpi`, `PaymentPill` and `paymentState` moved
+  to `components/layout.tsx` when a second screen wanted them. A near-miss with
+  `.card-head` vs the existing `.panel-head` is recorded under D0/D1.
+
+### Local demo data
+
+`npm run db:demo` — five studios, four timezones, two currencies, ~380
+bookings spanning two weeks back and three forward. Owners are
+`owner@clayandco.test`, `owner@kilnhouse.test`, `owner@wildflower.test`,
+`owner@throwingroom.test`, `owner@terrastudio.test`; password
+`kiln-shelf-glaze-42`. It refuses to run against anything but `booking_dev` or
+`booking_test`.
+
+---
+
 Making the operator dashboard look and behave like `server/demos/tourflow`,
 one sidebar item at a time.
 
