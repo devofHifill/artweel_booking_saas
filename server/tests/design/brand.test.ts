@@ -11,7 +11,10 @@ import {
   findPreset,
   resolveBrand,
 } from '../../src/lib/brand';
-import { COLOR_TOKENS } from '../../src/lib/design-tokens';
+import {
+  COLOR_TOKENS,
+  DASHBOARD_COLOR_TOKENS,
+} from '../../src/lib/design-tokens';
 
 /**
  * A studio picking its own accent is the one place where somebody outside this
@@ -68,24 +71,31 @@ describe('every shipped preset is legible', () => {
   /**
    * The default must be a no-op.
    *
-   * Branding shipped after the product did, so every existing studio gets the
-   * default. If clay drifted from the live tokens by even one value, adding a
-   * theme picker would have silently restyled every dashboard in production —
-   * a change nobody asked for, arriving with a feature about choice.
+   * If the default preset drifts from the accent baked into the stylesheet by
+   * even one value, every studio that never picked a colour gets a visible
+   * flash from one accent to another on each page load — `lib/brand.ts` paints
+   * the CSS fallback first and replaces it once the API answers.
+   *
+   * Measured against the DASHBOARD tokens since D0, not the shared ones. The
+   * shared set stays clay for the marketing site and the booking page; the
+   * dashboard's fallback is indigo because that is what `DEFAULT_PRESET_ID` is.
+   * This test is what caught the two of them disagreeing.
    */
-  it('clay reproduces the current tokens exactly', () => {
-    const clay = findPreset(DEFAULT_PRESET_ID)!;
+  it('the default preset reproduces the dashboard accent exactly', () => {
+    const preset = findPreset(DEFAULT_PRESET_ID)!;
+    const light = DASHBOARD_COLOR_TOKENS.light;
+    const dark = DASHBOARD_COLOR_TOKENS.dark;
 
-    expect(clay.light['--clay']).toBe(COLOR_TOKENS.light['--clay']);
-    expect(clay.light['--clay-dk']).toBe(COLOR_TOKENS.light['--clay-dk']);
-    expect(clay.light['--clay-lt']).toBe(COLOR_TOKENS.light['--clay-lt']);
-    expect(clay.light['--clay-text']).toBe(COLOR_TOKENS.light['--clay-text']);
+    expect(preset.light['--clay']).toBe(light['--clay']);
+    expect(preset.light['--clay-dk']).toBe(light['--clay-dk']);
+    expect(preset.light['--clay-lt']).toBe(light['--clay-lt']);
+    expect(preset.light['--clay-text']).toBe(light['--clay-text']);
 
-    // Dark overrides only two of the four today; the others inherit.
-    expect(clay.dark['--clay-lt']).toBe(COLOR_TOKENS.dark['--clay-lt']);
-    expect(clay.dark['--clay-text']).toBe(COLOR_TOKENS.dark['--clay-text']);
-    expect(clay.dark['--clay']).toBe(COLOR_TOKENS.light['--clay']);
-    expect(clay.dark['--clay-dk']).toBe(COLOR_TOKENS.light['--clay-dk']);
+    // Dark overrides only two of the four; the others inherit from light.
+    expect(preset.dark['--clay-lt']).toBe(dark['--clay-lt']);
+    expect(preset.dark['--clay-text']).toBe(dark['--clay-text']);
+    expect(preset.dark['--clay']).toBe(light['--clay']);
+    expect(preset.dark['--clay-dk']).toBe(light['--clay-dk']);
   });
 
   it('has unique ids', () => {

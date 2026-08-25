@@ -281,19 +281,17 @@ export default function App() {
               Daily Manifest
             </NavLink>
 
-            <p className="nav-label">Studio</p>
-            <NavLink to="/courses">
-              <Icon name="courses" />
-              Courses
-            </NavLink>
-            <NavLink to="/packs">
-              <Icon name="packs" />
-              Packs
-            </NavLink>
-            <NavLink to="/studio">
-              <Icon name="studio" />
-              Studio floor
-            </NavLink>
+            {/*
+              Courses, Packs and Studio floor are HIDDEN, not removed (D0,
+              2026-08-24). The sidebar matches TourFlow's thirteen items, and
+              TourFlow has no equivalent for these because it sells tours and
+              tours have no kilns — which is a fact about the prototype, not a
+              verdict on the features.
+
+              Their routes below still work, their server modules are untouched,
+              and their tests still run. Restoring them is deleting this comment
+              and the block it replaced.
+            */}
 
             {/* Notifications, Integrations and Website & Widget join this group
                 as B5, B6 and B8 land; the order below is already their final
@@ -320,10 +318,10 @@ export default function App() {
                   <Icon name="settings" />
                   Settings
                 </NavLink>
-                <NavLink to="/billing">
-                  <Icon name="plan" />
-                  Plan
-                </NavLink>
+                {/* Plan is hidden with the ceramics three — the demo has no
+                    billing screen. `/billing` still works, and the trial and
+                    payment banners still appear on every page, so a studio is
+                    not cut off from paying. */}
               </>
             )}
           </nav>

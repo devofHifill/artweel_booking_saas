@@ -77,6 +77,68 @@ export const COLOR_TOKENS = {
  * the marketing site is prose and reads at 17px. That difference is deliberate
  * and now expressed as two picks from one scale instead of two unrelated numbers.
  */
+/**
+ * The dashboard's own neutrals. D0, 2026-08-24.
+ *
+ * `COLOR_TOKENS` above is shared by all four surfaces and stays warm — the
+ * booking page is a pottery studio's storefront and the marketing site sells
+ * the product; neither should look like an admin panel.
+ *
+ * The OPERATOR dashboard is a different job, and the TourFlow prototype it is
+ * being matched to is cool slate. So the dashboard layers these five over the
+ * shared set, and nothing else moves.
+ *
+ * Five tokens, deliberately. Everything that genuinely has to agree across
+ * surfaces — the type scale, spacing, radii, motion, and the semantic
+ * ok/warn/danger colours — stays in COLOR_TOKENS and SCALE_TOKENS, which is
+ * what keeps `tokens.test.ts` meaningful. A per-surface palette is not a licence
+ * to drift; it is one explicit exception with its own name.
+ *
+ * NOT included here: the accent (`--clay` and friends). Those are per-STUDIO,
+ * set by `lib/brand.ts` from whichever preset the studio picked, and the
+ * default preset moving to `indigo` is what makes the dashboard match the
+ * demo's brand without freezing anybody on it.
+ */
+export const DASHBOARD_COLOR_TOKENS = {
+  light: {
+    '--ink': '#0f172a',
+    '--muted': '#64748b',
+    '--line': '#e6e8ef',
+    '--bg': '#f6f7fb',
+    '--card': '#ffffff',
+
+    /**
+     * The accent FALLBACK, which must equal whatever `DEFAULT_PRESET_ID` is.
+     *
+     * `lib/brand.ts` injects the studio's real accent at runtime, so these are
+     * only what paints before that lands — but if they disagree with the
+     * default preset, every studio that never chose a colour gets a visible
+     * flash from one accent to another on each page load. `brand.test.ts`
+     * asserts the two agree, which is what caught this.
+     */
+    '--clay': '#4f46e5',
+    '--clay-dk': '#3730a3',
+    '--clay-lt': '#eef2ff',
+    '--clay-text': '#4338ca',
+  },
+  dark: {
+    /**
+     * Cooled to match. The dark palette was warm-tinted to sit beside a warm
+     * light theme; leaving it warm while light goes slate would make the two
+     * schemes read as two different products.
+     */
+    '--ink': '#e2e8f0',
+    '--muted': '#94a3b8',
+    '--line': '#293244',
+    '--bg': '#0b1120',
+    '--card': '#131c2e',
+
+    /* Indigo's dark counterparts, same reasoning as light. */
+    '--clay-lt': '#1e1b3a',
+    '--clay-text': '#a5b4fc',
+  },
+} as const;
+
 export const SCALE_TOKENS = {
   '--text-xs': '0.75rem',
   '--text-sm': '0.8125rem',
@@ -97,9 +159,20 @@ export const SCALE_TOKENS = {
   '--space-10': '40px',
   '--space-12': '48px',
 
-  '--radius-sm': '8px',
+  /*
+    Aligned to the prototype's shape scale in D0. `--radius` was already 10px
+    and matched; the rest were half a step out, which is exactly the kind of
+    difference nobody names and everybody feels — cards read slightly boxier
+    and controls slightly rounder than the design they were copied from.
+
+    `--radius-md` is new and is the card radius. Shared rather than
+    dashboard-only: shape is not a palette, and a card should be the same
+    shape on the booking page as in the dashboard.
+  */
+  '--radius-sm': '6px',
   '--radius': '10px',
-  '--radius-lg': '14px',
+  '--radius-md': '14px',
+  '--radius-lg': '18px',
   '--radius-pill': '999px',
 
   /**

@@ -386,9 +386,149 @@ describe('listing and search', () => {
 
     expect(res.body.bookings).toHaveLength(0);
   });
+
+  /**
+   * The status tabs (D2) are counted WITHOUT the status filter, which is the
+   * only shape that makes them useful: a tab row that re-counted under its own
+   * filter would read "Pending 1" beside "Confirmed 0" while showing the one
+   * pending booking, and the other numbers would vanish the moment you clicked
+   * anything.
+   */
+  it('counts every status regardless of which one is filtered', async () => {
+    await bookAppointment(AT('2026-09-15T14:00:00Z'), 'Ada Potter');
+    await bookAppointment(AT('2026-09-15T16:00:00Z'), 'Jo Mercer');
+
+    const all = await request(app)
+      .get(`${studio.base}/bookings`)
+      .set(studio.headers)
+      .expect(200);
+
+    expect(all.body.counts.total).toBe(2);
+    expect(all.body.counts.CONFIRMED).toBe(2);
+
+    // Filtering to a status with no rows must not change the other counts.
+    const filtered = await request(app)
+      .get(`${studio.base}/bookings?status=CANCELLED`)
+      .set(studio.headers)
+      .expect(200);
+
+    expect(filtered.body.bookings).toHaveLength(0);
+    expect(filtered.body.counts.total).toBe(2);
+    expect(filtered.body.counts.CONFIRMED).toBe(2);
+  });
+
+  /**
+   * Every OTHER filter still applies, though. Counts that ignored the search
+   * box would describe a different list from the one on screen.
+   */
+  it('counts within the other filters', async () => {
+    await bookAppointment(AT('2026-09-15T14:00:00Z'), 'Ada Potter');
+    await bookAppointment(AT('2026-09-15T16:00:00Z'), 'Jo Mercer');
+
+    const res = await request(app)
+      .get(`${studio.base}/bookings?search=jo@student`)
+      .set(studio.headers)
+      .expect(200);
+
+    expect(res.body.bookings).toHaveLength(1);
+    expect(res.body.counts.total).toBe(1);
+  });
+
+  it('does not leak another studio into the counts', async () => {
+    await bookAppointment(AT('2026-09-15T14:00:00Z'));
+
+    const other = await signUpStudio(app);
+    const res = await request(app)
+      .get(`${other.base}/bookings`)
+      .set(other.headers)
+      .expect(200);
+
+    expect(res.body.counts.total).toBe(0);
+  });
 });
 
 describe('customers', () => {
+  /**
+   * D5 added spend and last-visit to the list, both derived rather than
+   * stored. Spend goes through `paidCentsOf` so it cannot disagree with the
+   * dashboard about what a booking was worth.
+   */
+  it('reports what each customer has actually paid', async () => {
+    const booked = await bookAppointment(AT('2026-09-15T14:00:00Z'));
+
+    // Unpaid to begin with.
+    const before = await request(app)
+      .get(`${studio.base}/customers`)
+      .set(studio.headers)
+      .expect(200);
+    expect(before.body.customers[0].spentCents).toBe(0);
+
+    await prisma.payment.create({
+      data: {
+        organizationId: studio.organizationId,
+        bookingId: booked.body.booking.id,
+        kind: 'FULL',
+        amountCents: 12_000,
+        refundedCents: 2_000,
+        status: 'PARTIALLY_REFUNDED',
+        succeededAt: new Date(),
+      },
+    });
+
+    const after = await request(app)
+      .get(`${studio.base}/customers`)
+      .set(studio.headers)
+      .expect(200);
+
+    // Net of the refund, not the gross amount.
+    expect(after.body.customers[0].spentCents).toBe(10_000);
+  });
+
+  /**
+   * A booking in the future is not a visit. Letting one win would sort somebody
+   * who booked ahead above somebody who was actually here yesterday, under a
+   * column headed "last visit".
+   */
+  it('does not count a future booking as a last visit', async () => {
+    await bookAppointment(AT('2026-09-15T14:00:00Z'));
+
+    const res = await request(app)
+      .get(`${studio.base}/customers`)
+      .set(studio.headers)
+      .expect(200);
+
+    expect(res.body.customers[0].lastVisit).toBeNull();
+  });
+
+  it('sorts by spend, and by name', async () => {
+    await bookAppointment(AT('2026-09-15T14:00:00Z'), 'Ada Potter');
+    const jo = await bookAppointment(AT('2026-09-15T16:00:00Z'), 'Jo Mercer');
+
+    await prisma.payment.create({
+      data: {
+        organizationId: studio.organizationId,
+        bookingId: jo.body.booking.id,
+        kind: 'FULL',
+        amountCents: 12_000,
+        status: 'SUCCEEDED',
+        succeededAt: new Date(),
+      },
+    });
+
+    const bySpend = await request(app)
+      .get(`${studio.base}/customers?sort=spent`)
+      .set(studio.headers)
+      .expect(200);
+    expect(bySpend.body.customers[0].name).toBe('Jo Mercer');
+
+    // Default is alphabetical, which puts Ada first.
+    const byName = await request(app)
+      .get(`${studio.base}/customers`)
+      .set(studio.headers)
+      .expect(200);
+    expect(byName.body.customers[0].name).toBe('Ada Potter');
+  });
+
   it('does not count a cancelled booking against a customer history', async () => {
     // A reschedule is cancel-then-rebook, so counting cancelled rows would
     // show "2 bookings" for one moved appointment.

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COLOR_TOKENS,
   DARK_SCALE_TOKENS,
+  DASHBOARD_COLOR_TOKENS,
   SCALE_TOKENS,
   tokensCss,
 } from '../../src/lib/design-tokens';
@@ -69,19 +70,50 @@ function clientDarkTokens(): Record<string, string> {
   return parseTokens(css.slice(start, end > start ? end : undefined));
 }
 
+/**
+ * What the DASHBOARD stylesheet should contain: the shared set, with the
+ * dashboard's own neutrals layered over it.
+ *
+ * The merge is the assertion. Before D0 the client had to equal COLOR_TOKENS
+ * exactly; now it has to equal COLOR_TOKENS *except* where
+ * DASHBOARD_COLOR_TOKENS deliberately overrides — which still catches every
+ * accidental drift, while allowing the one divergence that was decided on
+ * purpose and written down.
+ */
+const expectedLight = {
+  ...COLOR_TOKENS.light,
+  ...DASHBOARD_COLOR_TOKENS.light,
+};
+const expectedDark = { ...COLOR_TOKENS.dark, ...DASHBOARD_COLOR_TOKENS.dark };
+
 describe('the client mirrors the shared tokens', () => {
   it('agrees on every light-mode colour', () => {
     const client = clientLightTokens();
-    for (const [name, value] of Object.entries(COLOR_TOKENS.light)) {
+    for (const [name, value] of Object.entries(expectedLight)) {
       expect(client[name], `${name} differs between client and server`).toBe(value);
     }
   });
 
   it('agrees on every dark-mode override', () => {
     const client = clientDarkTokens();
-    for (const [name, value] of Object.entries(COLOR_TOKENS.dark)) {
+    for (const [name, value] of Object.entries(expectedDark)) {
       expect(client[name], `dark ${name} differs`).toBe(value);
     }
+  });
+
+  /**
+   * The public surfaces must NOT have moved.
+   *
+   * `tokensCss()` is what the marketing site and the booking page render from,
+   * and the whole argument for a dashboard-only layer was that a storefront
+   * should not be dressed as an admin panel. Without this, the next person to
+   * "tidy up" by folding the dashboard values back into COLOR_TOKENS would
+   * repaint both public surfaces and nothing would fail.
+   */
+  it('leaves the public surfaces on the shared warm palette', () => {
+    const css = tokensCss();
+    expect(css).toContain('#fdfcfb');
+    expect(css).not.toContain(DASHBOARD_COLOR_TOKENS.light['--bg']);
   });
 
   it('agrees on the type, spacing, radius, elevation and motion scales', () => {

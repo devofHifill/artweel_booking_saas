@@ -237,13 +237,19 @@ customerRouter.get(
     z.object({
       search: z.string().max(120).optional(),
       limit: z.coerce.number().int().min(1).max(200).default(50),
+      /** Highest spend, most bookings, most recent visit, or name. */
+      sort: z.enum(['name', 'spent', 'bookings', 'recent']).default('name'),
     }),
   ),
   asyncHandler(async (req, res) => {
     res.json({
       customers: await service.listCustomers(
         req.tenant!.organizationId,
-        req.query as unknown as { search?: string; limit: number },
+        req.query as unknown as {
+          search?: string;
+          limit: number;
+          sort: service.CustomerSort;
+        },
       ),
     });
   }),

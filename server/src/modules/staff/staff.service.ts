@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { DateTime } from 'luxon';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
 import { requireCapacity, type PlanId } from '../billing/plan';
@@ -240,4 +241,75 @@ export async function setStaffLocations(
   ]);
 
   return { locationIds };
+}
+
+/**
+ * The rota at a glance — the four figures above the staff list (D6).
+ *
+ * Its own read rather than fields on `listStaff`, because it answers a
+ * different question. The list is "who works here"; this is "is the week
+ * covered", which is about SESSIONS and would put three aggregates on every
+ * staff row to say one thing about the studio.
+ *
+ * The window is the next seven days, matching the dashboard's "classes this
+ * week" so the two screens cannot report different weeks.
+ */
+export async function getRotaSummary(organizationId: string, now = new Date()) {
+  const timezone = (
+    await prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { timezone: true },
+    })
+  ).timezone;
+
+  const local = DateTime.fromJSDate(now, { zone: timezone });
+  const todayStart = local.startOf('day').toJSDate();
+  const todayEnd = local.endOf('day').toJSDate();
+  const weekEnd = local.plus({ days: 7 }).endOf('day').toJSDate();
+
+  const [team, teachingToday, assigned, unassigned] = await Promise.all([
+    prisma.staff.count({ where: { organizationId, isActive: true } }),
+
+    /**
+     * People with a class today — distinct, because someone teaching three
+     * classes is one person on duty, not three.
+     */
+    prisma.session
+      .findMany({
+        where: {
+          organizationId,
+          status: 'SCHEDULED',
+          staffId: { not: null },
+          startsAt: { gte: todayStart, lte: todayEnd },
+        },
+        select: { staffId: true },
+        distinct: ['staffId'],
+      })
+      .then((rows) => rows.length),
+
+    prisma.session.count({
+      where: {
+        organizationId,
+        status: 'SCHEDULED',
+        staffId: { not: null },
+        startsAt: { gte: todayStart, lte: weekEnd },
+      },
+    }),
+
+    /**
+     * The number worth acting on. A class with nobody assigned is one nobody
+     * has been told to teach, and it is the same signal the dashboard's
+     * attention list carries.
+     */
+    prisma.session.count({
+      where: {
+        organizationId,
+        status: 'SCHEDULED',
+        staffId: null,
+        startsAt: { gte: todayStart, lte: weekEnd },
+      },
+    }),
+  ]);
+
+  return { team, teachingToday, classesThisWeek: assigned, unassignedThisWeek: unassigned };
 }

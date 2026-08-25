@@ -235,3 +235,61 @@ describe('removing an instructor', () => {
     );
   });
 });
+
+/**
+ * D6 — the rota summary above the staff list.
+ *
+ * The route is registered BEFORE `/:staffId`, and that ordering is the whole
+ * risk: with it reversed, Express matches "summary" as a staff id and the
+ * endpoint 404s on a lookup nobody asked for. The first test here is the one
+ * that catches a future reshuffle.
+ */
+describe('the rota summary', () => {
+  it('is not swallowed by the :staffId route', async () => {
+    const res = await request(app)
+      .get(`${studio.base}/staff/summary`)
+      .set(studio.headers)
+      .expect(200);
+
+    expect(res.body).toHaveProperty('team');
+    expect(res.body).toHaveProperty('unassignedThisWeek');
+  });
+
+  it('counts a class with nobody assigned', async () => {
+    const soon = new Date(Date.now() + 2 * 86_400_000);
+
+    await prisma.session.create({
+      data: {
+        organizationId: studio.organizationId,
+        serviceTypeId: serviceId,
+        staffId: null,
+        startsAt: soon,
+        endsAt: new Date(soon.getTime() + 2 * 3_600_000),
+        timezone: 'America/New_York',
+        localStartTime: '14:00',
+        capacity: 8,
+        seatsTaken: 0,
+      },
+    });
+
+    const res = await request(app)
+      .get(`${studio.base}/staff/summary`)
+      .set(studio.headers)
+      .expect(200);
+
+    expect(res.body.unassignedThisWeek).toBe(1);
+    expect(res.body.classesThisWeek).toBe(0);
+  });
+
+  it('does not count another studio classes', async () => {
+    const other = await signUpStudio(app);
+
+    const res = await request(app)
+      .get(`${other.base}/staff/summary`)
+      .set(other.headers)
+      .expect(200);
+
+    expect(res.body.team).toBe(0);
+    expect(res.body.unassignedThisWeek).toBe(0);
+  });
+});

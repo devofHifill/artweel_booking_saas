@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Icon, type IconName } from './Icon';
 
 /**
  * Page-level layout primitives.
@@ -112,6 +113,85 @@ export function DataTable({
       </table>
     </div>
   );
+}
+
+/**
+ * A KPI tile.
+ *
+ * Lived in Dashboard.tsx until D5, when Customers wanted the same row of
+ * figures. `foot` is optional because not every figure has a comparison to
+ * make — the dashboard's tiles carry a trend against yesterday, the customer
+ * tiles are simply four numbers.
+ */
+export function Kpi({
+  label,
+  value,
+  foot,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: string;
+  foot?: ReactNode;
+  tone?: 'green' | 'violet' | 'amber' | 'red';
+  /**
+   * The glyph in the tinted chip. Decorative — the label beside it already
+   * says what the number is, so it is `aria-hidden` via `Icon`'s default and
+   * adds nothing to the accessibility tree.
+   */
+  icon: IconName;
+}) {
+  return (
+    <div className={`card kpi ${tone ?? ''}`.trim()}>
+      <div className="k-top">
+        <span className="kpi-label">{label}</span>
+        <span className="k-icon">
+          <Icon name={icon} size={16} />
+        </span>
+      </div>
+      <span className="kpi-value">{value}</span>
+      {foot && <span className="kpi-foot">{foot}</span>}
+    </div>
+  );
+}
+
+/**
+ * Whether a booking is paid, part paid, or not paid at all.
+ *
+ * Derived from the two numbers rather than stored, so it cannot disagree with
+ * the money. Exported because three screens ask the same question and the
+ * answer must be the same on all of them.
+ */
+export function paymentState(
+  totalCents: number,
+  outstandingCents: number,
+): 'PAID' | 'PART_PAID' | 'UNPAID' {
+  if (outstandingCents <= 0) return 'PAID';
+  if (outstandingCents < totalCents) return 'PART_PAID';
+  return 'UNPAID';
+}
+
+/**
+ * Paid / part paid / unpaid, as a pill.
+ *
+ * Mapped onto the existing status-pill vocabulary instead of inventing three
+ * more classes: paid reads like a confirmation, part-paid like something
+ * pending, unpaid like a no-show. Same colours the rest of the product already
+ * uses for those meanings.
+ *
+ * Lived in Dashboard.tsx until D2, when Bookings needed the same column. Two
+ * copies of "is this paid" is how two screens end up disagreeing about one
+ * booking.
+ */
+export function PaymentPill({
+  state,
+}: {
+  state: 'PAID' | 'PART_PAID' | 'UNPAID';
+}) {
+  if (state === 'PAID') return <StatusPill status="CONFIRMED">Paid</StatusPill>;
+  if (state === 'PART_PAID')
+    return <StatusPill status="PENDING">Part paid</StatusPill>;
+  return <StatusPill status="NO_SHOW">Unpaid</StatusPill>;
 }
 
 /**

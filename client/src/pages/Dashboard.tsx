@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, dateIn, money, timeIn } from '../lib/api';
 import { useAuth, useActiveOrg, useOrgBase } from '../lib/auth';
 import { Icon } from '../components/Icon';
-import { PageHead, StatusPill } from '../components/layout';
+import { Kpi, PageHead, PaymentPill, StatusPill } from '../components/layout';
 import { EmptyState, LoadingRegion, SkeletonList, SkeletonStats } from '../components/states';
 
 /**
@@ -171,12 +171,14 @@ export default function Dashboard() {
         <Kpi
           label="Today's bookings"
           value={String(figures.today.bookings)}
+          icon="bookings"
           foot={<Trend now={figures.today.bookings} before={figures.yesterday.bookings} />}
         />
         <Kpi
           label="Today's revenue"
           value={money(figures.today.revenueCents, currency)}
           tone="green"
+          icon="plan"
           foot={
             <Trend now={figures.today.revenueCents} before={figures.yesterday.revenueCents} />
           }
@@ -185,18 +187,21 @@ export default function Dashboard() {
           label="Classes this week"
           value={String(figures.upcomingSessions)}
           tone="violet"
+          icon="calendar"
           foot={<span className="muted">next 7 days</span>}
         />
         <Kpi
           label="Seats left today"
           value={String(figures.today.seatsLeft)}
           tone="amber"
+          icon="customers"
           foot={<span className="muted">across today's classes</span>}
         />
         <Kpi
           label="Money owed"
           value={money(figures.outstandingCents, currency)}
           tone="red"
+          icon="plan"
           foot={<span className="muted">upcoming bookings</span>}
         />
       </div>
@@ -217,14 +222,16 @@ export default function Dashboard() {
               Nothing scheduled today.
             </EmptyState>
           ) : (
-            data.schedule.map((row) => (
-              <ScheduleItem
-                key={row.id}
-                row={row}
-                currency={currency}
-                timezone={studio.timezone}
-              />
-            ))
+            <div className="sched-list">
+              {data.schedule.map((row) => (
+                <ScheduleItem
+                  key={row.id}
+                  row={row}
+                  currency={currency}
+                  timezone={studio.timezone}
+                />
+              ))}
+            </div>
           )}
         </Panel>
 
@@ -290,7 +297,11 @@ export default function Dashboard() {
           )}
         </Panel>
 
-        <Panel title="Popular classes" action={<span className="muted">last 30 days</span>}>
+        {/* "Activities", not "classes" — the sidebar item these rank is called
+            Activities, per the 2026-08-20 decision that TourFlow's label wins
+            there. A panel naming the same thing differently reads as two
+            features. */}
+        <Panel title="Popular activities" action={<span className="muted">last 30 days</span>}>
           {data.popular.length === 0 ? (
             /* Ranked on classes that have RUN, so a studio with a full diary and
                nothing taught yet belongs here — and should be told that, rather
@@ -380,26 +391,6 @@ function Panel({
   );
 }
 
-function Kpi({
-  label,
-  value,
-  foot,
-  tone,
-}: {
-  label: string;
-  value: string;
-  foot: ReactNode;
-  tone?: 'green' | 'violet' | 'amber' | 'red';
-}) {
-  return (
-    <div className={`card kpi ${tone ?? ''}`.trim()}>
-      <span className="kpi-label">{label}</span>
-      <span className="kpi-value">{value}</span>
-      <span className="kpi-foot">{foot}</span>
-    </div>
-  );
-}
-
 /**
  * Change against yesterday.
  *
@@ -443,9 +434,17 @@ function ScheduleItem({
      because the person looking at it is in another timezone. */
   const time = timeIn(row.startsAt, timezone);
 
+  /* Split so the meridiem can sit under the hour — see `.sched-time .mer`.
+     Locales that do not use one (24-hour clocks) simply yield no second part
+     and the row renders a single line, which is correct rather than a gap. */
+  const [clock, meridiem] = time.split(' ');
+
   return (
     <div className="sched-row">
-      <div className="sched-time">{time}</div>
+      <div className="sched-time">
+        {clock}
+        {meridiem && <span className="mer">{meridiem}</span>}
+      </div>
       <div className="sched-bar" style={{ background: row.color }} aria-hidden="true" />
       <div className="sched-main">
         <div className="sched-name">
@@ -686,11 +685,6 @@ function Attention({
  * pending, unpaid like a no-show. Same colours the rest of the product already
  * uses for those meanings.
  */
-function PaymentPill({ state }: { state: RecentBooking['paymentStatus'] }) {
-  if (state === 'PAID') return <StatusPill status="CONFIRMED">Paid</StatusPill>;
-  if (state === 'PART_PAID') return <StatusPill status="PENDING">Part paid</StatusPill>;
-  return <StatusPill status="NO_SHOW">Unpaid</StatusPill>;
-}
 
 function initials(name: string): string {
   return name

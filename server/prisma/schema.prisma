@@ -134,7 +134,7 @@ model Organization {
   /// product already shipped, so an untouched studio looks exactly as before.
   /// An unknown id resolves back to clay rather than failing: a theme is
   /// decoration and must never be able to take a dashboard down.
-  brandPreset String @default("clay") @map("brand_preset")
+  brandPreset String @default("indigo") @map("brand_preset")
 
   /// An owner-supplied accent, which WINS over brandPreset when set.
   ///

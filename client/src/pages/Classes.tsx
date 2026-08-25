@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, dateIn, timeIn } from '../lib/api';
+import { api, dateIn, money, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import { PageHead, StatusPill } from '../components/layout';
 import { EmptyState } from '../components/states';
+import { ServiceForm, type ServiceDraft } from '../components/ServiceForm';
 
 /**
  * Scheduling classes.
@@ -16,9 +17,13 @@ import { EmptyState } from '../components/states';
 type ServiceOption = {
   id: string;
   name: string;
+  description?: string | null;
   bookingMode: string;
   capacityMax: number;
   durationMinutes: number;
+  priceCents?: number;
+  color?: string;
+  isActive?: boolean;
 };
 
 type SessionRow = {
@@ -104,7 +109,12 @@ export default function Classes() {
   const base = useOrgBase();
   const org = useActiveOrg();
   const timezone = org?.organization.timezone ?? 'UTC';
+  const currency = org?.organization.currency ?? 'USD';
   const isAdmin = org?.role === 'OWNER' || org?.role === 'ADMIN';
+
+  /** The catalogue editor. Null `editing` means creating a new one. */
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<ServiceDraft | null>(null);
 
   const [from, setFrom] = useState(() => todayIn(timezone));
   const [to, setTo] = useState(() => plusDays(todayIn(timezone), 30));
@@ -146,20 +156,38 @@ export default function Classes() {
     void load();
   }, [load]);
 
+  /**
+   * The catalogue, on its own so saving an activity can refresh it.
+   *
+   * `load` above fetches SESSIONS; creating a service changes neither the
+   * sessions nor the date range, so calling that after a save would leave the
+   * new activity invisible until a reload.
+   */
+  const loadServices = useCallback(async () => {
+    try {
+      const s = await api.get<{ services: ServiceOption[] }>(`${base}/services`);
+      // A course service cannot take a loose class, so it is not offered.
+      setServices(s.services.filter((x) => x.bookingMode !== 'COURSE_SERIES'));
+    } catch {
+      // The form simply stays empty; the list above is still useful.
+    }
+  }, [base]);
+
+  useEffect(() => {
+    void loadServices();
+  }, [loadServices]);
+
   useEffect(() => {
     void (async () => {
       try {
-        const [s, st, loc] = await Promise.all([
-          api.get<{ services: ServiceOption[] }>(`${base}/services`),
+        const [st, loc] = await Promise.all([
           api.get<{ staff: { id: string; name: string }[] }>(`${base}/staff`),
           api.get<{ locations: { id: string; name: string }[] }>(`${base}/locations`),
         ]);
-        // A course service cannot take a loose class, so it is not offered.
-        setServices(s.services.filter((x) => x.bookingMode !== 'COURSE_SERIES'));
         setStaff(st.staff);
         setLocations(loc.locations);
       } catch {
-        // The form simply stays empty; the list above is still useful.
+        /* Same reasoning as above. */
       }
     })();
   }, [base]);
@@ -328,8 +356,11 @@ export default function Classes() {
 
   return (
     <div>
+      {/* "Activities", matching the nav item and the 2026-08-20 decision that
+          TourFlow's label wins here. The routes stay /classes. */}
       <PageHead
-        title="Classes"
+        title="Activities"
+        lede="What you offer, and when it runs."
         actions={
           <>
             <input
@@ -344,11 +375,107 @@ export default function Classes() {
               onChange={(e) => setTo(e.target.value)}
               aria-label="To"
             />
+            {isAdmin && (
+              <button
+                className="primary"
+                onClick={() => {
+                  setEditing(null);
+                  setShowForm(true);
+                }}
+              >
+                New activity
+              </button>
+            )}
           </>
         }
       />
 
       {error && <div className="err">{error}</div>}
+
+      {/*
+        THE CATALOGUE.
+
+        Until D4 this page could only schedule sessions of services that
+        already existed, and nothing anywhere could create one — while
+        onboarding carried a required "Add a class" step that completes when
+        `services > 0`. A studio signing up could not finish setup.
+      */}
+      {showForm && isAdmin && (
+        <ServiceForm
+          base={base}
+          existing={editing ?? undefined}
+          onSaved={() => {
+            setShowForm(false);
+            setEditing(null);
+            void loadServices();
+          }}
+          onCancel={() => {
+            setShowForm(false);
+            setEditing(null);
+          }}
+        />
+      )}
+
+      {!showForm && (
+        <section className="card" style={{ marginBottom: 'var(--space-5)' }}>
+          <div className="panel-head" style={{ margin: '-14px -16px 16px' }}>
+            <h2>What you offer</h2>
+            <div className="right tiny muted">
+              {services.length} {services.length === 1 ? 'activity' : 'activities'}
+            </div>
+          </div>
+
+          {services.length === 0 ? (
+            <EmptyState hint={isAdmin ? 'Create one to start taking bookings.' : undefined}>
+              Nothing set up yet.
+            </EmptyState>
+          ) : (
+            <div className="catalogue">
+              {services.map((svc) => (
+                <div className="cat-card" key={svc.id}>
+                  <span
+                    className="cat-swatch"
+                    style={{ background: svc.color ?? 'var(--clay)' }}
+                    aria-hidden="true"
+                  />
+                  <div className="cat-main">
+                    <strong>{svc.name}</strong>
+                    <div className="tiny muted">
+                      {svc.bookingMode === 'APPOINTMENT'
+                        ? 'One to one'
+                        : `Up to ${svc.capacityMax}`}
+                      {' · '}
+                      {svc.durationMinutes} min
+                      {svc.priceCents !== undefined &&
+                        ` · ${money(svc.priceCents, currency)}`}
+                    </div>
+                  </div>
+                  {isAdmin && (
+                    <button
+                      className="sm"
+                      onClick={() => {
+                        setEditing({
+                          id: svc.id,
+                          name: svc.name,
+                          description: svc.description,
+                          bookingMode: svc.bookingMode as never,
+                          durationMinutes: svc.durationMinutes,
+                          capacityMax: svc.capacityMax,
+                          priceCents: svc.priceCents ?? 0,
+                          color: svc.color ?? '#4f46e5',
+                        });
+                        setShowForm(true);
+                      }}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {isAdmin && (
         <form className="card schedule" onSubmit={(e) => void schedule(e)}>

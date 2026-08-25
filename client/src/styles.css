@@ -13,11 +13,21 @@
      feel is the product changing under them between marketing, signup and the
      dashboard, with nothing visible to blame. */
 
-  --ink: #1f2328;
-  --muted: #5c6570;
-  --clay: #a6522c;
-  --clay-dk: #6e3418;
-  --clay-lt: #f3e5dc;
+  /* The DASHBOARD's neutrals — cool slate, matching the TourFlow prototype
+     this surface is built against (D0, 2026-08-24). These five override the
+     shared warm set from design-tokens.ts; the booking page and marketing site
+     keep the warm values, because a storefront should not be dressed as an
+     admin panel. `DASHBOARD_COLOR_TOKENS` is the server-side counterpart and
+     tokens.test.ts asserts the merge. */
+  --ink: #0f172a;
+  --muted: #64748b;
+  /* The accent FALLBACK, matching DEFAULT_PRESET_ID (indigo). lib/brand.ts
+     replaces these at runtime with whatever the studio actually chose; these
+     are only what paints before that lands, and they must agree with the
+     default or every unbranded studio gets an accent flash on each load. */
+  --clay: #4f46e5;
+  --clay-dk: #3730a3;
+  --clay-lt: #eef2ff;
 
   /* Clay as TEXT, kept separate from clay as a surface.
 
@@ -26,10 +36,10 @@
      text job needs a lighter value and the surface job needs the darker one, so
      one token cannot serve both — lightening --clay would drop white-on-clay
      below AA and break every primary button. */
-  --clay-text: #a6522c;
-  --line: #e2e5e9;
-  --bg: #fdfcfb;
-  --card: #fff;
+  --clay-text: #4338ca;
+  --line: #e6e8ef;
+  --bg: #f6f7fb;
+  --card: #ffffff;
   --ok: #1f6f43;
   --warn: #8a5a00;
   --danger: #8b2c21;
@@ -56,9 +66,10 @@
   --space-10: 40px;
   --space-12: 48px;
 
-  --radius-sm: 8px;
+  --radius-sm: 6px;
   --radius: 10px;
-  --radius-lg: 14px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
   --radius-pill: 999px;
 
   /* Elevation. There was no box-shadow anywhere, which is why cards, dropdowns
@@ -75,12 +86,15 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ink: #eceff3;
-    --muted: #9aa4b0;
-    --clay-lt: #3a2418;
-    --line: #2b3138;
-    --bg: #15181c;
-    --card: #1c2026;
+    /* Cooled with the light theme (D0). The dark palette was warm-tinted to
+       sit beside warm light; leaving it warm while light went slate would make
+       the two schemes read as two different products. */
+    --ink: #e2e8f0;
+    --muted: #94a3b8;
+    --clay-lt: #1e1b3a;
+    --line: #293244;
+    --bg: #0b1120;
+    --card: #131c2e;
 
     /* The semantic colours were NEVER overridden for dark mode, so values
        designed for a white ground were being used on near-black. Measured
@@ -91,7 +105,7 @@
     --ok: #9fd6a9;
     --warn: #e8c877;
     --danger: #f3b8b0;
-    --clay-text: #d99a6c;
+    --clay-text: #a5b4fc;
 
     /* Shadows need more weight on a dark ground to read at all. */
     --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
@@ -102,12 +116,12 @@
 
 /* The same values, applied when the user has explicitly chosen dark. */
 :root[data-theme="dark"] {
-    --ink: #eceff3;
-    --muted: #9aa4b0;
-    --clay-lt: #3a2418;
-    --line: #2b3138;
-    --bg: #15181c;
-    --card: #1c2026;
+    --ink: #e2e8f0;
+    --muted: #94a3b8;
+    --clay-lt: #1e1b3a;
+    --line: #293244;
+    --bg: #0b1120;
+    --card: #131c2e;
 
     /* The semantic colours were NEVER overridden for dark mode, so values
        designed for a white ground were being used on near-black. Measured
@@ -118,7 +132,7 @@
     --ok: #9fd6a9;
     --warn: #e8c877;
     --danger: #f3b8b0;
-    --clay-text: #d99a6c;
+    --clay-text: #a5b4fc;
 
     /* Shadows need more weight on a dark ground to read at all. */
     --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
@@ -153,30 +167,101 @@ a { color: var(--clay-text); }
 /* --- Shell --------------------------------------------------------------- */
 .shell { display: flex; min-height: 100vh; }
 
+/*
+  A DARK sidebar against a light content area — the prototype's most
+  recognisable feature, and the one thing that makes a screenshot of this
+  product identifiable at a glance.
+
+  It carries its own palette rather than the theme tokens, deliberately: it is
+  dark in BOTH schemes, so `--card` and `--ink` are the wrong values for it in
+  light mode and would fight the theme in dark. The five `--side-*` tokens below
+  are the whole of that exception, and nothing outside this block reads them.
+*/
+:root {
+  --side-bg: #0f172a;
+  --side-text: #cbd5e1;
+  --side-text-dim: #64748b;
+  --side-hover: rgba(255, 255, 255, .07);
+  --side-line: rgba(255, 255, 255, .08);
+}
+
 .sidebar {
-  width: 220px;
-  flex: 0 0 220px;
-  border-right: 1px solid var(--line);
-  background: var(--card);
-  padding: 18px 14px;
+  width: 248px;
+  flex: 0 0 248px;
+  background: var(--side-bg);
+  color: var(--side-text);
+  padding: 14px 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
-.brand { font-weight: 700; font-size: 1.05rem; padding: 4px 10px 14px; letter-spacing: -.01em; }
-.brand small { display: block; font-weight: 400; color: var(--muted); font-size: .78rem; }
+.brand {
+  font-weight: 700;
+  font-size: 1rem;
+  color: #fff;
+  padding: 6px 10px 14px;
+  letter-spacing: -.02em;
+}
+.brand small {
+  display: block;
+  font-weight: 400;
+  color: var(--side-text-dim);
+  font-size: .78rem;
+}
+
+.nav-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--side-text-dim);
+  font-weight: 650;
+  padding: 14px 10px 6px;
+  margin: 0;
+}
 
 .nav a {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 11px;
   padding: 8px 10px;
-  border-radius: 8px;
-  color: var(--ink);
+  border-radius: var(--radius-sm);
+  color: var(--side-text);
   text-decoration: none;
-  font-size: .92rem;
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: background var(--motion-fast, 120ms), color var(--motion-fast, 120ms);
 }
-.nav a:hover { background: var(--clay-lt); }
-.nav a.active { background: var(--clay); color: #fff; }
+.nav a svg { opacity: .85; flex: 0 0 auto; }
+.nav a:hover { background: var(--side-hover); color: #fff; }
+/*
+  The active pill uses the STUDIO's accent, not a hardcoded indigo — which is
+  what keeps the six brand presets meaningful after this port. The glow is
+  currentColor-independent so it works for any accent.
+*/
+.nav a.active {
+  background: var(--clay);
+  color: #fff;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--clay) 40%, transparent);
+}
+.nav a.active svg { opacity: 1; }
+
+.sidebar select,
+.sidebar label[for="org"] {
+  color: var(--side-text);
+  font-size: var(--text-sm);
+}
+.sidebar select {
+  background: var(--side-hover);
+  border: 1px solid var(--side-line);
+  color: #fff;
+}
+.sidebar > button {
+  background: var(--side-hover);
+  border: 1px solid var(--side-line);
+  color: var(--side-text);
+}
+.sidebar > button:hover { background: rgba(255, 255, 255, .12); color: #fff; }
 
 .sidebar .spacer { flex: 1; }
 
@@ -195,12 +280,35 @@ h2 { margin: 0 0 12px; font-size: 1.05rem; }
 .sub { color: var(--muted); margin: 4px 0 0; font-size: .88rem; }
 
 /* --- Bits ---------------------------------------------------------------- */
+/*
+  The card is the unit every screen is built from, so its shape decides how
+  the whole product reads. Ported from the prototype (D0): a slightly larger
+  radius, a soft shadow instead of a flat edge, and no padding of its own —
+  padding belongs to `.card-head` / `.card-body`, so a card containing a table
+  can let the table meet its edges.
+
+  `.card` had padding before, which is why several screens wrap tables in a
+  negative-margin hack. Those can go as each screen is reconciled; leaving the
+  padding here would mean porting the hack too.
+*/
 .card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
   padding: 14px 16px;
 }
+
+/*
+  No `.card-head` here on purpose.
+
+  The prototype's `.card` + `.card-head` + `.card-body` is the same idea as
+  this codebase's `.panel` + `.panel-head` + `.panel-body`, which already
+  exists and is already used. Adding the demo's names alongside ours would give
+  the product two vocabularies for one component, and the next person would
+  have to learn which screens use which. The demo's VALUES are ported onto the
+  panel rules further down instead.
+*/
 
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 22px; }
 .stat .label { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
@@ -220,17 +328,47 @@ h2 { margin: 0 0 12px; font-size: 1.05rem; }
   .alert.danger { background: #3a1d1a; border-color: #6b3029; color: #f3b8b0; }
 }
 
+/*
+  Buttons, ported from the prototype (D0).
+
+  A fixed 36px height rather than vertical padding: the demo lines buttons up
+  beside inputs and selects constantly, and matching heights is what makes a
+  toolbar look assembled rather than stacked. `.btn-sm` is 30px for the same
+  reason inside card heads.
+*/
 button {
   font: inherit;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--line);
   background: var(--card);
   color: var(--ink);
-  padding: 7px 13px;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(15, 23, 42, .05));
 }
-button:hover { border-color: var(--clay); }
-button.primary { background: var(--clay); border-color: var(--clay); color: #fff; }
+button:hover { background: var(--bg); border-color: var(--muted); }
+button:active { transform: translateY(1px); }
+button svg { width: 15px; height: 15px; }
+button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+button.primary {
+  background: var(--clay);
+  border-color: var(--clay);
+  color: #fff;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--clay) 35%, transparent);
+}
+button.primary:hover { background: var(--clay-dk); border-color: var(--clay-dk); }
+
+button.sm { height: 30px; padding: 0 10px; font-size: 12.5px; }
+button.sm svg { width: 13px; height: 13px; }
 button.primary:hover { background: var(--clay-dk); }
 button.danger { color: var(--danger); }
 button:disabled { opacity: .5; cursor: not-allowed; }
@@ -1446,27 +1584,119 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
 .setting-stack { flex-direction: column; gap: var(--space-4); }
 
 /* --- Segmented control --------------------------------------------------- */
+/*
+  A segmented control — a raised pill sliding over a sunken track, ported from
+  the prototype (D0/D3).
+
+  Was a row of accent-filled buttons with dividers. The pill reads better for
+  the same reason it does everywhere else: the selected option looks like it is
+  ON TOP, so the control reads as one thing with a current position rather than
+  as several buttons of which one is lit.
+*/
 .seg {
   display: inline-flex;
+  background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--card);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 2px;
 }
 .seg button {
   border: 0;
-  border-radius: 0;
-  background: transparent;
+  height: auto;
+  box-shadow: none;
+  background: none;
   color: var(--muted);
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-sm);
+  padding: 5px 12px;
+  font-size: 12.5px;
   font-weight: 600;
+  white-space: nowrap;
+  border-radius: 5px;
   cursor: pointer;
   transition: background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease);
 }
-.seg button + button { border-left: 1px solid var(--line); }
 .seg button:hover:not(.on) { background: var(--clay-lt); color: var(--ink); }
-.seg button.on { background: var(--clay); color: #fff; }
+.seg button.on {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(15, 23, 42, .05));
+}
+
+/* --- Month calendar ------------------------------------------------------- */
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.cal-dow {
+  padding: 9px 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  font-weight: 650;
+  text-align: center;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.cal-cell {
+  min-height: 112px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 6px;
+  position: relative;
+  text-align: left;
+  background: none;
+  border-top: 0;
+  border-left: 0;
+  border-radius: 0;
+  height: auto;
+  box-shadow: none;
+  display: block;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.cal-cell:nth-child(7n) { border-right: 0; }
+.cal-cell:hover { background: var(--clay-lt); }
+/* Days spilling in from the neighbouring month. Dimmed rather than hidden, so
+   the grid keeps its shape and a class on the 1st is still visible from the
+   month before. */
+.cal-cell.out { background: var(--bg); color: var(--muted); }
+.cal-cell .dn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+.cal-cell.today .dn { background: var(--clay); color: #fff; }
+
+.cal-ev {
+  font-size: 11px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  margin-bottom: 2px;
+  background: var(--clay-lt);
+  color: var(--clay-text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 2px solid var(--clay);
+}
+/* Tone by how full it is — the same quiet → busy → full scale the dashboard's
+   capacity bars use, so a colour means one thing across the product. */
+.cal-ev.full {
+  background: color-mix(in srgb, var(--warn) 12%, var(--card));
+  color: var(--warn);
+  border-left-color: var(--warn);
+}
+.cal-ev.quiet {
+  background: color-mix(in srgb, var(--ok) 12%, var(--card));
+  color: var(--ok);
+  border-left-color: var(--ok);
+}
+.cal-more { font-size: 10.5px; color: var(--muted); font-weight: 600; padding-left: 4px; }
 
 /* --- Brand swatches ------------------------------------------------------ */
 .brand-swatches { display: flex; flex-wrap: wrap; gap: var(--space-2); }
@@ -1915,6 +2145,38 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
 .tab:hover { color: var(--ink); }
 
 /*
+  The count badge on a tab.
+
+  This is the reason D2 replaced a status `<select>` with a tab row: "Pending 3"
+  tells an owner there is something to do before they have clicked anything, and
+  a dropdown cannot say that.
+*/
+.tab .pill {
+  margin-left: 7px;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--muted);
+}
+.tab.on .pill { background: var(--clay-lt); color: var(--clay-text); }
+
+/* Tabs sitting inside a card, rather than floating above one. The side padding
+   lines them up with the rows below; the margin reset undoes the standalone
+   spacing `.tabs` carries for the Reports screen. */
+.tabs-wrap { padding: 0 18px; }
+.tabs-wrap .tabs { margin-bottom: 0; }
+
+/* The count under a table. Not a pager — see the note in Bookings.tsx. */
+.table-foot {
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+/*
    The active tab is marked by a rule that sits ON the container's border, so the
    selected tab reads as connected to the panel below it. Drawn with a
    pseudo-element rather than a border on the button: a border would change the
@@ -1968,43 +2230,83 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
   gap: var(--space-3);
   margin-bottom: var(--space-5);
 }
+/*
+  KPI tiles, ported from the prototype (D0).
+
+  The tone now lives in a tinted ICON CHIP rather than a coloured hairline
+  along the top. Same job — five tiles reading as a set rather than five
+  unrelated cards — but it carries a glyph, which is what makes the row
+  scannable at a glance instead of five numbers in a row.
+*/
 .kpi {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-4);
-  /* A hairline of the tile's own tone, so five tiles read as a set rather than
-     as five unrelated cards. */
-  border-top: 2px solid var(--clay);
+  position: relative;
+  overflow: hidden;
+  padding: 16px 17px;
+  transition: box-shadow var(--motion-fast, 160ms), transform var(--motion-fast, 160ms);
 }
-.kpi.green { border-top-color: var(--ok); }
-.kpi.violet { border-top-color: var(--clay-text); }
-.kpi.amber { border-top-color: var(--warn); }
-.kpi.red { border-top-color: var(--danger); }
+.kpi:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+
+/* A gradient hairline that appears on hover. Decoration, and deliberately
+   only on hover — five permanently-striped tiles is the busier look the icon
+   chip was meant to replace. */
+.kpi::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--clay), var(--clay-dk));
+  opacity: 0;
+  transition: opacity var(--motion-fast, 160ms);
+}
+.kpi:hover::after { opacity: 1; }
+
+.kpi .k-top { display: flex; align-items: center; gap: var(--space-2); }
 
 .kpi-label {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: .05em;
+  font-size: 12.5px;
   color: var(--muted);
+  font-weight: 550;
 }
+.kpi .k-icon {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--clay-lt);
+  color: var(--clay-text);
+  flex: 0 0 auto;
+}
+.kpi .k-icon svg { width: 16px; height: 16px; }
+/* The four tones. `color-mix` keeps the tint derived from the semantic colour
+   rather than adding four more hardcoded pastels to maintain. */
+.kpi.green .k-icon { background: color-mix(in srgb, var(--ok) 12%, var(--card)); color: var(--ok); }
+.kpi.amber .k-icon { background: color-mix(in srgb, var(--warn) 12%, var(--card)); color: var(--warn); }
+.kpi.red .k-icon { background: color-mix(in srgb, var(--danger) 12%, var(--card)); color: var(--danger); }
+
 .kpi-value {
-  font-size: var(--text-xl);
+  font-size: 27px;
   font-weight: 700;
-  letter-spacing: -.02em;
+  letter-spacing: -.03em;
+  line-height: 1.1;
+  margin-top: var(--space-2);
   /* Tabular figures so the row does not jitter as numbers change width. */
   font-variant-numeric: tabular-nums;
 }
 .kpi-foot {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-xs);
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
 }
-.trend { font-weight: 700; }
+.trend { font-weight: 650; display: inline-flex; align-items: center; gap: 2px; }
 .trend.up { color: var(--ok); }
 /* Down is not automatically bad — a quiet Tuesday is a fact, not an alarm — so
-   this is the muted ink rather than the danger colour. */
+   this is the muted ink rather than the danger colour. The prototype uses red
+   here; that is a choice this product deliberately does not copy. */
 .trend.down { color: var(--muted); }
 
 /* --- Panels --------------------------------------------------------------- */
@@ -2023,40 +2325,61 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
 }
 
 .panel { padding: 0; display: flex; flex-direction: column; }
+/* Spacing ported from the prototype's .card-head / .card-body (D0). */
 .panel-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
+  padding: 15px 18px;
   border-bottom: 1px solid var(--line);
 }
-.panel-head h2 { margin: 0; font-size: var(--text-base); }
-.panel-head .sub { margin: 2px 0 0; font-size: var(--text-xs); }
-.panel-action { font-size: var(--text-sm); white-space: nowrap; }
-.panel-body { padding: var(--space-4) var(--space-5); flex: 1; }
+.panel-head h2 { margin: 0; font-size: 15px; }
+.panel-head .sub { margin: 2px 0 0; font-size: 12.5px; }
+.panel-action { font-size: 12.5px; white-space: nowrap; }
+.panel-body { padding: 18px; flex: 1; }
 /* A table fills its panel edge to edge; the padding belongs to the rows. */
-.panel-body > .table-wrap { margin: calc(var(--space-4) * -1) calc(var(--space-5) * -1); }
+.panel-body > .table-wrap { margin: -18px; }
 .panel-body > .table-wrap th:first-child,
-.panel-body > .table-wrap td:first-child { padding-left: var(--space-5); }
+.panel-body > .table-wrap td:first-child { padding-left: 18px; }
 .panel-body > .table-wrap th:last-child,
-.panel-body > .table-wrap td:last-child { padding-right: var(--space-5); }
+.panel-body > .table-wrap td:last-child { padding-right: 18px; }
 
 /* --- Today's schedule ----------------------------------------------------- */
+/*
+  Rows bleed to the panel's edges rather than sitting inside its padding, which
+  is what makes a list of them read as a list rather than as stacked cards. The
+  negative margin cancels `.panel-body`'s 18px, the same trick the table uses.
+
+  NO hover state and no pointer cursor, unlike the prototype. Its rows open a
+  slot drawer; ours are not clickable, and styling something as interactive
+  when it is not is a worse lie than a plain row. If a row ever links
+  somewhere, the hover comes with it.
+*/
+.panel-body > .sched-list { margin: -18px; }
+
 .sched-row {
   display: grid;
-  grid-template-columns: auto 3px 1fr 130px auto;
+  grid-template-columns: 68px 3px 1fr 116px auto;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) 0;
+  gap: 14px;
+  padding: 13px 18px;
   border-bottom: 1px solid var(--line);
 }
-.sched-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.sched-row:last-child { border-bottom: 0; }
 .sched-time {
   font-weight: 700;
-  font-size: var(--text-sm);
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* The meridiem on its own line, so the hour column stays narrow and the
+   figures line up whether the time is 9:00 or 12:30. */
+.sched-time .mer {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
 }
 .sched-bar { align-self: stretch; border-radius: 2px; min-height: 32px; }
 .sched-main { min-width: 0; }
@@ -2118,20 +2441,31 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
 .chart-bars {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: var(--space-2);
+  gap: 10px;
   align-items: end;
-  height: 140px;
+  height: 190px;
+  padding-top: 10px;
   margin-bottom: var(--space-3);
 }
-.chart-col { display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; gap: var(--space-2); }
+.chart-col { display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; gap: 7px; }
+/*
+  A gradient bar with a wider cap radius than foot — the prototype's shape, and
+  it reads as a column standing on the axis rather than a floating block.
+  `max-width` keeps a seven-bar week from becoming seven slabs on a wide panel.
+*/
 .chart-bar {
   width: 100%;
-  background: color-mix(in srgb, var(--clay) 45%, var(--card));
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  min-height: 3px;
+  max-width: 46px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--clay) 62%, var(--card)),
+    var(--clay)
+  );
+  border-radius: 6px 6px 3px 3px;
+  min-height: 4px;
 }
-.chart-bar.today { background: var(--clay); }
-.chart-label { font-size: var(--text-xs); color: var(--muted); }
+.chart-bar.today { background: linear-gradient(180deg, var(--clay), var(--clay-dk)); }
+.chart-label { font-size: 11.5px; color: var(--muted); font-weight: 600; }
 .chart-foot {
   display: flex;
   justify-content: space-between;
@@ -2140,21 +2474,28 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
 }
 
 /* --- Ranked list ---------------------------------------------------------- */
-.ranked { display: flex; flex-direction: column; gap: var(--space-4); }
-.rank-row { display: flex; gap: var(--space-3); align-items: flex-start; }
+.ranked { display: flex; flex-direction: column; }
+/* Separated by a rule rather than a gap: five ranked rows are a table of
+   standings, and the line is what makes the ordering read as meaningful. */
+.rank-row { display: flex; gap: var(--space-3); align-items: center; padding: 10px 0; }
+.rank-row + .rank-row { border-top: 1px solid var(--line); }
 .rank-n {
   flex: 0 0 22px;
   height: 22px;
-  border-radius: 50%;
+  /* A rounded SQUARE, not a circle — it matches the KPI icon chip, and the two
+     sit on the same screen. */
+  border-radius: 6px;
   background: var(--clay-lt);
-  color: var(--ink);
-  font-size: var(--text-xs);
+  color: var(--clay-text);
+  font-size: 11.5px;
   font-weight: 700;
   display: grid;
   place-items: center;
 }
+/* First place is filled, so the eye lands on it before reading any numbers. */
+.rank-row:first-child .rank-n { background: var(--clay); color: #fff; }
 .rank-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.rank-name { display: flex; justify-content: space-between; gap: var(--space-2); font-weight: 600; font-size: var(--text-sm); }
+.rank-name { display: flex; justify-content: space-between; gap: var(--space-2); font-weight: 600; font-size: 13.5px; }
 
 /* --- Mini lists ----------------------------------------------------------- */
 .mini-list { display: flex; flex-direction: column; gap: var(--space-1); }
@@ -2775,3 +3116,19 @@ td.strong { font-weight: 600; }
   .owed { font-weight: 700; text-decoration: underline; }
   a[href]::after { content: ''; }
 }
+
+/* Prev/next and the period title, left of the view switcher in the card head. */
+.cal-nav { display: flex; align-items: center; gap: var(--space-2); }
+.cal-nav h2 { margin-left: var(--space-1); }
+
+/* --- Activity catalogue (D4) ---------------------------------------------- */
+.catalogue { display: flex; flex-direction: column; }
+.cat-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 12px 0;
+}
+.cat-card + .cat-card { border-top: 1px solid var(--line); }
+.cat-swatch { width: 3px; align-self: stretch; min-height: 34px; border-radius: 3px; flex: 0 0 3px; }
+.cat-main { flex: 1; min-width: 0; }

@@ -317,7 +317,15 @@ export const BRAND_PRESETS: readonly BrandPreset[] = [
   },
 ] as const;
 
-export const DEFAULT_PRESET_ID = 'clay';
+/**
+ * Indigo since D0 (2026-08-24), matching the TourFlow prototype the dashboard
+ * is built against — `#4f46e5`, which is exactly the demo's `--brand-600`.
+ *
+ * It is a DEFAULT, not a fixture: the six presets and the custom-accent picker
+ * on Settings → Appearance work exactly as before, and a studio that has chosen
+ * something keeps it. `clay` remains in the preset list and is one click away.
+ */
+export const DEFAULT_PRESET_ID = 'indigo';
 
 export function findPreset(id: string): BrandPreset | undefined {
   return BRAND_PRESETS.find((preset) => preset.id === id);

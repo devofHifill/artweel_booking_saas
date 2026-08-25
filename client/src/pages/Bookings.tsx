@@ -8,10 +8,38 @@ import {
   type BookingListItem,
 } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
-import { DataTable, PageHead, StatusPill, Toolbar } from '../components/layout';
+import {
+  DataTable,
+  PageHead,
+  PaymentPill,
+  StatusPill,
+  Toolbar,
+  paymentState,
+} from '../components/layout';
 import { EmptyState } from '../components/states';
 
-type ListResponse = { bookings: BookingListItem[]; nextCursor: string | null };
+type ListResponse = {
+  bookings: BookingListItem[];
+  nextCursor: string | null;
+  /** Per-status totals behind the tabs, counted without the status filter. */
+  counts: Record<string, number>;
+};
+
+/**
+ * The status tabs, in the order a booking moves through them.
+ *
+ * A tab row rather than the dropdown this screen had, matching the prototype:
+ * the counts are the point. "Pending 3" tells an owner there is something to do
+ * before they have clicked anything, which a `<select>` cannot.
+ */
+const TABS = [
+  { id: '', label: 'All' },
+  { id: 'CONFIRMED', label: 'Confirmed' },
+  { id: 'PENDING', label: 'Pending' },
+  { id: 'ATTENDED', label: 'Attended' },
+  { id: 'NO_SHOW', label: 'No show' },
+  { id: 'CANCELLED', label: 'Cancelled' },
+] as const;
 
 export default function Bookings() {
   const base = useOrgBase();
@@ -20,6 +48,7 @@ export default function Bookings() {
   const currency = org?.organization.currency ?? 'USD';
 
   const [bookings, setBookings] = useState<BookingListItem[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [range, setRange] = useState<'upcoming' | 'past' | 'all'>('upcoming');
@@ -38,6 +67,7 @@ export default function Bookings() {
     try {
       const res = await api.get<ListResponse>(`${base}/bookings?${params}`);
       setBookings(res.bookings);
+      setCounts(res.counts ?? {});
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load bookings.');
@@ -129,7 +159,7 @@ export default function Bookings() {
     <>
       <PageHead
         title="Bookings"
-        lede={`${bookings.length} shown`}
+        lede="Every reservation across your booking page and the embedded widget."
         actions={
           selected.size > 0 && (
             <button className="danger" onClick={cancelSelected} disabled={busy}>
@@ -139,34 +169,78 @@ export default function Bookings() {
         }
       />
 
-      <Toolbar>
-        <input
-          placeholder="Search name, email or phone"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ minWidth: 260 }}
-        />
-        <select value={range} onChange={(e) => setRange(e.target.value as never)}>
-          <option value="upcoming">Upcoming</option>
-          <option value="past">Past</option>
-          <option value="all">All</option>
-        </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">Any status</option>
-          <option value="CONFIRMED">Confirmed</option>
-          <option value="PENDING">Pending</option>
-          <option value="ATTENDED">Attended</option>
-          <option value="NO_SHOW">No show</option>
-          <option value="CANCELLED">Cancelled</option>
-        </select>
-      </Toolbar>
-
       {error && <div className="err">{error}</div>}
 
-      {bookings.length === 0 ? (
-        <EmptyState>No bookings match that.</EmptyState>
-      ) : (
-        <div className="card" style={{ padding: 0 }}>
+      {/*
+        Tabs and filters live INSIDE the card, as one control surface above the
+        rows they act on — the prototype's arrangement. They were a floating
+        toolbar above a separate card before, which reads as two unrelated
+        things and leaves the filter row homeless when the table is empty.
+      */}
+      <div className="card" style={{ padding: 0 }}>
+        <div className="tabs-wrap">
+          <div className="tabs" role="tablist" aria-label="Booking status">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                role="tab"
+                aria-selected={status === tab.id}
+                className={`tab ${status === tab.id ? 'on' : ''}`.trim()}
+                onClick={() => setStatus(tab.id)}
+              >
+                {tab.label}
+                {/*
+                  Shown once the counts have ARRIVED, then on every tab.
+
+                  `counts` only carries statuses that have rows, so reading it
+                  directly left "Cancelled" with no pill while "All" had one —
+                  a blank reads as "unknown", not as "none", and the two are
+                  different answers. `counts.total` is the load signal because
+                  it is present whenever the server replied, including when
+                  every number is zero.
+                */}
+                {counts.total !== undefined && (
+                  <span className="pill">
+                    {counts[tab.id === '' ? 'total' : tab.id] ?? 0}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <Toolbar>
+          <input
+            placeholder="Search name, email or phone"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ minWidth: 260 }}
+          />
+          <select value={range} onChange={(e) => setRange(e.target.value as never)}>
+            <option value="upcoming">Upcoming</option>
+            <option value="past">Past</option>
+            <option value="all">All</option>
+          </select>
+          {(search || status || range !== 'upcoming') && (
+            <button
+              className="sm"
+              onClick={() => {
+                setSearch('');
+                setStatus('');
+                setRange('upcoming');
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </Toolbar>
+
+        {bookings.length === 0 ? (
+          <div style={{ padding: 'var(--space-5)' }}>
+            <EmptyState>No bookings match that.</EmptyState>
+          </div>
+        ) : (
+          <>
           <DataTable
             caption="Bookings, with class, customer, status and amount owed"
             head={
@@ -175,8 +249,10 @@ export default function Bookings() {
                 <th>When</th>
                 <th>Class</th>
                 <th>Customer</th>
+                <th className="num">Guests</th>
+                <th className="num">Amount</th>
+                <th>Payment</th>
                 <th>Status</th>
-                <th>Owed</th>
                 <th style={{ width: 190 }} />
               </tr>
             }
@@ -211,14 +287,23 @@ export default function Bookings() {
                     <Link to={`/customers/${booking.customer.id}`}>
                       {booking.customer.name}
                     </Link>
+                    <div className="tiny muted">{booking.customer.email}</div>
+                  </td>
+                  <td className="num">{booking.seats}</td>
+                  <td className="num">{money(booking.totalCents, currency)}</td>
+                  <td>
+                    {/* Paid / part paid / unpaid, derived from what is owed
+                        against the total — the same three states the payments
+                        screen shows, so the two agree. */}
+                    <PaymentPill
+                      state={paymentState(
+                        booking.totalCents,
+                        booking.outstandingCents,
+                      )}
+                    />
                   </td>
                   <td>
                     <StatusPill status={booking.status} />
-                  </td>
-                  <td>
-                    {booking.outstandingCents > 0
-                      ? money(booking.outstandingCents, currency)
-                      : '—'}
                   </td>
                   <td>
                     {booking.status !== 'CANCELLED' && (
@@ -249,9 +334,30 @@ export default function Bookings() {
                   </td>
                 </tr>
               ))}
-          </DataTable>
-        </div>
-      )}
+            </DataTable>
+
+            {/*
+              A count, not a pager.
+
+              The prototype numbers its pages because it holds every booking in
+              a JavaScript array and knows the total. This list is CURSOR
+              paginated — deliberately, so a studio scrolling a busy month
+              while bookings are being taken does not see rows repeat or
+              vanish — and a cursor cannot know which page it is on. Numbered
+              buttons would be a lie about how the data arrives.
+            */}
+            <div className="table-foot">
+              <span className="tiny muted">
+                Showing {bookings.length}
+                {counts.total !== undefined && counts.total > bookings.length
+                  ? ` of ${counts.total}`
+                  : ''}
+                {bookings.length === 1 ? ' booking' : ' bookings'}
+              </span>
+            </div>
+          </>
+        )}
+      </div>
     </>
   );
 }

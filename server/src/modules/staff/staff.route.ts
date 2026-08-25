@@ -66,6 +66,18 @@ staffRouter.post(
   }),
 );
 
+/**
+ * The rota summary. BEFORE `/:staffId`, or Express matches "summary" as a
+ * staff id and the route 404s on a lookup that was never meant to happen.
+ */
+staffRouter.get(
+  '/summary',
+  requireMember,
+  asyncHandler(async (req, res) => {
+    res.json(await service.getRotaSummary(req.tenant!.organizationId));
+  }),
+);
+
 staffRouter.get(
   '/:staffId',
   requireMember,

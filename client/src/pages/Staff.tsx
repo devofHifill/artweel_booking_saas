@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
-import { DataTable, PageHead, StatusPill, Toolbar } from '../components/layout';
+import { DataTable, Kpi, PageHead, StatusPill, Toolbar } from '../components/layout';
 import { EmptyState, LoadingRegion, SkeletonTable } from '../components/states';
 
 /**
@@ -33,6 +33,14 @@ type StaffRow = {
 
 type ServiceOption = { id: string; name: string };
 
+/** The four figures above the list. See `getRotaSummary` on the server. */
+type Rota = {
+  team: number;
+  teachingToday: number;
+  classesThisWeek: number;
+  unassignedThisWeek: number;
+};
+
 const BLANK = {
   name: '',
   email: '',
@@ -50,6 +58,7 @@ export default function Staff() {
   const [staff, setStaff] = useState<StaffRow[] | null>(null);
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [includeInactive, setIncludeInactive] = useState(false);
+  const [rota, setRota] = useState<Rota | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,6 +75,17 @@ export default function Staff() {
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load your team.');
+    }
+
+    /*
+      The rota figures, fetched separately and allowed to fail on their own.
+      They decorate the page; the list below is the page. An error here must
+      not replace a working team list with a banner.
+    */
+    try {
+      setRota(await api.get<Rota>(`${base}/staff/summary`));
+    } catch {
+      /* Tiles stay hidden. */
     }
   }, [base, includeInactive]);
 
@@ -210,6 +230,36 @@ export default function Staff() {
           )
         }
       />
+
+      {/*
+        Is the week covered? These four say so before anybody reads a row.
+        "Unassigned" is the one worth acting on — a class with nobody assigned
+        is a class nobody has been told to teach, which is the same signal the
+        dashboard's attention list carries.
+      */}
+      {rota && (
+        <div className="kpis">
+          <Kpi label="Team members" value={String(rota.team)} icon="staff" />
+          <Kpi
+            label="Teaching today"
+            value={String(rota.teachingToday)}
+            tone="green"
+            icon="today"
+          />
+          <Kpi
+            label="Classes this week"
+            value={String(rota.classesThisWeek)}
+            tone="violet"
+            icon="calendar"
+          />
+          <Kpi
+            label="Unassigned this week"
+            value={String(rota.unassignedThisWeek)}
+            tone={rota.unassignedThisWeek > 0 ? 'amber' : undefined}
+            icon="health"
+          />
+        </div>
+      )}
 
       <Toolbar>
         <label className="check">

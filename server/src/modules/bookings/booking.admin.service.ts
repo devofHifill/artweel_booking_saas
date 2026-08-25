@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
+import type { PaymentStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { paidCentsOf } from '../analytics/analytics.service';
 import { AppError } from '../../lib/app-error';
 import { logger } from '../../lib/logger';
 import { bookAppointment, bookSeats, cancelBooking } from '../../scheduling/booking.service';
@@ -77,9 +79,36 @@ export async function listBookings(
   const hasMore = rows.length > filters.limit;
   const page = hasMore ? rows.slice(0, filters.limit) : rows;
 
+  /**
+   * How many bookings sit behind each status tab.
+   *
+   * Counted with EVERY filter except `status` — which is the only shape that
+   * makes the tabs mean anything. A tab row that re-counted under its own
+   * filter would read "Cancelled 4" while showing four cancelled bookings and
+   * "Confirmed 0" beside it, which is worse than no counts at all.
+   *
+   * A `groupBy` rather than five counts: one query, and the statuses come back
+   * from the data instead of from a list here that could fall behind the enum.
+   */
+  const { status: _ignored, ...whereWithoutStatus } = where;
+
+  const grouped = await prisma.booking.groupBy({
+    by: ['status'],
+    where: whereWithoutStatus,
+    _count: { _all: true },
+  });
+
+  const counts: Record<string, number> = {};
+  let total = 0;
+  for (const row of grouped) {
+    counts[row.status] = row._count._all;
+    total += row._count._all;
+  }
+
   return {
     bookings: page.map(toListItem),
     nextCursor: hasMore ? page[page.length - 1]!.id : null,
+    counts: { total, ...counts },
   };
 }
 
@@ -96,11 +125,17 @@ function toListItem(booking: {
   serviceType: { id: string; name: string; color: string; bookingMode: string };
   staff: { id: string; name: string } | null;
   location: { id: string; name: string } | null;
-  payments: { amountCents: number; refundedCents: number; status: string }[];
+  payments: {
+    amountCents: number;
+    refundedCents: number;
+    status: PaymentStatus;
+  }[];
 }) {
-  const paidCents = booking.payments
-    .filter((p) => p.status === 'SUCCEEDED' || p.status === 'PARTIALLY_REFUNDED')
-    .reduce((sum, p) => sum + p.amountCents - p.refundedCents, 0);
+  /* Was a fourth hand-copy of the money rule until D5. `paidCentsOf` is the
+     one definition — successful payments minus refunds — and it exists so the
+     dashboard, the manifest, this list and the customer list cannot disagree
+     about what a booking is worth. */
+  const paidCents = paidCentsOf(booking.payments);
 
   return {
     id: booking.id,
@@ -542,11 +577,13 @@ async function afterBookingChange(
 
 // --- Customers -------------------------------------------------------------
 
+export type CustomerSort = 'name' | 'spent' | 'bookings' | 'recent';
+
 export async function listCustomers(
   organizationId: string,
-  opts: { search?: string; limit: number },
+  opts: { search?: string; limit: number; sort?: CustomerSort },
 ) {
-  return prisma.customer.findMany({
+  const rows = await prisma.customer.findMany({
     where: {
       organizationId,
       ...(opts.search
@@ -577,10 +614,86 @@ export async function listCustomers(
       _count: {
         select: { bookings: { where: { status: { not: 'CANCELLED' } } } },
       },
+      /**
+       * What they have spent, and when they were last in (D5).
+       *
+       * Selected alongside rather than aggregated in SQL because the money
+       * rule is `paidCentsOf` — successful payments minus refunds — and that
+       * lives in one place on purpose. A `_sum` here would be a second
+       * definition of "spent" that drifts from the dashboard the first time
+       * refund handling changes.
+       *
+       * The cost is real and bounded: this list is capped at 200 customers and
+       * a studio's payment rows are hundreds, not millions. If that stops
+       * being true the fix is a materialised per-customer rollup, not a
+       * cleverer query here.
+       */
+      bookings: {
+        where: { status: { not: 'CANCELLED' } },
+        select: {
+          startsAt: true,
+          payments: {
+            select: { amountCents: true, refundedCents: true, status: true },
+          },
+        },
+      },
     },
-    orderBy: { name: 'asc' },
     take: opts.limit,
   });
+
+  const now = Date.now();
+
+  const projected = rows.map((customer) => {
+    const { bookings, ...rest } = customer;
+
+    const spentCents = bookings.reduce(
+      (sum, booking) => sum + paidCentsOf(booking.payments),
+      0,
+    );
+
+    /**
+     * Their most recent visit that has actually HAPPENED.
+     *
+     * A booking three weeks out is not a visit, and letting it win would sort
+     * somebody who booked ahead above somebody who was here yesterday — under
+     * a column labelled "last visit".
+     */
+    const past = bookings
+      .map((b) => b.startsAt)
+      .filter((at) => at.getTime() <= now);
+    const lastVisit =
+      past.length > 0
+        ? past.reduce((latest, at) => (at > latest ? at : latest))
+        : null;
+
+    return { ...rest, spentCents, lastVisit };
+  });
+
+  /*
+    Sorted in JS rather than by the database, because two of the four keys —
+    spend and last visit — are derived above and cannot be ordered by in the
+    query that produced them. Doing one in SQL and the others here would make
+    `limit` mean something different depending on which sort was chosen, which
+    is the kind of inconsistency nobody thinks to test.
+  */
+  const sorted = [...projected];
+  switch (opts.sort) {
+    case 'spent':
+      sorted.sort((a, b) => b.spentCents - a.spentCents);
+      break;
+    case 'bookings':
+      sorted.sort((a, b) => b._count.bookings - a._count.bookings);
+      break;
+    case 'recent':
+      sorted.sort(
+        (a, b) => (b.lastVisit?.getTime() ?? 0) - (a.lastVisit?.getTime() ?? 0),
+      );
+      break;
+    default:
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  return sorted;
 }
 
 export async function getCustomer(organizationId: string, customerId: string) {

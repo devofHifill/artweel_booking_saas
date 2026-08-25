@@ -4,14 +4,49 @@ import { useActiveOrg, useOrgBase } from '../lib/auth';
 import { PageHead } from '../components/layout';
 
 /**
- * Week view with drag-to-reschedule.
+ * The calendar. Month and week.
  *
- * Dragging is a convenience over the real mechanism, not a replacement for it:
- * the drop calls the same reschedule endpoint the customer-facing flow uses,
- * which cancels and rebooks through the scheduling core. If the instructor is
- * busy at the target time, the exclusion constraint refuses it and the card
- * snaps back — the UI cannot talk the server into a double booking.
+ * WEEK is the drag-to-reschedule grid. Dragging is a convenience over the real
+ * mechanism, not a replacement for it: the drop calls the same reschedule
+ * endpoint the customer-facing flow uses, which cancels and rebooks through the
+ * scheduling core. If the instructor is busy at the target time, the exclusion
+ * constraint refuses it and the card snaps back — the UI cannot talk the server
+ * into a double booking.
+ *
+ * MONTH is the overview, added in D3 to match the prototype, which opens on it.
+ * It reads SESSIONS rather than bookings, because the question a month grid
+ * answers is "what is running and how full is it" — and only a session knows
+ * its capacity. A month of bookings could say how many people are coming and
+ * never how many seats there were.
+ *
+ * The prototype also has a day view and a side panel for the selected day.
+ * Neither is built: day view is week view with one column, and the side panel
+ * duplicates what the Daily Manifest already does better. Recorded as a gap in
+ * TOURFLOW-PARITY-PLAN.md rather than half-built here.
  */
+
+type Mode = 'month' | 'week';
+
+type MonthSession = {
+  id: string;
+  startsAt: string;
+  capacity: number;
+  seatsTaken: number;
+  serviceType: { name: string; color: string };
+};
+
+/** Sunday-anchored grid of 42 days covering the month `anchor` falls in. */
+function monthGrid(anchor: Date): Date[] {
+  const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const start = new Date(first);
+  start.setDate(1 - first.getDay());
+
+  return Array.from({ length: 42 }, (_, i) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + i);
+    return day;
+  });
+}
 
 const START_HOUR = 8;
 const END_HOUR = 21;
@@ -96,6 +131,9 @@ export default function CalendarPage() {
   const org = useActiveOrg();
   const timezone = org?.organization.timezone ?? 'UTC';
 
+  const [mode, setMode] = useState<Mode>('month');
+  const [monthAnchor, setMonthAnchor] = useState(() => new Date());
+  const [monthSessions, setMonthSessions] = useState<MonthSession[]>([]);
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [bookings, setBookings] = useState<BookingListItem[]>([]);
   const [dragging, setDragging] = useState<BookingListItem | null>(null);
@@ -130,8 +168,55 @@ export default function CalendarPage() {
   }, [base, weekStart]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (mode === 'week') void load();
+  }, [load, mode]);
+
+  /**
+   * The month's sessions.
+   *
+   * Fetched over the whole visible GRID, not the calendar month — the grid
+   * spills into the neighbouring months at both ends, and a class on the 31st
+   * of the previous month is visible in the first row. Loading only the month
+   * would leave those cells wrongly empty.
+   */
+  const loadMonth = useCallback(async () => {
+    const grid = monthGrid(monthAnchor);
+    const from = grid[0]!;
+    const to = new Date(grid[grid.length - 1]!);
+    to.setHours(23, 59, 59, 999);
+
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    try {
+      const res = await api.get<{ sessions: MonthSession[] }>(
+        `${base}/sessions?from=${iso(from)}&to=${iso(to)}`,
+      );
+      setMonthSessions(res.sessions);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load the month.');
+    }
+  }, [base, monthAnchor]);
+
+  useEffect(() => {
+    if (mode === 'month') void loadMonth();
+  }, [loadMonth, mode]);
+
+  /** Sessions grouped by studio-local date, for the month grid. */
+  const sessionsByDate = useMemo(() => {
+    const map = new Map<string, MonthSession[]>();
+    for (const session of monthSessions) {
+      const key = partsIn(session.startsAt, timezone).date;
+      const list = map.get(key);
+      if (list) list.push(session);
+      else map.set(key, [session]);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    }
+    return map;
+  }, [monthSessions, timezone]);
 
   /** Bookings indexed by "YYYY-MM-DD HH:MM" in studio-local time. */
   const byCell = useMemo(() => {
@@ -187,40 +272,154 @@ export default function CalendarPage() {
     }
   }
 
+  /** Today, as a studio-local `YYYY-MM-DD`, for marking the cell. */
+  const todayInStudio = partsIn(new Date().toISOString(), timezone).date;
+
+  const title =
+    mode === 'month'
+      ? monthAnchor.toLocaleDateString(undefined, {
+          month: 'long',
+          year: 'numeric',
+        })
+      : `${weekStart.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} – ${new Date(
+          weekStart.getFullYear(),
+          weekStart.getMonth(),
+          weekStart.getDate() + 6,
+        ).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`;
+
+  /** One step back or forward, in whatever unit the current view uses. */
+  function step(direction: -1 | 1) {
+    if (mode === 'month') {
+      setMonthAnchor(
+        (current) =>
+          new Date(current.getFullYear(), current.getMonth() + direction, 1),
+      );
+      return;
+    }
+    setWeekStart((current) => {
+      const next = new Date(current);
+      next.setDate(next.getDate() + direction * 7);
+      return next;
+    });
+  }
+
+  function goToday() {
+    setMonthAnchor(new Date());
+    setWeekStart(startOfWeek(new Date()));
+  }
+
   return (
     <>
       <PageHead
         title="Calendar"
-        lede={`Drag an appointment to move it. Times shown in ${timezone.replace('_', ' ')}.`}
-        actions={
-          <>
-          <button
-            onClick={() => {
-              const previous = new Date(weekStart);
-              previous.setDate(previous.getDate() - 7);
-              setWeekStart(previous);
-            }}
-          >
-            ← Previous
-          </button>
-          <button onClick={() => setWeekStart(startOfWeek(new Date()))}>
-            This week
-          </button>
-          <button
-            onClick={() => {
-              const next = new Date(weekStart);
-              next.setDate(next.getDate() + 7);
-              setWeekStart(next);
-            }}
-          >
-            Next →
-          </button>
-          </>
+        lede={
+          mode === 'week'
+            ? `Drag an appointment to move it. Times shown in ${timezone.replace('_', ' ')}.`
+            : 'Classes, capacity and who is running what.'
         }
       />
 
       {error && <div className="err">{error}</div>}
 
+      {/*
+        Navigation lives in the card head with the grid, not in the page head.
+        It acts on the grid below it, and putting it up beside the page title
+        left the two looking unrelated — the prototype's arrangement is right
+        here for a reason that has nothing to do with matching it.
+      */}
+      <div className="card" style={{ padding: 0 }}>
+        <div className="panel-head">
+          <div className="cal-nav">
+            <button
+              className="sm"
+              aria-label={mode === 'month' ? 'Previous month' : 'Previous week'}
+              onClick={() => step(-1)}
+            >
+              ←
+            </button>
+            <button
+              className="sm"
+              aria-label={mode === 'month' ? 'Next month' : 'Next week'}
+              onClick={() => step(1)}
+            >
+              →
+            </button>
+            <h2>{title}</h2>
+          </div>
+
+          <div className="right">
+            <button className="sm" onClick={goToday}>
+              Today
+            </button>
+            <div className="seg" role="group" aria-label="Calendar view">
+              <button
+                className={mode === 'month' ? 'on' : ''}
+                aria-pressed={mode === 'month'}
+                onClick={() => setMode('month')}
+              >
+                Month
+              </button>
+              <button
+                className={mode === 'week' ? 'on' : ''}
+                aria-pressed={mode === 'week'}
+                onClick={() => setMode('week')}
+              >
+                Week
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {mode === 'month' && (
+          <div className="cal-grid">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+              <div className="cal-dow" key={d}>
+                {d}
+              </div>
+            ))}
+
+            {monthGrid(monthAnchor).map((day) => {
+              const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+              const sessions = sessionsByDate.get(key) ?? [];
+              const outside = day.getMonth() !== monthAnchor.getMonth();
+              const isToday = key === todayInStudio;
+
+              return (
+                <button
+                  type="button"
+                  key={key}
+                  className={`cal-cell ${outside ? 'out' : ''} ${isToday ? 'today' : ''}`.trim()}
+                  onClick={() => {
+                    // Jump to the week containing this day, which is where
+                    // anything can actually be changed.
+                    setWeekStart(startOfWeek(day));
+                    setMode('week');
+                  }}
+                >
+                  <span className="dn">{day.getDate()}</span>
+                  {sessions.slice(0, 3).map((session) => {
+                    const pct =
+                      session.capacity > 0
+                        ? (session.seatsTaken / session.capacity) * 100
+                        : 0;
+                    const tone = pct >= 100 ? 'full' : pct < 60 ? 'quiet' : '';
+                    return (
+                      <div className={`cal-ev ${tone}`.trim()} key={session.id}>
+                        {timeIn(session.startsAt, timezone)} {session.serviceType.name}
+                      </div>
+                    );
+                  })}
+                  {sessions.length > 3 && (
+                    <div className="cal-more">+{sessions.length - 3} more</div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {mode === 'week' && (
       <div className="week" style={{ opacity: busy ? 0.6 : 1 }}>
         <div className="head" />
         {days.map((day) => (
@@ -245,6 +444,7 @@ export default function CalendarPage() {
           />
         ))}
       </div>
+      )}
     </>
   );
 }
