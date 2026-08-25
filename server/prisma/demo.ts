@@ -440,9 +440,24 @@ function assertSafeToRun() {
   if (process.env.DEMO_SEED_I_MEAN_IT === 'yes') return;
 
   const url = process.env.DATABASE_URL ?? '';
-  const looksLocal = /@(localhost|127\.0\.0\.1|host\.docker\.internal|postgres)[:/]/.test(url);
 
-  if (process.env.NODE_ENV === 'production' || !looksLocal) {
+  /*
+    Judged on the DATABASE NAME, not the host.
+
+    The first version of this allowlisted hosts and included `postgres` —
+    which is exactly what a containerised database is called in
+    docker-compose, on the VPS included. A guard written to protect production
+    would have waved production straight through. Hostnames describe where a
+    database runs; the name describes what it is for, and only the second is
+    a safe thing to gate on.
+
+    `booking_dev` and `booking_test` are this project's local databases. The
+    deployed one is plain `booking`, and it is not on this list.
+  */
+  const database = url.split('/').pop()?.split('?')[0] ?? '';
+  const isDisposable = database === 'booking_dev' || database === 'booking_test';
+
+  if (process.env.NODE_ENV === 'production' || !isDisposable) {
     // eslint-disable-next-line no-console
     console.error(
       [
