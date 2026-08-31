@@ -42,6 +42,8 @@ type RollEntry = {
   notes: string | null;
   balanceCents: number;
   firstVisit: boolean;
+  /** Where a travelling class happens — the customer's own address. */
+  serviceAddress: string | null;
 };
 
 type ManifestSession = {
@@ -52,7 +54,7 @@ type ManifestSession = {
   timezone: string;
   serviceName: string;
   color: string;
-  staff: { id: string; name: string } | null;
+  staff: { id: string; name: string; phone: string | null } | null;
   location: { id: string; name: string; address: string | null } | null;
   course: { id: string; name: string; cohortLabel: string | null } | null;
   seriesIndex: number | null;
@@ -267,7 +269,34 @@ export default function DailyManifest() {
           </div>
 
           {data.sessions.length === 0 && (
-            <EmptyState icon="◷">Nothing on this day.</EmptyState>
+            <EmptyState icon="◷" hint="Pick another day, or add a class from the calendar.">
+              Nothing on this day.
+            </EmptyState>
+          )}
+
+          {/*
+            Jump links for a long day, which is where the prototype shows one
+            departure at a time behind a chip per slot. Anchors rather than a
+            filter: this is a SHEET, and a sheet you have to click through to
+            read is not one — but eight classes is a long scroll on a phone in
+            a doorway. Below three there is nothing to navigate.
+          */}
+          {data.sessions.length > 3 && (
+            <nav className="chips manifest-jump no-print" aria-label="Jump to a class">
+              {data.sessions.map((session) => (
+                <a
+                  className="chip"
+                  key={`jump:${session.kind}:${session.id}`}
+                  href={`#s-${session.kind}-${session.id}`}
+                >
+                  {timeIn(session.startsAt, session.timezone)} · {session.serviceName}
+                  <span className="tiny muted">
+                    {' '}
+                    {session.seatsTaken}/{session.capacity}
+                  </span>
+                </a>
+              ))}
+            </nav>
           )}
 
           {data.sessions.map((session) => (
@@ -391,8 +420,10 @@ function SessionSheet({
   const marked = Object.keys(marks).length;
   const full = session.capacity > 0 && session.seatsTaken >= session.capacity;
 
+  const heads = session.roll.reduce((sum, entry) => sum + entry.seats, 0);
+
   return (
-    <section className="card manifest-session">
+    <section className="card manifest-session" id={`s-${session.kind}-${session.id}`}>
       <header className="ms-head">
         <span className="ms-swatch" style={{ background: session.color }} aria-hidden="true" />
 
@@ -418,8 +449,19 @@ function SessionSheet({
           </h2>
           <p className="sub">
             {session.staff?.name ?? 'No instructor assigned'}
+            {/* The number to ring when somebody is not where they should be.
+                Sent to the sheet rather than looked up on another screen,
+                because the person reading this is holding paper. */}
+            {session.staff?.phone && ` · ${session.staff.phone}`}
             {session.location ? ` · ${session.location.name}` : ''}
           </p>
+
+          {/* The address was already on the wire and had no reader. A printed
+              sheet naming a room but not the building is no use to a stand-in
+              instructor who has never been there. */}
+          {session.location?.address && (
+            <p className="tiny muted ms-address">{session.location.address}</p>
+          )}
         </div>
 
         <div className="ms-count">
@@ -440,8 +482,16 @@ function SessionSheet({
         <table className="roll">
           <thead>
             <tr>
+              {/* Numbered, because that is how a roll is read aloud — "number
+                  seven hasn't turned up" — and how twelve ticks get checked
+                  against twelve names without counting twice. */}
+              <th scope="col" className="num rownum">
+                #
+              </th>
               <th scope="col">Name</th>
-              <th scope="col">Contact</th>
+              <th scope="col" className="contact-col">
+                Contact
+              </th>
               <th scope="col" className="num">
                 Places
               </th>
@@ -460,16 +510,24 @@ function SessionSheet({
           </thead>
 
           <tbody>
-            {session.roll.map((entry) => (
+            {session.roll.map((entry, index) => (
               <tr key={entry.bookingId}>
+                <td className="num rownum tiny muted">{index + 1}</td>
+
                 <td>
                   <span className="roll-name">{entry.customer.name}</span>
                   {entry.firstVisit && <span className="tag first">first visit</span>}
                   {entry.viaEnrollment && <span className="tag">course</span>}
+                  {/* A travelling class happens at the customer's door, and
+                      this is the sheet whose whole job is saying where to go.
+                      Per row, because two mobile bookings are two doorsteps. */}
+                  {entry.serviceAddress && (
+                    <p className="tiny roll-address">{entry.serviceAddress}</p>
+                  )}
                   {entry.notes && <p className="tiny muted roll-note">{entry.notes}</p>}
                 </td>
 
-                <td className="tiny muted">
+                <td className="tiny muted contact-col">
                   {entry.customer.phone ?? entry.customer.email}
                 </td>
 
@@ -512,6 +570,30 @@ function SessionSheet({
               </tr>
             ))}
           </tbody>
+
+          {/* Reconciles the sheet without adding a column up by hand — the one
+              thing somebody does with a printed roll at the end of a class. */}
+          <tfoot>
+            <tr>
+              <td className="rownum" />
+              <td>Total</td>
+              <td className="contact-col" />
+              <td className="num">
+                {heads}/{session.capacity}
+              </td>
+              <td className="num">
+                {session.balanceCents > 0 ? (
+                  <span className="owed">
+                    {money(session.balanceCents, currency)}
+                  </span>
+                ) : (
+                  <span className="tiny muted">all paid</span>
+                )}
+              </td>
+              <td className="no-print" />
+              <td className="print-only" />
+            </tr>
+          </tfoot>
         </table>
       )}
 

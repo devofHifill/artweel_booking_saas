@@ -358,9 +358,7 @@ export async function popularServices(
 
     row.bookings += 1;
     row.seats += booking.seats;
-    row.revenueCents += booking.payments
-      .filter((p) => p.status === 'SUCCEEDED' || p.status === 'PARTIALLY_REFUNDED')
-      .reduce((sum, p) => sum + net(p), 0);
+    row.revenueCents += paidCentsOf(booking.payments);
 
     byService.set(booking.serviceTypeId, row);
   }
@@ -582,7 +580,14 @@ export async function bookingBreakdown(
 export type CustomerStats = {
   newCustomers: number;
   returning: number;
-  top: { id: string; name: string; bookings: number; spentCents: number }[];
+  top: {
+    id: string;
+    name: string;
+    bookings: number;
+    spentCents: number;
+    /** Their most recent class IN THIS WINDOW, not ever. */
+    lastBookingAt: Date | null;
+  }[];
 };
 
 /**
@@ -613,6 +618,7 @@ export async function customerStats(
       },
       select: {
         customerId: true,
+        startsAt: true,
         customer: { select: { id: true, name: true, createdAt: true } },
         payments: { select: { amountCents: true, refundedCents: true, status: true } },
       },
@@ -621,7 +627,14 @@ export async function customerStats(
 
   const byCustomer = new Map<
     string,
-    { id: string; name: string; bookings: number; spentCents: number; joinedAt: Date }
+    {
+      id: string;
+      name: string;
+      bookings: number;
+      spentCents: number;
+      joinedAt: Date;
+      lastBookingAt: Date | null;
+    }
   >();
 
   for (const booking of bookings) {
@@ -631,12 +644,20 @@ export async function customerStats(
       bookings: 0,
       spentCents: 0,
       joinedAt: booking.customer.createdAt,
+      lastBookingAt: null as Date | null,
     };
 
     entry.bookings += 1;
-    entry.spentCents += booking.payments
-      .filter((p) => MONEY_IN_STATUSES.includes(p.status))
-      .reduce((sum, p) => sum + net(p), 0);
+    entry.spentCents += paidCentsOf(booking.payments);
+
+    /* The latest class they attended, which the query has already limited to
+       this window and to classes that have started. A booking still to come is
+       not a visit, and letting one win would sort somebody who booked ahead
+       above somebody who was actually here yesterday — the same rule the
+       customer list settled on in D5. */
+    if (!entry.lastBookingAt || booking.startsAt > entry.lastBookingAt) {
+      entry.lastBookingAt = booking.startsAt;
+    }
 
     byCustomer.set(booking.customerId, entry);
   }
@@ -649,11 +670,12 @@ export async function customerStats(
     top: everyone
       .sort((a, b) => b.spentCents - a.spentCents || b.bookings - a.bookings)
       .slice(0, opts.limit ?? 5)
-      .map(({ id, name, bookings: count, spentCents }) => ({
+      .map(({ id, name, bookings: count, spentCents, lastBookingAt }) => ({
         id,
         name,
         bookings: count,
         spentCents,
+        lastBookingAt,
       })),
   };
 }
@@ -717,11 +739,7 @@ export async function staffPerformance(
     entry.classes += 1;
     entry.seats += session.seatsTaken;
     entry.revenueCents += session.bookings.reduce(
-      (sum, booking) =>
-        sum +
-        booking.payments
-          .filter((p) => MONEY_IN_STATUSES.includes(p.status))
-          .reduce((s, p) => s + net(p), 0),
+      (sum, booking) => sum + paidCentsOf(booking.payments),
       0,
     );
 
@@ -729,4 +747,296 @@ export async function staffPerformance(
   }
 
   return [...byStaff.values()].sort((a, b) => b.classes - a.classes);
+}
+
+// --- D8: what Reports asks that nothing else did --------------------------
+
+export type DayBookings = {
+  /** Studio-local calendar date, `YYYY-MM-DD`. */
+  date: string;
+  bookings: number;
+  seats: number;
+};
+
+/**
+ * Bookings per day, bucketed exactly like `revenueByDay`.
+ *
+ * A separate function rather than another column on the revenue series,
+ * because the two count different things at different moments: revenue is
+ * attributed to the day money LANDED (`succeededAt`), and a booking to the day
+ * the class RUNS. Folding them into one row would silently invite the reader
+ * to compare a bar against the bar beside it as though both described the same
+ * event, and on any day with an advance payment they do not.
+ *
+ * Same day boundaries as everything else here — the studio's midnight.
+ */
+export async function bookingsByDay(
+  organizationId: string,
+  opts: { days: number; now?: Date },
+): Promise<DayBookings[]> {
+  const timezone = await timezoneOf(organizationId);
+  const now = opts.now ?? new Date();
+
+  const today = DateTime.fromJSDate(now, { zone: timezone }).startOf('day');
+  const firstDay = today.minus({ days: opts.days - 1 });
+
+  const bookings = await prisma.booking.findMany({
+    where: {
+      organizationId,
+      ...LIVE_BOOKING,
+      startsAt: {
+        gte: firstDay.toJSDate(),
+        lte: today.endOf('day').toJSDate(),
+      },
+    },
+    select: { startsAt: true, seats: true },
+  });
+
+  const buckets = new Map<string, { bookings: number; seats: number }>();
+  for (let i = 0; i < opts.days; i++) {
+    buckets.set(firstDay.plus({ days: i }).toISODate()!, { bookings: 0, seats: 0 });
+  }
+
+  for (const booking of bookings) {
+    const key = DateTime.fromJSDate(booking.startsAt, { zone: timezone }).toISODate();
+    const bucket = key ? buckets.get(key) : undefined;
+    if (bucket) {
+      bucket.bookings += 1;
+      bucket.seats += booking.seats;
+    }
+  }
+
+  return [...buckets.entries()].map(([date, counts]) => ({ date, ...counts }));
+}
+
+export type ServiceOccupancy = {
+  serviceTypeId: string;
+  /** Seats sold across every session of this class in the window. */
+  seatsTaken: number;
+  /** Seats the studio actually put on sale. */
+  capacity: number;
+};
+
+/**
+ * How full each class ran.
+ *
+ * Read from SESSIONS, not bookings, and that is the whole point: only a
+ * session knows how many seats were OFFERED. A class that sold four seats is
+ * either thriving or emptying depending on whether it had six or twenty, and
+ * bookings alone cannot tell those apart.
+ *
+ * Appointments have no session at all, so they are simply absent from this
+ * result rather than present with a zero. The screen renders their occupancy
+ * as "—", because "0%" would be a claim about a class that never had seats to
+ * fill, and a private lesson is not a class that failed to sell out.
+ *
+ * Cancelled sessions are excluded: seats that were withdrawn were never on
+ * sale, and counting them would make a studio that cancelled a snow day look
+ * like one nobody wanted to book.
+ */
+export async function serviceOccupancy(
+  organizationId: string,
+  opts: { days: number; now?: Date },
+): Promise<ServiceOccupancy[]> {
+  const now = opts.now ?? new Date();
+  const since = new Date(now.getTime() - opts.days * 86_400_000);
+
+  const grouped = await prisma.session.groupBy({
+    by: ['serviceTypeId'],
+    where: {
+      organizationId,
+      status: 'SCHEDULED',
+      startsAt: { gte: since, lte: now },
+    },
+    _sum: { seatsTaken: true, capacity: true },
+  });
+
+  return grouped.map((row) => ({
+    serviceTypeId: row.serviceTypeId,
+    seatsTaken: row._sum.seatsTaken ?? 0,
+    capacity: row._sum.capacity ?? 0,
+  }));
+}
+
+export type LeadTime = {
+  /** The middle booking. Null when nothing was booked in the window. */
+  medianDays: number | null;
+  averageDays: number | null;
+  /** How many bookings the figures are drawn from. */
+  sample: number;
+};
+
+/**
+ * How far ahead people book.
+ *
+ * The median leads, and the average is reported beside it rather than instead
+ * of it. Lead times are long-tailed by nature — one person books a six-week
+ * course in January for April and drags the mean past anything a studio would
+ * recognise — so the mean alone answers "how far ahead do people book" with a
+ * number almost nobody actually booked at.
+ *
+ * Measured from when the booking was CREATED to when the class starts, over
+ * classes running in the window. Negative values are impossible by
+ * construction and clamped anyway: a studio adding a booking for a class that
+ * already started (the front desk catching up after a busy evening) is a real
+ * thing that would otherwise subtract from the figure.
+ */
+export async function leadTime(
+  organizationId: string,
+  opts: { days: number; now?: Date },
+): Promise<LeadTime> {
+  const now = opts.now ?? new Date();
+  const since = new Date(now.getTime() - opts.days * 86_400_000);
+
+  const bookings = await prisma.booking.findMany({
+    where: {
+      organizationId,
+      ...LIVE_BOOKING,
+      startsAt: { gte: since, lte: now },
+    },
+    select: { createdAt: true, startsAt: true },
+  });
+
+  if (bookings.length === 0) {
+    return { medianDays: null, averageDays: null, sample: 0 };
+  }
+
+  const days = bookings
+    .map((b) =>
+      Math.max(0, (b.startsAt.getTime() - b.createdAt.getTime()) / 86_400_000),
+    )
+    .sort((a, b) => a - b);
+
+  const middle = Math.floor(days.length / 2);
+  const median =
+    days.length % 2 === 0
+      ? (days[middle - 1]! + days[middle]!) / 2
+      : days[middle]!;
+
+  const average = days.reduce((sum, d) => sum + d, 0) / days.length;
+
+  return {
+    medianDays: Math.round(median),
+    averageDays: Math.round(average),
+    sample: days.length,
+  };
+}
+
+export type WeekdayPerformance = {
+  /** 1 = Monday … 7 = Sunday, matching Luxon's `weekday`. */
+  weekday: number;
+  bookings: number;
+  seats: number;
+  revenueCents: number;
+};
+
+/**
+ * Which day of the week earns.
+ *
+ * The one figure on this screen a studio can act on the same afternoon: it
+ * decides which evening gets another class on the timetable. Grouped in the
+ * STUDIO's zone — a Sunday 9am class in Los Angeles is stamped Sunday 16:00
+ * UTC, and grouping on UTC would file half a studio's weekend under Monday.
+ *
+ * Every weekday is present even with nothing on it, so the table reads as
+ * "Tuesday earns nothing" rather than leaving the reader to notice Tuesday is
+ * missing.
+ */
+export async function weekdayPerformance(
+  organizationId: string,
+  opts: { days: number; now?: Date },
+): Promise<WeekdayPerformance[]> {
+  const timezone = await timezoneOf(organizationId);
+  const now = opts.now ?? new Date();
+  const since = new Date(now.getTime() - opts.days * 86_400_000);
+
+  const bookings = await prisma.booking.findMany({
+    where: {
+      organizationId,
+      ...LIVE_BOOKING,
+      startsAt: { gte: since, lte: now },
+    },
+    select: {
+      startsAt: true,
+      seats: true,
+      payments: { select: { amountCents: true, refundedCents: true, status: true } },
+    },
+  });
+
+  const byWeekday = new Map<number, WeekdayPerformance>();
+  for (let weekday = 1; weekday <= 7; weekday++) {
+    byWeekday.set(weekday, { weekday, bookings: 0, seats: 0, revenueCents: 0 });
+  }
+
+  for (const booking of bookings) {
+    const weekday = DateTime.fromJSDate(booking.startsAt, {
+      zone: timezone,
+    }).weekday;
+
+    const row = byWeekday.get(weekday)!;
+    row.bookings += 1;
+    row.seats += booking.seats;
+    row.revenueCents += paidCentsOf(booking.payments);
+  }
+
+  return [...byWeekday.values()];
+}
+
+export type CustomerTotals = {
+  total: number;
+  /** Customers with more than one booking, ever. */
+  repeat: number;
+  repeatRate: number;
+  /** Everything ever received, divided by everyone on the books. */
+  averageSpendCents: number;
+};
+
+/**
+ * The customer base as a whole, not the window.
+ *
+ * Deliberately unwindowed, and the screen says so. "How many customers do we
+ * have" and "how many of them come back" are questions about the business
+ * rather than about the last thirty days, and answering them inside the range
+ * would make the repeat rate collapse every time somebody chose a shorter one
+ * — a studio with a healthy base would read as having no repeat customers at
+ * all on the Today window.
+ *
+ * The spend average is two aggregates rather than a per-customer rollup:
+ * everything received, over everyone on the books. That includes people who
+ * have never paid, which is the honest denominator for "what is a customer
+ * worth" — excluding them would quietly measure only the customers who
+ * already spent.
+ */
+export async function customerTotals(
+  organizationId: string,
+): Promise<CustomerTotals> {
+  const [total, byCustomer, money] = await Promise.all([
+    prisma.customer.count({ where: { organizationId } }),
+
+    prisma.booking.groupBy({
+      by: ['customerId'],
+      where: { organizationId, ...LIVE_BOOKING },
+      _count: { _all: true },
+    }),
+
+    prisma.payment.aggregate({
+      where: { organizationId, ...MONEY_IN },
+      _sum: { amountCents: true, refundedCents: true },
+    }),
+  ]);
+
+  const repeat = byCustomer.filter((row) => row._count._all > 1).length;
+
+  /* Net across the whole table: summing both columns and subtracting is the
+     same rule as `net()` applied in SQL, and the only way to get it without
+     loading every payment row. */
+  const receivedCents =
+    (money._sum.amountCents ?? 0) - (money._sum.refundedCents ?? 0);
+
+  return {
+    total,
+    repeat,
+    repeatRate: total > 0 ? Math.round((repeat / total) * 100) : 0,
+    averageSpendCents: total > 0 ? Math.round(receivedCents / total) : 0,
+  };
 }

@@ -2883,7 +2883,18 @@ td.strong { font-weight: 600; }
 .cal-name { font-weight: 600; min-width: 12ch; }
 /* The account address gives up its space first — the name and the status are
    what the row is for. */
-.cal-account { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Two or three lines now — the account, when it last checked, and any error —
+   so it can no longer be a single ellipsised line. */
+.cal-account { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cal-account > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-when { font-variant-numeric: tabular-nums; }
+.cal-error { color: var(--danger); }
+
+/* Connect / Sync now / Disconnect. Kept to text buttons: three filled buttons
+   per instructor on a page of four cards is a wall of chrome, and only one of
+   the three is ever the thing somebody came to do. */
+.cal-actions { display: flex; gap: var(--space-3); align-items: center; white-space: nowrap; }
+.cal-actions .link.danger { color: var(--danger); }
 
 @media (max-width: 640px) {
   .calendar-list li { flex-wrap: wrap; }
@@ -3041,9 +3052,34 @@ td.strong { font-weight: 600; }
 
 @media (max-width: 640px) {
   /* The contact column is the first thing to go: a phone number is a tap on
-     the customer record away, and the names must stay readable. */
-  .roll th:nth-child(2), .roll td:nth-child(2) { display: none; }
+     the customer record away, and the names must stay readable.
+
+     By CLASS, not by position. It was `nth-child(2)` until D9 added a row
+     number in front of it, at which point the same rule hid every NAME on a
+     phone — the one column this screen exists to show. A positional selector
+     is a rule that silently means something else the next time a column is
+     added. */
+  .roll .contact-col { display: none; }
   .ms-head { flex-wrap: wrap; }
+}
+
+/* --- Daily manifest, D9 --------------------------------------------------- */
+.rownum { width: 2.5em; text-align: right; }
+.manifest-jump { margin-bottom: var(--space-4); }
+.manifest-jump .chip { text-decoration: none; }
+
+/* The building, under the room name. */
+.ms-address { margin: 2px 0 0; }
+
+/* A travelling class's doorstep. Given the accent rather than the muted grey
+   the notes use: it is the one line on the row somebody has to act on before
+   they can teach at all. */
+.roll-address { margin: 2px 0 0; color: var(--clay-text); font-weight: 600; }
+
+.roll tfoot td {
+  border-top: 2px solid var(--line);
+  padding-top: var(--space-3);
+  font-weight: 700;
 }
 
 /* --- Print --------------------------------------------------------------- */
@@ -3101,6 +3137,11 @@ td.strong { font-weight: 600; }
   }
 
   .manifest-summary { border: 0; padding: 0 0 12pt; gap: 18pt; }
+
+  /* The doorstep address prints in black like everything else — the accent
+     token is remapped to black above, so this needs no special case beyond
+     staying visible. The totals row keeps its rule. */
+  .roll tfoot td { border-top: 1.5pt solid #000; }
 
   /* The tick box. This is the entire reason an instructor prints the sheet. */
   .tickbox { width: 3em; }
@@ -3195,3 +3236,34 @@ td.strong { font-weight: 600; }
 .dl { display: grid; grid-template-columns: minmax(0, 34%) minmax(0, 1fr); gap: var(--space-2) var(--space-3); margin: 0; }
 .dl dt { color: var(--muted); font-size: var(--text-sm); }
 .dl dd { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+
+/* --- Trend chart (D8) ----------------------------------------------------- */
+/*
+ * The line stretches to the card's width, so the viewBox is scaled
+ * non-uniformly — `vector-effect: non-scaling-stroke` on the path is what
+ * keeps the stroke an even weight instead of smearing horizontally.
+ */
+.trend { width: 100%; height: 190px; display: block; }
+.trend-axis {
+  display: flex; justify-content: space-between;
+  color: var(--muted); font-size: var(--text-xs);
+  margin-top: var(--space-1);
+}
+
+/* A figure sitting on the right of a panel head — "$4,733 total", "typical
+   lead time 6 days". Says what the panel is about before the chart is read. */
+.panel-head .head-figure { margin-left: auto; color: var(--muted); font-size: var(--text-xs); }
+
+/* Occupancy, as a bar in a table cell. Sized so the column does not collapse
+   to the width of "100%" and squash the bar out of existence. */
+.cell-meter { min-width: 110px; }
+.cell-meter .progress { margin-bottom: 3px; }
+
+/* --- Notifications (D10) -------------------------------------------------- */
+/* Token buttons under the message editor. Monospace because they are literal
+   text that gets typed into the template, not labels. */
+.token-chips { margin-top: var(--space-2); }
+.token-chips .chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--text-xs);
+}

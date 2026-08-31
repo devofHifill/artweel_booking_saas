@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, dateIn, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import {
   DataTable,
+  Kpi,
   PageHead,
+  StatGrid,
   StatusPill,
   Tabs,
-  Toolbar,
 } from '../components/layout';
 import { EmptyState, LoadingRegion, SkeletonTable } from '../components/states';
 
@@ -34,6 +35,8 @@ type LogRow = {
   sentAt: string | null;
   lastError: string | null;
   createdAt: string;
+  /** Sent by somebody testing a template on themselves, not to a customer. */
+  isTest: boolean;
 };
 
 type Template = {
@@ -44,10 +47,50 @@ type Template = {
   isActive?: boolean;
 };
 
+type Stats = {
+  days: number;
+  totals: {
+    sent: number;
+    failed: number;
+    pending: number;
+    skipped: number;
+    cancelled: number;
+    deliveryRate: number | null;
+  };
+  channels: {
+    email: { sent: number; failed: number; deliveryRate: number | null };
+    sms: { sent: number; failed: number; deliveryRate: number | null };
+  };
+  delivery: {
+    emailFrom: string;
+    smsConfigured: boolean;
+    smsFrom: string | null;
+    /** The hours in which a text MAY be sent, not the quiet ones. */
+    sendingWindow: { fromHour: number; toHour: number };
+  };
+};
+
 const TABS = [
   { id: 'log', label: 'Delivery log' },
   { id: 'templates', label: 'Templates' },
 ];
+
+/** The status tabs over the log. One per status the outbox can record. */
+const LOG_TABS = [
+  { id: '', label: 'Everything' },
+  { id: 'SENT', label: 'Sent' },
+  { id: 'PENDING', label: 'Waiting' },
+  { id: 'FAILED', label: 'Failed' },
+  { id: 'SKIPPED', label: 'Skipped' },
+  { id: 'CANCELLED', label: 'Cancelled' },
+] as const;
+
+/** 8 → "8am", 21 → "9pm". Nobody says "21:00" about a text message. */
+function hour12(hour: number): string {
+  const suffix = hour < 12 ? 'am' : 'pm';
+  const twelve = hour % 12 === 0 ? 12 : hour % 12;
+  return `${twelve}${suffix}`;
+}
 
 /**
  * `booking.confirmed` → "Booking confirmed".
@@ -88,6 +131,8 @@ function DeliveryLog() {
   const isAdmin = org?.role === 'OWNER' || org?.role === 'ADMIN';
 
   const [rows, setRows] = useState<LogRow[] | null>(null);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [stats, setStats] = useState<Stats | null>(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -98,15 +143,26 @@ function DeliveryLog() {
     if (status) params.set('status', status);
 
     try {
-      const res = await api.get<{ notifications: LogRow[] }>(
-        `${base}/notifications?${params}`,
-      );
+      const res = await api.get<{
+        notifications: LogRow[];
+        counts: Record<string, number>;
+      }>(`${base}/notifications?${params}`);
       setRows(res.notifications);
+      setCounts(res.counts);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load the log.');
     }
   }, [base, status]);
+
+  /* The figures do not move with the status tab — they describe the last
+     thirty days whatever is being listed — so they are fetched once. */
+  useEffect(() => {
+    api
+      .get<Stats>(`${base}/notifications/stats`)
+      .then(setStats)
+      .catch(() => setStats(null));
+  }, [base]);
 
   useEffect(() => {
     void load();
@@ -128,16 +184,67 @@ function DeliveryLog() {
 
   return (
     <>
-      <Toolbar>
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">Everything</option>
-          <option value="FAILED">Failed</option>
-          <option value="PENDING">Waiting to send</option>
-          <option value="SENT">Sent</option>
-          <option value="SKIPPED">Skipped</option>
-          <option value="CANCELLED">Cancelled</option>
-        </select>
-      </Toolbar>
+      {stats && (
+        <StatGrid>
+          <Kpi
+            label="Messages sent"
+            value={String(stats.totals.sent)}
+            foot={`in the last ${stats.days} days`}
+          />
+          <Kpi
+            label="Arrived"
+            value={
+              stats.totals.deliveryRate === null
+                ? '\u2014'
+                : `${stats.totals.deliveryRate}%`
+            }
+            /* Skips are excluded from the rate and named here: a studio seeing
+               them counted as failures would try to fix something that is
+               working correctly. */
+            foot={
+              stats.totals.skipped > 0
+                ? `${stats.totals.skipped} held by a rule, not counted`
+                : 'of everything attempted'
+            }
+          />
+          <Kpi
+            label="Failed"
+            value={String(stats.totals.failed)}
+            tone={stats.totals.failed > 0 ? 'red' : undefined}
+            foot={stats.totals.failed > 0 ? 'each can be sent again' : 'nothing bounced'}
+          />
+          <Kpi
+            label="Waiting"
+            value={String(stats.totals.pending)}
+            foot="queued or scheduled ahead"
+          />
+        </StatGrid>
+      )}
+
+      <div className="card" style={{ padding: 0, marginBottom: 'var(--space-4)' }}>
+        <div className="tabs-wrap">
+          <div className="tabs" role="tablist" aria-label="Message status">
+            {LOG_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                role="tab"
+                aria-selected={status === tab.id}
+                className={`tab ${status === tab.id ? 'on' : ''}`.trim()}
+                onClick={() => setStatus(tab.id)}
+              >
+                {tab.label}
+                {/* A blank is not a zero — `counts` only carries statuses that
+                    have rows, and a missing pill reads as "unknown". */}
+                {counts.total !== undefined && (
+                  <span className="pill">
+                    {counts[tab.id === '' ? 'total' : tab.id] ?? 0}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {error && <div className="err">{error}</div>}
       {notice && (
@@ -181,6 +288,7 @@ function DeliveryLog() {
                 </td>
                 <td>
                   {humanKey(row.templateKey)}
+                  {row.isTest && <span className="tag">test</span>}
                   <div className="sub tiny">{row.channel.toLowerCase()}</div>
                 </td>
                 <td className="wrap-any">{row.destination}</td>
@@ -219,7 +327,92 @@ function DeliveryLog() {
           </DataTable>
         </div>
       )}
+
+      {stats && <HowMessagesGoOut delivery={stats.delivery} channels={stats.channels} />}
     </>
+  );
+}
+
+/**
+ * Why a message might not have gone.
+ *
+ * Quiet hours and opt-out are enforced in the outbox and were explained
+ * nowhere, which makes a SKIPPED row a mystery unless you already know the
+ * rules. Every one of these is a PLATFORM setting rather than a studio one,
+ * and the panel says so: showing a rule with no way to change it sends
+ * somebody hunting for a knob that does not exist.
+ */
+function HowMessagesGoOut({
+  delivery,
+  channels,
+}: {
+  delivery: Stats['delivery'];
+  channels: Stats['channels'];
+}) {
+  return (
+    <section className="card panel" style={{ marginTop: 'var(--space-4)' }}>
+      <header className="panel-head">
+        <h2>How messages go out</h2>
+        <span className="head-figure">set by the platform, not this studio</span>
+      </header>
+
+      <div className="panel-body">
+        <div className="mini-list">
+          <div className="mini-row">
+            <span className="mini-main">
+              <b>Email</b>
+              <span className="tiny muted">from {delivery.emailFrom}</span>
+            </span>
+            <span className="mini-end tiny muted">
+              {channels.email.deliveryRate === null
+                ? 'nothing sent yet'
+                : `${channels.email.deliveryRate}% arrived`}
+            </span>
+          </div>
+
+          <div className="mini-row">
+            <span className="mini-main">
+              <b>Text messages</b>
+              <span className="tiny muted">
+                {delivery.smsConfigured
+                  ? `from ${delivery.smsFrom}`
+                  : 'no provider connected, so texts are recorded and not sent'}
+              </span>
+            </span>
+            <span className="mini-end">
+              {delivery.smsConfigured ? (
+                <span className="tiny muted">
+                  {channels.sms.deliveryRate === null
+                    ? 'nothing sent yet'
+                    : `${channels.sms.deliveryRate}% arrived`}
+                </span>
+              ) : (
+                <StatusPill status="PENDING">Not connected</StatusPill>
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/*
+          Written from what `applyQuietHours` actually does, which is not what
+          the config's names suggest: 8-21 is the window in which texts MAY be
+          sent, evaluated in the CLASS's zone, and it defers reminders only —
+          a confirmation goes the moment it is created, at any hour. The first
+          draft of this sentence called 8am-9pm "quiet hours" and put them in
+          the customer's zone, which was wrong twice.
+        */}
+        <p className="sub tiny">
+          Text reminders go out between{' '}
+          {hour12(delivery.sendingWindow.fromHour)} and{' '}
+          {hour12(delivery.sendingWindow.toHour)} in the class's own time zone;
+          anything due outside that waits until{' '}
+          {hour12(delivery.sendingWindow.fromHour)}. Confirmations are sent
+          straight away, whatever the hour. Anyone who replies STOP stops
+          receiving texts immediately, and that beats any consent recorded
+          earlier.
+        </p>
+      </div>
+    </section>
   );
 }
 
@@ -246,7 +439,14 @@ function Templates() {
   const [preview, setPreview] = useState<{ subject?: string; body: string } | null>(
     null,
   );
+  const [tokens, setTokens] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testNote, setTestNote] = useState<string | null>(null);
+
+  /* The editor's textarea, so a token lands where the cursor is rather than
+     at the end of whatever has been typed. */
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -274,6 +474,86 @@ function Templates() {
     setEditing(keyOf(t));
     setForm({ subject: current.subject ?? '', body: current.body });
     setPreview(null);
+    setTestNote(null);
+
+    /*
+      The preview is fetched on open rather than on demand, because it is also
+      where the token list comes from. `availableTokens` has been in that
+      response since B5 with nothing reading it, and a token list that is
+      generated by the same call that renders them cannot drift from what the
+      renderer actually knows — which a hard-coded list on this page would, the
+      first time a token was added.
+    */
+    void renderPreview(t, {
+      subject: current.subject ?? '',
+      body: current.body,
+    });
+  }
+
+  async function renderPreview(t: Template, draft: { subject: string; body: string }) {
+    try {
+      const res = await api.post<{
+        subject?: string;
+        body: string;
+        availableTokens: string[];
+      }>(`${base}/notifications/templates/preview`, {
+        templateKey: t.templateKey,
+        channel: t.channel,
+        subject: t.channel === 'EMAIL' ? draft.subject : undefined,
+        body: draft.body,
+      });
+      setPreview(res);
+      setTokens(res.availableTokens ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not render a preview.');
+    }
+  }
+
+  /** Inserts a token where the cursor is, and puts the cursor after it. */
+  function insertToken(token: string) {
+    const area = bodyRef.current;
+    const text = `{{${token}}}`;
+
+    if (!area) {
+      setForm((current) => ({ ...current, body: current.body + text }));
+      return;
+    }
+
+    const start = area.selectionStart ?? area.value.length;
+    const end = area.selectionEnd ?? start;
+    const next = area.value.slice(0, start) + text + area.value.slice(end);
+
+    setForm((current) => ({ ...current, body: next }));
+
+    /* After React has re-rendered with the new value — setting it before then
+       would put the caret back where the old value ended. */
+    requestAnimationFrame(() => {
+      area.focus();
+      area.selectionStart = area.selectionEnd = start + text.length;
+    });
+  }
+
+  async function sendTest(t: Template) {
+    setTesting(true);
+    setTestNote(null);
+    try {
+      const res = await api.post<{ queued: boolean; destination: string }>(
+        `${base}/notifications/templates/test`,
+        {
+          templateKey: t.templateKey,
+          channel: t.channel,
+          subject: t.channel === 'EMAIL' ? form.subject : undefined,
+          body: form.body,
+        },
+      );
+      setTestNote(`Sent to ${res.destination}. It appears in the delivery log.`);
+    } catch (err) {
+      setTestNote(
+        err instanceof Error ? err.message : 'Could not send a test message.',
+      );
+    } finally {
+      setTesting(false);
+    }
   }
 
   async function save(t: Template) {
@@ -295,22 +575,6 @@ function Templates() {
     }
   }
 
-  async function showPreview(t: Template) {
-    try {
-      const res = await api.post<{ subject?: string; body: string }>(
-        `${base}/notifications/templates/preview`,
-        {
-          templateKey: t.templateKey,
-          channel: t.channel,
-          subject: t.channel === 'EMAIL' ? form.subject : undefined,
-          body: form.body,
-        },
-      );
-      setPreview(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not render a preview.');
-    }
-  }
 
   if (error) return <div className="err">{error}</div>;
 
@@ -370,12 +634,31 @@ function Templates() {
                 <label>
                   Message
                   <textarea
+                    ref={bodyRef}
                     rows={6}
                     value={form.body}
                     maxLength={4000}
                     onChange={(e) => setForm({ ...form, body: e.target.value })}
                   />
                 </label>
+
+                {/* The tokens this message can actually use, from the renderer
+                    itself rather than a list on this page that would fall
+                    behind it. Clicking one drops it at the cursor. */}
+                {tokens.length > 0 && (
+                  <div className="chips token-chips">
+                    {tokens.map((token) => (
+                      <button
+                        type="button"
+                        className="chip"
+                        key={token}
+                        onClick={() => insertToken(token)}
+                      >
+                        {`{{${token}}}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {/*
                   Tokens collapse silently when they resolve to nothing, by
@@ -393,10 +676,32 @@ function Templates() {
                   <button className="primary" disabled={busy} onClick={() => void save(template)}>
                     Save
                   </button>
-                  <button className="link" onClick={() => void showPreview(template)}>
+                  <button
+                    className="link"
+                    onClick={() => void renderPreview(template, form)}
+                  >
                     Preview
                   </button>
+                  {/*
+                    Preview renders the words; this proves the pipe. It goes to
+                    YOUR address and nowhere else — there is no field to type a
+                    recipient into, because an endpoint that sends studio text
+                    to an arbitrary address is a spam relay with a login page.
+                  */}
+                  <button
+                    className="link"
+                    disabled={testing}
+                    onClick={() => void sendTest(template)}
+                  >
+                    {testing ? 'Sending…' : 'Send me a test'}
+                  </button>
                 </div>
+
+                {testNote && (
+                  <p className="sub tiny" role="status">
+                    {testNote}
+                  </p>
+                )}
 
                 {preview && (
                   <div className="template-preview">

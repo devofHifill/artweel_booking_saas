@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
-import { PageHead, StatusPill } from '../components/layout';
+import { Kpi, PageHead, StatGrid, StatusPill } from '../components/layout';
 import { LoadingRegion, SkeletonCard } from '../components/states';
+import { dateIn, timeIn } from '../lib/api';
 
 /**
  * Integrations.
@@ -35,10 +36,15 @@ type Integrations = {
     status: string | null;
     accountEmail: string | null;
     provider: string | null;
+    lastSyncedAt: string | null;
+    lastError: string | null;
+    /** Google's push channel lapses after about a week. */
+    pushExpiresAt: string | null;
   }[];
   sms: {
     available: boolean;
-    quietHours: { startHour: number; endHour: number };
+    /** The hours in which a text MAY be sent — the quiet window is the gap. */
+    sendingWindow: { fromHour: number; toHour: number };
     optedOutCustomers: number;
   };
 };
@@ -54,10 +60,13 @@ export default function Integrations() {
   const base = useOrgBase();
   const org = useActiveOrg();
   const isAdmin = org?.role === 'OWNER' || org?.role === 'ADMIN';
+  const timezone = org?.organization.timezone ?? 'UTC';
 
   const [data, setData] = useState<Integrations | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [calendarBusy, setCalendarBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -84,7 +93,82 @@ export default function Integrations() {
     }
   }
 
-  if (error) return <div className="err">{error}</div>;
+  /**
+   * Sends the instructor to Google's consent screen.
+   *
+   * The whole OAuth flow has existed since W1.6 — per-instructor consent,
+   * encrypted refresh tokens, the loop guard — with nothing in the product
+   * calling it. The one thing worth saying on the way out is WHOSE calendar
+   * is about to be connected: the browser carries whatever Google account is
+   * already signed in, and connecting the owner's calendar to an instructor's
+   * name is a mistake that only shows up as strange availability weeks later.
+   */
+  async function connectCalendar(staffId: string, staffName: string) {
+    setCalendarBusy(staffId);
+    try {
+      const res = await api.post<{ url: string }>(
+        `${base}/calendar/${staffId}/connect`,
+      );
+      window.location.href = res.url;
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : `Could not start the calendar connection for ${staffName}.`,
+      );
+      setCalendarBusy(null);
+    }
+  }
+
+  async function syncCalendar(staffId: string) {
+    setCalendarBusy(staffId);
+    setNotice(null);
+    try {
+      await api.post(`${base}/calendar/${staffId}/sync`);
+      setError(null);
+      setNotice('Calendar checked for changes.');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not sync that calendar.');
+    } finally {
+      setCalendarBusy(null);
+    }
+  }
+
+  async function disconnectCalendar(staffId: string, staffName: string) {
+    /* Confirmed, because the consequence is invisible: nothing breaks, the
+       instructor's outside commitments simply stop blocking their availability
+       and the studio starts taking bookings over them. */
+    const ok = window.confirm(
+      `Disconnect ${staffName}'s calendar? Their outside commitments will stop ` +
+        `blocking availability here, so bookings could be taken over them.`,
+    );
+    if (!ok) return;
+
+    setCalendarBusy(staffId);
+    setNotice(null);
+    try {
+      await api.del(`${base}/calendar/${staffId}`);
+      setError(null);
+      setNotice(`${staffName}'s calendar is no longer connected.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not disconnect it.');
+    } finally {
+      setCalendarBusy(null);
+    }
+  }
+
+  /*
+    Only the FIRST load gets to replace the page.
+
+    This was `if (error) return`, which meant a failed sync on one instructor
+    blanked the whole screen — Stripe's status, every other calendar, the SMS
+    panel, all gone, replaced by one line about one calendar. An action that
+    fails should say so where it happened and leave everything that is still
+    true on screen.
+  */
+  if (error && !data) return <div className="err">{error}</div>;
 
   if (!data) {
     return (
@@ -104,6 +188,56 @@ export default function Integrations() {
         title="Integrations"
         lede="What your studio is plugged into, and whether it is working."
       />
+
+      <StatGrid>
+        <Kpi
+          label="Payments"
+          value={payments.chargesEnabled ? 'On' : payments.connected ? 'Setup' : 'Off'}
+          icon="money"
+          tone={payments.chargesEnabled ? 'green' : undefined}
+          foot={
+            payments.chargesEnabled
+              ? 'taking cards'
+              : payments.connected
+                ? 'Stripe wants more details'
+                : 'no card payments yet'
+          }
+        />
+        <Kpi
+          label="Calendars"
+          value={`${connectedCalendars.length}/${calendars.length}`}
+          icon="calendar"
+          foot="instructors connected"
+        />
+        <Kpi
+          label="Needs attention"
+          value={String(needReauth.length)}
+          icon="health"
+          tone={needReauth.length > 0 ? 'red' : undefined}
+          foot={needReauth.length > 0 ? 'reconnect to stop double bookings' : 'nothing broken'}
+        />
+        <Kpi
+          label="Opted out of texts"
+          value={String(sms.optedOutCustomers)}
+          icon="customers"
+          foot="replied STOP"
+        />
+      </StatGrid>
+
+      {notice && (
+        <div className="alert" role="status">
+          {notice}
+        </div>
+      )}
+
+      {error && (
+        <div className="err" role="alert">
+          {error}{' '}
+          <button className="link" onClick={() => setError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="integrations">
         {/* --- Payments -------------------------------------------------- */}
@@ -186,13 +320,32 @@ export default function Integrations() {
                 calendar can be connected here.
               </p>
             ) : (
+              <>
               <ul className="calendar-list">
                 {calendars.map((cal) => (
                   <li key={cal.staffId}>
                     <span className="cal-name">{cal.staffName}</span>
+
                     <span className="cal-account sub">
                       {cal.accountEmail ?? 'Not connected'}
+                      {/*
+                        When it last actually pulled, not when the row last
+                        changed. "Connected" and "still hearing about changes"
+                        are different facts, and they only diverge when
+                        something is wrong — which is when this page is read.
+                      */}
+                      {cal.connected && (
+                        <span className="tiny muted cal-when">
+                          {cal.lastSyncedAt
+                            ? `last checked ${dateIn(cal.lastSyncedAt, timezone)} at ${timeIn(cal.lastSyncedAt, timezone)}`
+                            : 'not checked yet'}
+                        </span>
+                      )}
+                      {cal.lastError && (
+                        <span className="tiny cal-error">{cal.lastError}</span>
+                      )}
                     </span>
+
                     {cal.status === 'NEEDS_REAUTH' ? (
                       <StatusPill status="NO_SHOW">Reconnect needed</StatusPill>
                     ) : cal.connected ? (
@@ -200,9 +353,82 @@ export default function Integrations() {
                     ) : (
                       <StatusPill status="CANCELLED">Off</StatusPill>
                     )}
+
+                    {/*
+                      The buttons this page never had. Every one of these
+                      endpoints has existed since W1.6 and nothing called them,
+                      so a studio could read that a calendar needed reconnecting
+                      and had nowhere to go.
+                    */}
+                    {isAdmin && (
+                      <span className="cal-actions">
+                        {cal.connected ? (
+                          <>
+                            {/* No "Sync now" on a connection whose grant has
+                                expired: it can only fail, and a button that is
+                                certain to fail is the same lie as a hover state
+                                on something unclickable. Reconnect is the only
+                                thing that helps, so it is the only thing
+                                offered. */}
+                            {cal.status === 'NEEDS_REAUTH' ? (
+                              <button
+                                className="link"
+                                disabled={calendarBusy === cal.staffId}
+                                onClick={() =>
+                                  void connectCalendar(cal.staffId, cal.staffName)
+                                }
+                              >
+                                Reconnect
+                              </button>
+                            ) : (
+                              <button
+                                className="link"
+                                disabled={calendarBusy === cal.staffId}
+                                onClick={() => void syncCalendar(cal.staffId)}
+                              >
+                                {calendarBusy === cal.staffId ? 'Checking…' : 'Sync now'}
+                              </button>
+                            )}
+                            <button
+                              className="link danger"
+                              disabled={calendarBusy === cal.staffId}
+                              onClick={() =>
+                                void disconnectCalendar(cal.staffId, cal.staffName)
+                              }
+                            >
+                              Disconnect
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            className="link"
+                            disabled={calendarBusy === cal.staffId}
+                            onClick={() => void connectCalendar(cal.staffId, cal.staffName)}
+                          >
+                            Connect
+                          </button>
+                        )}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
+
+              {/*
+                Whose account is about to be connected is the one thing worth
+                warning about: the browser carries whatever Google login is
+                already signed in, and attaching the owner's calendar to an
+                instructor's name surfaces weeks later as availability nobody
+                can explain.
+              */}
+              {isAdmin && calendars.some((c) => !c.connected) && (
+                <p className="sub tiny">
+                  Connecting opens Google's own sign-in. Make sure the instructor
+                  signs in as themselves — whoever is signed in to this browser is
+                  the calendar that gets attached.
+                </p>
+              )}
+              </>
             )}
 
             {/*
@@ -243,8 +469,11 @@ export default function Integrations() {
             <dl className="integration-facts">
               <div>
                 <dt>Quiet hours</dt>
+                {/* The gap between the hours texting is allowed in — hence the
+                    pair read backwards, and hence the field being called
+                    `sendingWindow` rather than what it used to be. */}
                 <dd>
-                  {hour(sms.quietHours.endHour)} – {hour(sms.quietHours.startHour)}
+                  {hour(sms.sendingWindow.toHour)} – {hour(sms.sendingWindow.fromHour)}
                 </dd>
               </div>
               <div>

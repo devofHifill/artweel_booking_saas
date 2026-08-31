@@ -190,10 +190,17 @@ describe('text messages', () => {
       .expect(200);
 
     expect(typeof res.body.sms.available).toBe('boolean');
-    expect(res.body.sms.quietHours).toMatchObject({
-      startHour: expect.any(Number),
-      endHour: expect.any(Number),
+    /*
+      `sendingWindow`, because these two numbers are the hours in which a text
+      MAY be sent — the quiet hours are the gap between them. Named
+      `quietHours` (which is what the config calls them), one of the two
+      screens reading it described the rule backwards.
+    */
+    expect(res.body.sms.sendingWindow).toMatchObject({
+      fromHour: expect.any(Number),
+      toHour: expect.any(Number),
     });
+    expect(res.body.sms.quietHours).toBeUndefined();
   });
 
   it('counts customers who replied STOP', async () => {
@@ -259,5 +266,116 @@ describe('who may see it', () => {
 
     expect(res.body.sms.optedOutCustomers).toBe(0);
     expect(res.body.calendars).toHaveLength(0);
+  });
+});
+
+describe('whether a calendar is still working', () => {
+  /**
+   * "Connected" and "still hearing about changes" are different facts, and
+   * they only diverge when something is wrong — which is when this page gets
+   * read. `updatedAt` moves on any write at all, so it cannot answer the
+   * second question.
+   */
+  it('reports when it last actually synced, not when the row last changed', async () => {
+    const staffId = await addInstructor('Rowan Pike');
+    const lastSyncedAt = new Date('2026-08-20T09:00:00.000Z');
+
+    await prisma.calendarConnection.create({
+      data: {
+        organizationId: studio.organizationId,
+        staffId,
+        accountEmail: 'rowan@gmail.test',
+        accessTokenEnc: 'enc',
+        refreshTokenEnc: 'enc',
+        lastSyncedAt,
+      },
+    });
+
+    // A later write that is not a sync — a token refresh looks exactly like this.
+    await prisma.calendarConnection.update({
+      where: { staffId },
+      data: { accessTokenEnc: 'enc2' },
+    });
+
+    const res = await request(app)
+      .get(`${studio.base}/integrations`)
+      .set(studio.headers)
+      .expect(200);
+
+    const row = res.body.calendars[0];
+    expect(new Date(row.lastSyncedAt).toISOString()).toBe(lastSyncedAt.toISOString());
+    expect(new Date(row.lastChangedAt).getTime()).toBeGreaterThan(
+      lastSyncedAt.getTime(),
+    );
+  });
+
+  /**
+   * Google expires a push channel after about a week and inbound sync then
+   * stops without failing: availability keeps being offered from stale data.
+   * The field was already being selected by the status service and dropped
+   * before it reached anybody.
+   */
+  it('reports when the push channel lapses', async () => {
+    const staffId = await addInstructor('Rowan Pike');
+    const channelExpiresAt = new Date('2026-09-01T00:00:00.000Z');
+
+    await prisma.calendarConnection.create({
+      data: {
+        organizationId: studio.organizationId,
+        staffId,
+        accountEmail: 'rowan@gmail.test',
+        accessTokenEnc: 'enc',
+        refreshTokenEnc: 'enc',
+        channelExpiresAt,
+      },
+    });
+
+    const res = await request(app)
+      .get(`${studio.base}/integrations`)
+      .set(studio.headers)
+      .expect(200);
+
+    expect(new Date(res.body.calendars[0].pushExpiresAt).toISOString()).toBe(
+      channelExpiresAt.toISOString(),
+    );
+  });
+
+  it('carries the last error, which is why it stopped', async () => {
+    const staffId = await addInstructor('Rowan Pike');
+
+    await prisma.calendarConnection.create({
+      data: {
+        organizationId: studio.organizationId,
+        staffId,
+        accountEmail: 'rowan@gmail.test',
+        accessTokenEnc: 'enc',
+        refreshTokenEnc: 'enc',
+        status: 'NEEDS_REAUTH',
+        lastError: 'invalid_grant',
+      },
+    });
+
+    const res = await request(app)
+      .get(`${studio.base}/integrations`)
+      .set(studio.headers)
+      .expect(200);
+
+    expect(res.body.calendars[0].lastError).toBe('invalid_grant');
+  });
+
+  it('says nothing about either for an instructor with no calendar', async () => {
+    await addInstructor('Sam Ortega');
+
+    const res = await request(app)
+      .get(`${studio.base}/integrations`)
+      .set(studio.headers)
+      .expect(200);
+
+    expect(res.body.calendars[0]).toMatchObject({
+      connected: false,
+      lastSyncedAt: null,
+      lastError: null,
+      pushExpiresAt: null,
+    });
   });
 });

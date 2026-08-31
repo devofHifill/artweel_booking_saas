@@ -4,10 +4,10 @@
 
 ## RESUMING HERE — state as of 2026-08-25
 
-**Done:** D0, D1, D2, D4, D5, D6, D7. **D3 is PARTIAL** (month + week shipped;
-day view, side panel, block-a-date and add-slot deliberately not built — see
-its section). **D8–D13 not started:** Reports, Daily Manifest, Notifications,
-Integrations, Website & Widget, Settings.
+**Done:** D0, D1, D2, D4, D5, D6, D7, D8, D9, D10, D11. **D3 is PARTIAL**
+(month + week shipped; day view, side panel, block-a-date and add-slot
+deliberately not built — see its section). **D12–D13 not started:** Website &
+Widget, Settings.
 
 **Suite: 882 tests, 59 files, green.** Run it with `npm test` from `server/`;
 it takes about 37 minutes, so start it before doing anything else.
@@ -49,6 +49,15 @@ by tests:
 - **D7 — the payments search hid rows.** It followed `booking.customer` only,
   so a customer who had bought a class pack and taken no class came back as
   "no payments" while their purchase sat in the table.
+- **D8 — the default reports chart did not lay out.** Thirty bars in a grid
+  hard-coded to seven columns wrapped into five rows, in the range the screen
+  opens on.
+- **D9 — the manifest never said where to go.** `Staff.phone`,
+  `location.address` and `booking.serviceAddress` were all stored, and two of
+  the three were already on the wire with no reader.
+- **D11 — a studio could not connect a calendar.** The whole OAuth flow from
+  W1.6, five endpoints, and no button anywhere in the client. The largest
+  single omission the phase has turned up.
 - **The sidebar was not role-aware** (found during S13), because until
   invitations shipped every account was an OWNER.
 - **Three support-session client bugs** (found during S8's browser pass).
@@ -67,6 +76,18 @@ by tests:
   go in `DASHBOARD_COLOR_TOKENS`.
 - **Stale Vite HMR** after editing CSS reports wrong computed styles. Hard
   reload before believing a measurement.
+- **`localhost` in `DATABASE_URL` is a trap on this machine.** Docker's IPv6
+  proxy can accept on `::1:15432` and forward nothing, and a half-working
+  proxy shows up as a FAILED ASSERTION in the concurrency gate rather than as
+  a connection error. Use `127.0.0.1`; `.env.example` explains why.
+- **Do not leave the dev API server running during a full suite.** It polls
+  Postgres continuously, and the browser-verification clicking adds more, on
+  the same container the tests use. Both failures seen in this phase were in
+  `tests/gate/` — the only tests that fire twenty simultaneous requests and
+  assert an exact outcome — and both passed alone afterwards. D11's read as a
+  raw `PrismaClientKnownRequestError` where the gate expects the app's own
+  `COURSE_FULL`, which is what a transaction aborted under contention looks
+  like from outside. Stop the preview servers, then judge the gate.
 - **Extract, do not duplicate.** `Kpi`, `PaymentPill` and `paymentState` moved
   to `components/layout.tsx` when a second screen wanted them. A near-miss with
   `.card-head` vs the existing `.panel-head` is recorded under D0/D1.
@@ -209,10 +230,10 @@ prototype has no upside.
 | **D5** | Customers | spend, last visit, sort | **DONE** — 3 tests |
 | **D6** | Staff & Guides | rota summary | **DONE** — 3 tests |
 | **D7** | Payments | detail, tabs, breakdown | **DONE** — 19 tests, no migration |
-| **D8** | Reports | | not started |
-| **D9** | Daily Manifest | | not started |
-| **D10** | Notifications | | not started |
-| **D11** | Integrations | | not started |
+| **D8** | Reports | 5 aggregates, charts extracted | **DONE** — 15 tests, no migration |
+| **D9** | Daily Manifest | phone, address, doorstep | **DONE** — 7 tests, no migration |
+| **D10** | Notifications | figures, tabs, tokens, test send | **DONE** — 14 tests, no migration |
+| **D11** | Integrations | the calendar buttons | **DONE** — 4 tests, no migration |
 | **D12** | Website & Widget | | not started |
 | **D13** | Settings | | not started |
 
@@ -576,6 +597,536 @@ reasoning. The detail links to the customer instead, where cancelling lives.
 `bookingId` is carried on the subject and currently unused by the screen: a
 "View booking" button has nowhere to go, because bookings have no page of their
 own, only a row in a filtered list.
+
+### D8 — the differences, 2026-08-25
+
+The demo's `reports.js` is 520 lines against our 560, and for once the tab
+structure is identical — six tabs, same names, same order, both fetching one
+window and switching client-side. The gap is entirely inside the tabs.
+
+**Layout — close it.**
+
+- **The daily series wants a line, not ninety bars.** The prototype draws an
+  area+line in inline SVG for the revenue trend and keeps bars for its
+  categorical charts, which is the right split. Our route comment already says
+  a 90-bar chart "stops being readable and starts being a texture" — it was
+  right, and this is the item that fixes it.
+- **Figure tiles go through `Kpi`.** Reports is the last screen still on
+  `Stat`. The prototype's report tiles are the same KPI shell with no icon
+  chip, so `Kpi.icon` becomes optional rather than Reports keeping a second
+  tile component.
+- **Card heads carry a figure on the right** — "$4,733 total", "typical lead
+  time 6 days". A panel head with a number in it says what the panel is about
+  before the reader parses the chart.
+- Avatars beside customers and instructors, and a share-of-best bar in the
+  instructor revenue column.
+
+**Behaviour we lack — close it.**
+
+- **Overview is missing its two most useful blocks.** The prototype puts a
+  status mix and a busiest-days table there; ours puts a New/Returning pair,
+  which repeats what the Customers tab says. **Busiest weekday** is the one an
+  owner acts on — it decides which evening gets another class.
+- **Bookings per day.** The bookings tab charts nothing; it has counts by
+  status and a source list. `revenueByDay` has no counterpart for bookings.
+- **Occupancy per class.** Seats sold against seats OFFERED, from sessions.
+  This is the number that decides whether a class stays on the timetable, it
+  is ceramics-specific in a way the tours demo cannot be (a wheel is a real
+  constrained seat), and nothing in the product reports it today.
+- **Lead time.** How far ahead people book, which is what decides when
+  enrolment should open.
+- **Customer totals** — how many there are, how many came back, what the
+  average one is worth — and **last booking** on the top-customers table.
+
+**What the demo fakes — do not port.**
+
+- **Conversion rate** in Activities. It is `40 + ((rating * 7) % 25)` — a
+  number derived from a made-up rating. Measuring it for real needs
+  page-view-to-booking tracking per service, which this product deliberately
+  does not have (W1.9 shipped daily aggregate page views and no per-visitor
+  analytics). A column of invented percentages next to real revenue is worse
+  than no column.
+- **Instructor ratings.** No such thing exists. Nobody is rated here.
+- **"Where guests come from"** by country. `Customer` has no country and
+  collecting one to draw a chart would be personal data gathered for
+  decoration.
+- **The Custom date range button.** Its Apply closes the modal and does
+  nothing. Ours takes `days ∈ {1,7,30,90}`, validated server-side, and every
+  aggregate is written against that; arbitrary from/to is a real change to
+  six function signatures, not a styling gap. It gets its own decision later.
+- **Weekly and monthly revenue bars.** The weekly chart is the daily data
+  rebucketed, which the trend already shows; the monthly one silently ignores
+  the range control and draws six months regardless — the same incoherence D7
+  rejected in the payout card. Instead the daily series buckets into WEEKS at
+  90 days, which fixes the readability problem the demo was working around
+  without letting a chart and the control above it disagree.
+- **"Export as CSV/PDF"**, which raises a toast. Ours already exports real CSV
+  for the visible tab; it gains the new columns.
+
+### D8 — as shipped, 2026-08-25
+
+Five new aggregates, one extracted chart file, and a tab layout that finally
+uses the whole of what analytics can answer. No migration.
+
+**The 30-day chart was broken and nobody had said so.** `.chart-bars` is
+`grid-template-columns: repeat(7, 1fr)` — written for the dashboard's week —
+with a `dense` override for 90 days. Anything between wrapped into five rows of
+seven, which is not a chart, and the default range is thirty days. The column
+count now comes from the DATA in `BarSeries`, so no caller has to know the rule.
+
+**One series, not three.** The prototype answers "this window is too long to
+draw daily" by adding a weekly chart beside the daily one and a six-month chart
+under it — and the six-month one ignores the range control entirely. Ours
+buckets the same series into weeks past 31 days and says "Week by week" in the
+panel head. A chart that silently disagrees with the buttons above it is the
+payout-card mistake from D7 in a different costume.
+
+**`charts.tsx`, extracted.** The dashboard's `WeekChart` and the reports tab
+had grown two identical copies of the same CSS bars, differing only in tooltip
+text. `BarSeries` and `TrendChart` now live in one file. The trend chart's
+gradient id comes from `useId`: a literal one works until a screen renders two
+charts, and then both reference whichever rendered first.
+
+**Occupancy is the ceramics-shaped number this screen was missing.** Seats sold
+against seats OFFERED, read from sessions, because only a session knows what
+was on sale — four seats sold is thriving or emptying depending on whether
+there were six or twenty. A class with no sessions in the window reports `null`
+and renders "—", not 0%: a private lesson never had seats to fail to fill.
+Cancelled sessions are excluded, so a snow day does not read as a class nobody
+wanted. Colouring follows the product's existing quiet/busy/full scale rather
+than the prototype's green/amber/red, for the reason already written into
+`styles.css` — red on a sold-out Saturday reads as a warning about success.
+
+**Lead time reports the median, with the average beside it.** Lead times are
+long-tailed: one person booking a six-week course in January for April drags a
+mean past anything a studio would recognise. The median is the booking in the
+middle, which is the one they can plan around. Both are returned and the test
+pins the difference rather than letting them agree by accident.
+
+**Two figures deliberately do not follow the range control, and say so on
+screen.** The customer count, repeat rate and average customer describe the
+whole business — a repeat rate computed inside "Today" would read 0% for a
+studio with a healthy base. They carry their own footnote and a line under the
+table, because a tile that quietly means something different from its
+neighbours is how a screen stops being trusted.
+
+**The average customer divides by everyone, including people who never paid.**
+Excluding them would measure "what a paying customer is worth" under a label
+saying "average customer".
+
+**Three more copies of the money rule, removed.** `popularServices`,
+`customerStats` and `staffPerformance` each had their own
+successful-minus-refunded filter inline — inside the module that owns the rule,
+which is the last place it should be re-typed. All three call `paidCentsOf`
+now.
+
+**Not ported, on purpose:** the conversion column (literally
+`40 + ((rating * 7) % 25)` in the prototype — an invented percentage beside
+real revenue is worse than no column), instructor ratings (nobody is rated
+here), "where guests come from" by country (`Customer` has no country, and
+collecting one to draw a chart is personal data gathered for decoration), and
+the Custom date range button, whose Apply closes the modal and does nothing.
+Arbitrary from/to means changing six aggregate signatures and gets its own
+decision.
+
+**What the demo data cannot show.** Every booking in `db:demo` is created at
+seed time, so lead time reads 0 days and every customer is "new". The figures
+are right; the fixture has no history. Same caveat as D7's one-bar breakdown.
+### D9 — the differences, 2026-08-25
+
+The smallest gap of the thirteen on paper, and the plan predicted it: B9 built
+this screen against real operations and it is ahead of the prototype in three
+ways that matter — appointments, balances and first-visit flags, none of which
+TourFlow has. What it turns out to be missing is not layout at all. It is three
+fields that are already computed, already sent, and never rendered.
+
+**Layout — close it.**
+
+- **Numbered rows.** The prototype numbers the roll 1..n. On a sheet somebody
+  is holding, that is how you say "number seven hasn't turned up" out loud, and
+  it is how you check twelve ticks against twelve names without counting twice.
+- **A totals row.** Heads against capacity and the money owed, at the foot of
+  each roll, so the printed sheet reconciles without adding a column up by
+  hand.
+- **A jump row for a busy day.** The prototype shows ONE departure at a time
+  with a chip per slot. Ours shows the whole day, which is right — it is a
+  sheet, and a sheet you have to click through is not a sheet. But eight
+  classes is a long scroll, so the chips become anchors rather than a filter:
+  same navigation, nothing hidden, and print is unaffected.
+
+**Behaviour we lack — close it, and it is all reachability.**
+
+- **The instructor's phone number.** The sheet names who is teaching and gives
+  no way to reach them. `Staff.phone` exists; the manifest simply never asked
+  for it. "Who do I call" is the second question anybody asks of this page.
+- **The address.** `location.address` is already on the wire — computed
+  carefully, including a rule that withholds it for mobile locations — and the
+  client renders only `location.name`. A studio with two rooms is fine; a
+  printed sheet that says "Portland Studio" and not where that is, is not.
+- **Where a MOBILE booking actually happens.** This is the sharper half of the
+  same gap and the product's own differentiator: for a travelling class the
+  address is not the studio's, it is the customer's, stored on
+  `booking.serviceAddress` at booking time. The manifest never selects it, so
+  the one sheet whose entire job is telling somebody where to go is silent for
+  exactly the bookings that need it.
+
+**What the demo fakes — do not port.**
+
+- **Waivers**, and the "waivers missing" tile. They do not exist here; that was
+  settled in B1 and nothing since has reopened it.
+- **Download PDF**, which raises a toast saying a server would render one.
+  Print is a real deliverable here with a real `@media print` block; a PDF
+  pipeline is a feature with an owner.
+- **Send to guide**, which raises a toast. Ours writes to the outbox and a
+  worker delivers it, with a dedupe key carrying the minute so a corrected
+  sheet after an 11am cancellation is not silently refused.
+- **The check-in toggle.** A single switch means checked-in or not, so the
+  prototype cannot tell "did not turn up" from "not marked yet". Ours has
+  Here / Absent / unmarked and posts one batch per class. Flattening that to
+  match would lose the distinction the register was built around.
+- **Special instructions.** The prototype has an `instructions` string per
+  activity. The nearest thing here is `ServiceType.description`, which is
+  public marketing copy shown on the booking page — putting that on an
+  operational sheet would be the wrong text in the wrong place. A real internal
+  note field is a small feature, not a styling gap.
+
+### D9 — as shipped, 2026-08-25
+
+Three fields the sheet already knew and never said, plus the finish. No
+migration, and no server work beyond two selects and a formatter.
+
+**Everything closed here was reachability, not layout.** `Staff.phone` existed
+and was never selected. `location.address` was selected, computed carefully —
+including the rule that withholds it for a mobile location — and rendered
+nowhere. `booking.serviceAddress` was written at booking time by the public
+flow and read by nothing. This is the fourth item in the phase where the gap
+turned out to be a reader that was never built (D4's activity editor, D7's
+search and "For" column, and now this), which is starting to look less like
+coincidence and more like what happens when a screen and its endpoint are
+written weeks apart.
+
+**The travelling class is the one that mattered.** Artweel's stated wedge is
+mobile delivery, and the sheet whose entire job is telling somebody where to go
+was silent for exactly those bookings. It now carries the customer's address
+per ROLL ENTRY rather than per class, because two mobile bookings on one
+service are two different doorsteps.
+
+**Coordinates are deliberately dropped from it.** `lat`/`lng` are how the
+scheduler computes travel time; they are not how a person finds a door, and
+this sheet gets printed and left on a passenger seat. `notes` — "side gate,
+code 4417" — is kept, because that is the half a driver actually uses. Both
+pinned by tests.
+
+**Formatted on the server, not the client**, because the same sheet is sent to
+an instructor by email and SMS, and those have no client. Two formatters
+eventually disagree about one booking, and on this screen that means an
+instructor at the wrong house.
+
+**A positional CSS rule quietly became a different rule.** The narrow-screen
+stylesheet hid `.roll th:nth-child(2)` — the contact column — and D9 added a
+row number in front of it, which turned that into "hide every NAME on a
+phone", on the one screen that exists to show names. Now `.contact-col`.
+Verified at 375px, because a media query is invisible to every test in the
+suite.
+
+**The jump row is anchors, not a filter.** The prototype shows one departure at
+a time behind a chip per slot. Ours keeps the whole day — it is a sheet, and a
+sheet you have to click through is not one — but eight classes is a long scroll
+on a phone in a doorway, so the chips scroll to a class rather than hiding the
+others. They appear above three classes and never print.
+
+**Not ported:** waivers and the waivers-missing tile (they do not exist here),
+Download PDF (a toast in the prototype; print is the real deliverable and has a
+real stylesheet), Send to guide (also a toast; ours writes to the outbox), the
+single check-in toggle (it cannot tell "did not turn up" from "not marked yet",
+which is the distinction the register was built around), and per-activity
+special instructions — the nearest field here is `ServiceType.description`,
+which is public marketing copy, and putting that on an operational sheet would
+be the wrong text in the wrong place.
+
+**Verification note.** The demo data has at most one class a day and no mobile
+bookings, so the jump row and the doorstep line were checked by adding four
+throwaway sessions and one address in the dev database. The sessions were
+deleted afterwards — four empty classes would have distorted "classes this
+week" for whoever opened the dashboard next; the address was left, and a
+re-seed clears it.
+
+### D10 — the differences, 2026-08-25
+
+Two screens with the same name and a different subject. The prototype's
+Notifications is an **automation builder**: create a rule, pick a trigger from
+a list of nine, pick a channel, write a template, toggle it on. Ours is a
+**delivery record with an editor attached**: the messages this product sends
+are the messages it sends, and the studio changes their wording.
+
+That difference is not a gap to close. A trigger list where six of the nine
+have no code behind them is a settings screen that lies. What IS worth taking
+is everything the prototype puts around its table.
+
+**Layout — close it.**
+
+- **A figure row.** The prototype opens with four tiles; ours opens with a
+  bare status dropdown. Messages sent, how many actually arrived, how many
+  failed, how many are waiting — the four numbers somebody opens this page
+  worried about.
+- **Status tabs with counts**, replacing the `<select>`, which is the
+  arrangement Bookings and Payments already settled on and for the same
+  reason: "Failed 3" is the whole point, and a dropdown cannot say it.
+- **Token chips in the editor.** The prototype lists its tokens as buttons
+  that insert at the cursor. Ours describes tokens in a sentence — and the
+  preview endpoint has been returning `availableTokens` since B5 with nothing
+  reading it. Third field in this phase that was already on the wire.
+
+**Behaviour we lack — close it.**
+
+- **Real delivery rates.** The prototype hard-codes "99.2%" and "97.8%". We
+  have every send, every failure and every skip in one table, so the rate can
+  be true instead of decorative. Skips are excluded from it deliberately: a
+  message not sent because somebody replied STOP is a rule working, not a
+  delivery that failed, and folding the two together would make TCPA
+  compliance look like an outage.
+- **Send a test.** The one action on the prototype's screen with real value
+  that we lack. After changing the wording of a confirmation, the question is
+  "will that actually arrive", and preview cannot answer it — only a real
+  provider can. It goes to the CALLER'S OWN address and nowhere else: an
+  endpoint that sends studio-authored text to an arbitrary destination is a
+  spam relay with a login page.
+- **Say why a message would be held.** Quiet hours and opt-out are enforced in
+  the outbox and explained nowhere in the product, so a SKIPPED row is a
+  mystery unless you already know the rules. They are PLATFORM rules
+  (`SMS_QUIET_START_HOUR`), not studio settings, and the panel says so rather
+  than implying a knob that does not exist.
+
+**What the demo fakes — do not port.**
+
+- **The automation builder.** Nine triggers, three channels, create-your-own.
+  Six of those triggers have nothing behind them here, and a studio that
+  builds a rule which never fires has been lied to by a form. Our template
+  list IS the set of messages that exist; that is a narrower promise and a
+  true one.
+- **The on/off switch per rule.** Tempting, because `NotificationTemplate` has
+  an `isActive` column — and it does not mean that. `resolveTemplate` filters
+  on `isActive: true` when looking for an OVERRIDE, so setting it false does
+  not stop the message, it reverts the wording to the built-in default. A
+  switch wired to that column would read "off" and keep sending. Turning a
+  message type off entirely is a real feature and needs its own column.
+- **"Send now" to every upcoming booking.** A broadcast to a customer list,
+  from a screen with no consent check in front of it. In a US product with
+  A2P 10DLC and TCPA obligations that is not a styling gap, it is a compliance
+  decision with a lawyer attached.
+- **Hard-coded provider names and delivery percentages** in the channels card.
+  Ours reads what is actually configured.
+- **"Recent sends"** as a second, shorter copy of the log that is already on
+  the same screen.
+
+
+### D10 — as shipped, 2026-08-25
+
+The figures, the tabs, the token chips and a test send. No migration. The
+automation builder stayed unported for the reason given above, and nothing
+here pretends otherwise.
+
+**The screen described its own rule backwards.** The first draft of the
+delivery panel read "reminders wait until 9pm when they fall inside quiet
+hours (8am to 9pm, in the customer's own day)". Every clause of that is wrong:
+8-21 is the window in which a text MAY be sent, it is evaluated in the CLASS's
+zone rather than the customer's, and it defers reminders only — a confirmation
+goes the moment it is created, at any hour. Reading `applyQuietHours` is what
+settled it, and the payload key is now `sendingWindow: { fromHour, toHour }`
+rather than `quietHours`, because the config's own names are what invited the
+mistake and the API should not pass it on.
+
+**Delivery rates are counted, not quoted.** The prototype hard-codes 99.2% and
+97.8%. Ours is sent over sent-plus-failed from the table underneath, per
+channel, and **skips are excluded** — a message held because somebody replied
+STOP is a rule working, and folding it into the failure rate would make TCPA
+compliance look like an outage and push a studio to "fix" it. The tile names
+the skipped count beside the rate rather than hiding it.
+
+**Send me a test, and only to me.** Preview renders the words; only a provider
+can tell you the credentials are wrong or the domain fails SPF. The request
+has NO recipient field, deliberately — an endpoint behind a studio login that
+sends studio-authored text to an arbitrary address is a spam relay, and the
+first person to notice would be the provider suspending the number every
+studio shares. Email goes to the caller's account address; SMS goes to their
+own staff phone, and a studio without one is told which field to fill rather
+than handed a silent failure.
+
+**A test is marked as a test in the log.** It goes through the real outbox, so
+it appears in the delivery log like everything else — which is right, and also
+means a row that says "Booking confirmed · sent" could be mistaken for a
+message a customer received. The marker is stored ON the row rather than
+sniffed from the "[test]" subject prefix, which would break the day somebody's
+own template opens with a bracket.
+
+**The log stopped shipping the rendered message.** Listing rows selected
+`payload` and sent it to the browser: a customer's name, their class, and
+since D9 sometimes their home address, in a response that only draws a table.
+Now only the test flag comes out of it.
+
+**Token chips came from a field nobody was reading.** `availableTokens` has
+been in the preview response since B5. The editor described tokens in a
+sentence instead, so the list a studio could see was prose written once, and
+the list the renderer accepted was code — the two would part company the first
+time a token was added. The chips are now generated from the renderer's own
+answer and insert at the cursor.
+
+**Not the automation builder, and not the on/off switch.** `NotificationTemplate`
+has an `isActive` column and it does not mean "send this message":
+`resolveTemplate` filters on it when looking for an OVERRIDE, so setting it
+false reverts the wording to the built-in default and keeps sending. A switch
+wired to that column would read "off" while messages went out. Turning a
+message type off is a real feature and needs its own column.
+
+### The environment, not the code
+
+The full suite failed once during this item with a concurrency-gate assertion —
+6 of 20 requests fulfilled where the gate demands exactly 8 — which reads like
+an overselling bug and was not one. Docker Desktop's IPv6 port proxy had got
+into a state where it ACCEPTS a connection on `::1:15432` and forwards
+nothing. `localhost` resolves to ::1 first on Windows, so Prisma reported
+"Can't reach database server" against a container that was healthy, listening,
+and answering perfectly over IPv4 — and while it was half-working it dropped
+requests rather than failing outright, which is what produced the phantom
+concurrency failure.
+
+Restarting the container did not fix it. Naming `127.0.0.1` in the connection
+strings did, and `.env.example` now carries the reasoning so the next machine
+skips the whole class of problem. This is the same family as the port-number
+history already recorded there, and it is worth knowing that the symptom can
+be a wrong ASSERTION rather than a connection error.
+
+### D11 — the differences, 2026-08-25
+
+The prototype's Integrations is a **marketplace**: twelve cards in a grid,
+filtered by category, each with a Connect button and an API-key modal behind
+it. Ours is a **status board** for the four things a studio actually depends
+on. The marketplace is not a gap — none of those twelve exist here, and a grid
+of Connect buttons that open a form and store nothing is the automation-builder
+mistake from D10 wearing a different hat.
+
+What the demo has that we should take is the part underneath: its calendar
+panel can be acted on, and ours cannot.
+
+**Behaviour we lack — and it is the largest single omission found in this
+phase.**
+
+- **A studio cannot connect a calendar.** Five endpoints exist —
+  `GET /calendar/:staffId`, `POST /:staffId/connect`, `DELETE /:staffId`,
+  `POST /:staffId/sync`, plus the OAuth callback — and **nothing in the client
+  calls any of them**. W1.6 built per-instructor OAuth, AES-256-GCM token
+  storage and the loop guard that stops a published class blocking its own
+  slot, and there has never been a button. The Integrations page displays each
+  instructor's calendar status and offers no way to change it, which is the
+  worst version of this: it tells you something is off and gives you nowhere to
+  go.
+- **Sync now.** The prototype's button is a `setTimeout` that writes "just
+  now"; `POST /:staffId/sync` is a real incremental pull. This is the one place
+  the demo's affordance and our implementation line up exactly.
+- **When it last synced, and why it stopped.** `lastSyncedAt` and `lastError`
+  are stored per connection and neither is returned. `channelExpiresAt` IS
+  selected by the status service and then dropped on the floor — Google expires
+  a push channel after about a week, and that is the difference between "syncing"
+  and "quietly stopped".
+- **A figure row**, which every other screen in this phase now has.
+
+**Layout — close it.**
+
+- Tiles for the four numbers: what is connected, how many calendars sync, how
+  many need attention, how many customers have opted out of texts.
+- Per-instructor rows gain actions and a last-synced line, rather than being a
+  read-only list of names and pills.
+
+**One thing to fix that is not the demo's doing.**
+
+`integration.service.ts` returns `sms.quietHours: { startHour, endHour }` — the
+same misleading shape D10 just corrected in the notifications payload, from the
+same config names. Here the screen happens to render it correctly (it inverts
+the pair to show "9pm – 8am"), which is exactly why it is worth renaming: the
+next reader has to work out that the field means the opposite of its name, and
+one of them already got it wrong.
+
+**What the demo fakes — do not port.**
+
+- **The marketplace.** Viator, Tripadvisor, Mailchimp, Zapier and the rest.
+  None exist; D2 already refused reseller sources as a booking filter for the
+  same reason, and a Connect button that stores an API key nothing reads is
+  worse than an absent one.
+- **The API-key modal**, which prints its own disclaimer saying no credentials
+  are sent anywhere.
+- **"Channel bookings (30 days)"**, counted from sources that cannot occur.
+- **Per-channel sync settings** — real-time push, price override, auto-import —
+  which are checkboxes over nothing.
+- **A single account-level calendar connection.** The prototype has one Google
+  account for the whole business. Ours is deliberately per instructor: their
+  own calendar, their own consent, and a studio cannot connect one on their
+  behalf without them signing in.
+
+### D11 — as shipped, 2026-08-25
+
+The marketplace stayed unported. What shipped is the four buttons this page
+should have had since W1.6, and three fields that were already stored.
+
+**A studio can now connect a calendar.** Five endpoints had existed since
+W1.6 — authorize, disconnect, manual sync, status, callback — with per-
+instructor OAuth, AES-256-GCM refresh tokens and the loop guard behind them,
+and **nothing in the client called any of them**. The Integrations page
+displayed each instructor's calendar status and offered no way to change it,
+which is the worst version of the pattern this phase keeps finding: it told you
+something was broken and gave you nowhere to go. Connect, Reconnect, Sync now
+and Disconnect are wired to the endpoints that were already there.
+
+**Disconnect asks first, and says what actually happens.** Nothing breaks
+visibly when a calendar is disconnected — the instructor's outside commitments
+simply stop blocking their availability, and the studio starts taking bookings
+over them. That is a consequence worth spelling out in the confirm, because it
+does not announce itself for another week.
+
+**No "Sync now" on a connection whose grant has expired.** It can only fail,
+and a button certain to fail is the same lie D0 rejected for hover states on
+non-interactive rows. Reconnect is the only thing that helps, so it is the only
+thing offered.
+
+**Three stored fields reached a reader.** `lastSyncedAt` (when it last actually
+pulled, as against `updatedAt`, which moves on any write including a token
+refresh — the two only diverge when something is wrong, which is when this page
+gets read), `lastError` (why it stopped), and `channelExpiresAt`, which the
+status service was already SELECTING and then dropping before it reached
+anybody. Google expires a push channel after about a week and inbound sync then
+stops without failing: availability keeps being offered from stale data.
+
+**`sms.quietHours` became `sms.sendingWindow`.** The same misleading shape D10
+corrected in the notifications payload, from the same config names. This screen
+happened to render it correctly by inverting the pair — which is precisely the
+argument for the rename: the next reader has to work out that the field means
+the opposite of its name, and one of the two readers already got it wrong.
+
+**Found by breaking it on purpose: a failed action blanked the page.** The
+component opened with `if (error) return <div className="err">…`, so a sync
+that failed on one instructor replaced the ENTIRE screen — Stripe's status,
+every other calendar, the SMS panel — with one line about one calendar. Now
+only the first load can replace the page; an action that fails says so where it
+happened, keeps everything still true on screen, and can be dismissed. This is
+the same family as the polling page whose error state never cleared, recorded
+in the verification lessons.
+
+**Not ported:** the twelve-card marketplace and its category filter (none of
+those integrations exist, and D2 already refused reseller sources for the same
+reason), the API-key modal that prints its own disclaimer saying nothing is
+stored, the "channel bookings" tile counted from sources that cannot occur, the
+per-channel sync checkboxes over nothing, and the prototype's single
+account-level calendar — ours is per instructor by design: their calendar,
+their consent, and a studio cannot connect one on their behalf without them
+signing in.
+
+**Verification note.** Google is not configured in dev, so the connect endpoint
+was checked directly (it returns a real consent URL against the fake provider's
+host) and the row states were driven by seeding two connections by hand. Their
+ciphertext was junk, so Sync failed with a 500 — which is what surfaced the
+page-blanking bug, and is the second time in this phase that a deliberately
+broken fixture has been more useful than a working one. Both rows were deleted
+afterwards: a permanently broken calendar left in the dev database would be a
+puzzle for whoever opened the page next.
 
 ### Known per-item notes
 

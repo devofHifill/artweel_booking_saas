@@ -36,6 +36,8 @@ function clearRateLimitBudget() {
  */
 export type Studio = {
   userId: string;
+  /** The owner's own address — what a "send it to me" endpoint must use. */
+  email: string;
   organizationId: string;
   accessToken: string;
   headers: { Authorization: string };
@@ -75,11 +77,12 @@ export async function signUpStudio(
   clearRateLimitBudget();
 
   const suffix = Math.random().toString(36).slice(2, 10);
+  const email = opts.email ?? `owner-${suffix}@clay.test`;
 
   const res = await request(app)
     .post('/api/auth/register')
     .send({
-      email: opts.email ?? `owner-${suffix}@clay.test`,
+      email,
       password: TEST_PASSWORD,
       name: 'Studio Owner',
       organizationName: opts.organizationName ?? `Clay Studio ${suffix}`,
@@ -102,6 +105,7 @@ export async function signUpStudio(
 
   return {
     userId: res.body.user.id,
+    email,
     organizationId,
     accessToken: res.body.tokens.accessToken,
     headers: { Authorization: `Bearer ${res.body.tokens.accessToken}` },
@@ -119,9 +123,10 @@ export async function addMemberToStudio(
 
   const { prisma } = await import('../../src/lib/prisma');
   const suffix = Math.random().toString(36).slice(2, 10);
+  const email = `member-${suffix}@clay.test`;
 
   const res = await request(app).post('/api/auth/register').send({
-    email: `member-${suffix}@clay.test`,
+    email,
     password: TEST_PASSWORD,
     name: `Member ${role}`,
   });
@@ -132,6 +137,7 @@ export async function addMemberToStudio(
 
   return {
     userId: res.body.user.id,
+    email,
     organizationId,
     accessToken: res.body.tokens.accessToken,
     headers: { Authorization: `Bearer ${res.body.tokens.accessToken}` },

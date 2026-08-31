@@ -44,6 +44,8 @@ export async function getIntegrationStatus(organizationId: string) {
             accountEmail: true,
             provider: true,
             channelExpiresAt: true,
+            lastSyncedAt: true,
+            lastError: true,
             updatedAt: true,
           },
         },
@@ -73,6 +75,27 @@ export async function getIntegrationStatus(organizationId: string) {
       accountEmail: person.calendarConnection?.accountEmail ?? null,
       provider: person.calendarConnection?.provider ?? null,
       lastChangedAt: person.calendarConnection?.updatedAt ?? null,
+
+      /*
+        When it last actually pulled, rather than when the row last changed.
+
+        `updatedAt` moves for any reason at all — a token refresh, a status
+        flip — so a connection that has not synced since Tuesday can carry
+        this morning's timestamp. The difference matters here because this
+        page exists to answer "is it working", and the two questions have
+        different answers exactly when something is wrong.
+      */
+      lastSyncedAt: person.calendarConnection?.lastSyncedAt ?? null,
+      lastError: person.calendarConnection?.lastError ?? null,
+
+      /*
+        Google expires a push channel after about a week. Once it lapses,
+        inbound sync stops without anything failing: the calendar simply
+        stops telling us about changes, availability keeps being offered from
+        stale data, and the studio finds out from a double booking. It was
+        already being selected here and dropped before it reached anybody.
+      */
+      pushExpiresAt: person.calendarConnection?.channelExpiresAt ?? null,
     })),
 
     sms: {
@@ -87,9 +110,17 @@ export async function getIntegrationStatus(organizationId: string) {
           config.TWILIO_AUTH_TOKEN &&
           config.TWILIO_FROM_NUMBER,
       ),
-      quietHours: {
-        startHour: config.SMS_QUIET_START_HOUR,
-        endHour: config.SMS_QUIET_END_HOUR,
+      /*
+        `sendingWindow`, not `quietHours`, and the rename is the point: these
+        two config values are when texting is ALLOWED (8am to 9pm), so a field
+        called quietHours means the opposite of what it says. This screen
+        happened to render it correctly by inverting the pair; the
+        notifications panel read it straight and described the rule backwards.
+        One of the two readers getting it wrong is the argument for the name.
+      */
+      sendingWindow: {
+        fromHour: config.SMS_QUIET_START_HOUR,
+        toHour: config.SMS_QUIET_END_HOUR,
       },
       optedOutCustomers: optedOut,
     },

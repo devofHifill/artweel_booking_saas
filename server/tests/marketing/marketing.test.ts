@@ -267,11 +267,17 @@ describe('honesty of the copy', () => {
  * Same lesson as `tests/gate/sweeps.test.ts`: poll for the condition you actually
  * mean. A test that fails for reasons unrelated to its subject teaches the next
  * person to shrug at a red run.
+ *
+ * The budget went 5s -> 20s on 2026-08-25, after this timed out again at the
+ * tail of a 47-minute run. A generous deadline costs nothing when the write
+ * lands — the loop returns the moment it sees the row — and the only thing a
+ * short one buys is a faster red on a machine that was busy. If the insert
+ * genuinely never happens this still fails, twenty seconds later.
  */
 async function eventually<T>(
   read: () => Promise<T | null | undefined>,
   what: string,
-  timeoutMs = 5_000,
+  timeoutMs = 20_000,
 ): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {

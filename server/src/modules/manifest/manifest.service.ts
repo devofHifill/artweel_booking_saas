@@ -74,6 +74,17 @@ export type RollEntry = {
   balanceCents: number;
   /** Nobody has taught this person before today. */
   firstVisit: boolean;
+  /**
+   * Where a TRAVELLING class actually happens — the customer's address, taken
+   * at booking time.
+   *
+   * Per booking rather than per session because that is what it is: a mobile
+   * class is one visit to one address, and two bookings on the same mobile
+   * service are two different doorsteps. Null for anything at a fixed studio,
+   * where the location's own address already answers it once for the whole
+   * class instead of repeating down every row.
+   */
+  serviceAddress: string | null;
 };
 
 export type ManifestSession = {
@@ -84,7 +95,8 @@ export type ManifestSession = {
   timezone: string;
   serviceName: string;
   color: string;
-  staff: { id: string; name: string } | null;
+  /** `phone` because "who do I call" is the second question this page gets. */
+  staff: { id: string; name: string; phone: string | null } | null;
   location: { id: string; name: string; address: string | null } | null;
   course: { id: string; name: string; cohortLabel: string | null } | null;
   seriesIndex: number | null;
@@ -140,6 +152,7 @@ function toRollEntry(
     customerId: string;
     customer: { id: string; name: string; email: string; phone: string | null };
     enrollment: { id: string } | null;
+    serviceAddress: Prisma.JsonValue;
     payments: {
       amountCents: number;
       refundedCents: number;
@@ -162,12 +175,48 @@ function toRollEntry(
       booking.totalCents - paidCentsOf(booking.payments),
     ),
     firstVisit: firstVisitors.has(booking.customerId),
+    serviceAddress: formatServiceAddress(booking.serviceAddress),
   };
+}
+
+/**
+ * The stored address, as one line somebody can read at a doorstep.
+ *
+ * Formatted here rather than on the client because the sheet is also sent by
+ * SMS and email to an instructor, and those have no client — two formatters
+ * would eventually disagree about a booking, which on this screen means an
+ * instructor at the wrong house.
+ *
+ * The coordinates are deliberately dropped. They are how the scheduler
+ * computes travel time; they are not what a person needs to find a door, and
+ * printing them on a sheet that gets left on a passenger seat is a privacy
+ * cost with no operational return. `notes` — "gate code", "side entrance" —
+ * IS kept, because that is the half a driver actually uses.
+ */
+function formatServiceAddress(value: Prisma.JsonValue): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+  const address = value as {
+    line1?: unknown;
+    city?: unknown;
+    postcode?: unknown;
+    notes?: unknown;
+  };
+
+  const parts = [address.line1, address.city, address.postcode]
+    .filter((part): part is string => typeof part === 'string' && part.trim() !== '')
+    .map((part) => part.trim());
+
+  if (parts.length === 0) return null;
+
+  const notes = typeof address.notes === 'string' ? address.notes.trim() : '';
+  return notes ? `${parts.join(', ')} — ${notes}` : parts.join(', ');
 }
 
 const ROLL_INCLUDE = {
   customer: { select: { id: true, name: true, email: true, phone: true } },
   enrollment: { select: { id: true } },
+  serviceAddress: true,
   payments: {
     select: { amountCents: true, refundedCents: true, status: true },
   },
@@ -208,7 +257,7 @@ export async function getManifest(
         seatsTaken: true,
         seriesIndex: true,
         serviceType: { select: { name: true, color: true } },
-        staff: { select: { id: true, name: true } },
+        staff: { select: { id: true, name: true, phone: true } },
         location: {
           select: { id: true, name: true, address: true, locationType: true },
         },
@@ -248,7 +297,7 @@ export async function getManifest(
         totalCents: true,
         customerId: true,
         serviceType: { select: { name: true, color: true } },
-        staff: { select: { id: true, name: true } },
+        staff: { select: { id: true, name: true, phone: true } },
         location: {
           select: { id: true, name: true, address: true, locationType: true },
         },

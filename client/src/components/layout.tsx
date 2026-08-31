@@ -138,16 +138,24 @@ export function Kpi({
    * The glyph in the tinted chip. Decorative — the label beside it already
    * says what the number is, so it is `aria-hidden` via `Icon`'s default and
    * adds nothing to the accessibility tree.
+   *
+   * Optional since D8. Reports puts five and six tiles in a row and has no
+   * meaningful glyph for most of them; the prototype's report tiles are this
+   * same shell with the chip left off, and inventing an icon per figure would
+   * have given six tiles six shrugs. Where a screen has real icons — the
+   * dashboard, Payments — they still carry.
    */
-  icon: IconName;
+  icon?: IconName;
 }) {
   return (
     <div className={`card kpi ${tone ?? ''}`.trim()}>
       <div className="k-top">
         <span className="kpi-label">{label}</span>
-        <span className="k-icon">
-          <Icon name={icon} size={16} />
-        </span>
+        {icon && (
+          <span className="k-icon">
+            <Icon name={icon} size={16} />
+          </span>
+        )}
       </div>
       <span className="kpi-value">{value}</span>
       {foot && <span className="kpi-foot">{foot}</span>}

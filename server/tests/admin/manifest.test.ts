@@ -637,3 +637,137 @@ describe('sending it to the instructors', () => {
       .expect(403);
   });
 });
+
+/* ------------------------------------------------------------------ D9 ---
+   The three things the sheet knew and never said: who to call, where the
+   building is, and where a travelling class actually happens.
+   ------------------------------------------------------------------------ */
+
+const DAY = '2026-09-19';
+const AT = new Date('2026-09-19T18:00:00Z');
+
+describe('reaching the instructor', () => {
+  it('puts the instructor phone number on the sheet', async () => {
+    await request(app)
+      .patch(`${studio.base}/staff/${staffId}`)
+      .set(studio.headers)
+      .send({ phone: '+15550142' })
+      .expect(200);
+
+    const session = await makeSession({ startsAt: AT });
+    await bookInto({ sessionId: session.id, startsAt: AT });
+
+    const res = await get(DAY).expect(200);
+
+    expect(res.body.sessions[0].staff).toMatchObject({
+      name: 'Rowan Pike',
+      phone: '+15550142',
+    });
+  });
+
+  /** A studio that never recorded one gets null, not an empty string that
+      renders as a stray separator on paper. */
+  it('reports null when nobody recorded a number', async () => {
+    const session = await makeSession({ startsAt: AT });
+    await bookInto({ sessionId: session.id, startsAt: AT });
+
+    const res = await get(DAY).expect(200);
+
+    expect(res.body.sessions[0].staff.phone).toBeNull();
+  });
+});
+
+describe('where a travelling class happens', () => {
+  /**
+   * The address is taken at booking time and stored on the booking, because a
+   * mobile class is one visit to one doorstep — two bookings on the same
+   * service are two different houses.
+   */
+  it('carries the customer address down to the roll entry', async () => {
+    const session = await makeSession({ startsAt: AT });
+    const booking = await bookInto({ sessionId: session.id, startsAt: AT });
+
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        serviceAddress: {
+          line1: '14 Kiln Lane',
+          city: 'Portland',
+          postcode: '97205',
+          notes: 'Side gate, code 4417',
+          lat: 45.52,
+          lng: -122.68,
+        },
+      },
+    });
+
+    const res = await get(DAY).expect(200);
+    const entry = res.body.sessions[0].roll[0];
+
+    expect(entry.serviceAddress).toBe(
+      '14 Kiln Lane, Portland, 97205 — Side gate, code 4417',
+    );
+  });
+
+  /**
+   * Coordinates are how the scheduler works out travel time. They are not how
+   * a person finds a door, and a sheet left on a passenger seat should not
+   * carry more of somebody's location than the job needs.
+   */
+  it('leaves the coordinates off the sheet', async () => {
+    const session = await makeSession({ startsAt: AT });
+    const booking = await bookInto({ sessionId: session.id, startsAt: AT });
+
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { serviceAddress: { line1: '14 Kiln Lane', lat: 45.52, lng: -122.68 } },
+    });
+
+    const res = await get(DAY).expect(200);
+    const entry = res.body.sessions[0].roll[0];
+
+    expect(entry.serviceAddress).toBe('14 Kiln Lane');
+    expect(JSON.stringify(entry)).not.toContain('45.52');
+  });
+
+  it('reports nothing for a booking at the studio', async () => {
+    const session = await makeSession({ startsAt: AT });
+    await bookInto({ sessionId: session.id, startsAt: AT });
+
+    const res = await get(DAY).expect(200);
+
+    expect(res.body.sessions[0].roll[0].serviceAddress).toBeNull();
+  });
+
+  /** A private lesson at somebody's home is the commonest mobile booking of
+      all, and it takes the appointment path rather than the session one. */
+  it('carries it on an appointment too', async () => {
+    const booking = await makeAppointment({ startsAt: AT });
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { serviceAddress: { line1: '9 Glaze Street', city: 'Portland' } },
+    });
+
+    const res = await get(DAY).expect(200);
+
+    expect(res.body.sessions[0].roll[0].serviceAddress).toBe(
+      '9 Glaze Street, Portland',
+    );
+  });
+
+  /** Nothing usable in the stored object means no line, rather than an
+      address that reads as a lone comma. */
+  it('says nothing when the stored address has no street', async () => {
+    const session = await makeSession({ startsAt: AT });
+    const booking = await bookInto({ sessionId: session.id, startsAt: AT });
+
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { serviceAddress: { notes: 'Ring twice' } },
+    });
+
+    const res = await get(DAY).expect(200);
+
+    expect(res.body.sessions[0].roll[0].serviceAddress).toBeNull();
+  });
+});
