@@ -4,16 +4,18 @@
 
 ## RESUMING HERE — state as of 2026-09-01
 
-**Done:** D0, D1, D2, D4, D5, D6, D7, D8, D9, D10, D11, D12. **D3 is PARTIAL**
+**Done:** D0, D1, D2, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13. **D3 is PARTIAL**
 (month + week shipped; day view, side panel, block-a-date and add-slot
-deliberately not built — see its section). **D13 Settings is the only item
-left**, and it is the last of the thirteen.
+deliberately not built — see its section). **The thirteen are done.** What is
+left of this phase is D3's remainder, which is feature work needing a design
+pass rather than a parity item.
 
-**D12 has not been looked at in a browser.** Client typecheck and a production
-build are clean, and it changes no server code, but the screen itself has not
-been walked. It is a link moved into the page head and a paragraph added under
-the embed snippet — small, but unverified is unverified. Whoever opens D13 is
-on the same screen family and should glance at it.
+**D12 and D13 have not been looked at in a browser**, and that is the one debt
+this phase is carrying. Client typecheck and a production build are clean for
+both and neither changed server code, so the 922 stands — but unverified is
+unverified. D13 in particular wants walking: open an activity, set a percentage
+deposit, save, then REOPEN it and confirm the value came back. That last step
+is what catches the draft bug described in its section if it ever returns.
 
 **Suite: 922 tests, 59 files, green**, plus the timing gate at p95 174ms. Run
 it with `npm test` from `server/`; it takes about 40 minutes, so start it
@@ -252,7 +254,7 @@ prototype has no upside.
 | **D10** | Notifications | figures, tabs, tokens, test send | **DONE** — 14 tests, no migration |
 | **D11** | Integrations | the calendar buttons | **DONE** — 4 tests, no migration |
 | **D12** | Website & Widget | the link, and `data-height` | **DONE** — not yet walked in a browser |
-| **D13** | Settings | | not started |
+| **D13** | Settings | **four writer-less columns** | **DONE** — not yet walked in a browser |
 
 D0 first and alone, because every item after it is judged against the finished
 token set. Doing a screen before the tokens land means doing it twice.
@@ -1198,6 +1200,72 @@ directory is a different project, so `preview_start` resolves the wrong
 clean and the change is a link move plus a paragraph, but the screen has not
 been looked at. Whoever picks up D13 is already in the right folder and should
 eyeball it.
+
+### D13 — the last item, and not a styling one, 2026-09-01
+
+Ten sections against our five, and the mapping is mostly architecture rather
+than gap: the demo keeps Email and SMS here, we keep them on Notifications;
+it keeps Payments here, we keep it on Integrations. Ours has Appearance, which
+the prototype cannot have because it has no dark mode.
+
+**The find. Four columns the API accepts, validates and acts on, that no
+screen ever wrote.**
+
+`minNoticeMinutes` and `maxHorizonDays` bound every availability query —
+`getAvailability` computes its window from them on every request.
+`depositType` and `depositValue` decide whether checkout takes part of the
+price or all of it; `money.ts` reads them and `payment.service.ts` acts on the
+result. The service schema validates all four, down to refusing a percentage
+above 100 and a deposit of zero.
+
+Nothing in the client sent any of them. Every studio therefore ran on the
+defaults — no notice, a 120-day horizon, no deposits — with no way to say
+otherwise. A studio could not ask for a day's notice, could not stop somebody
+booking eleven months out, and could not take a deposit on a £400 private
+party the schema has a comment about.
+
+**The cause is worth more than the fix.** `ServiceForm`'s own docstring
+explains that creating a service asks six questions and lets the server default
+the rest, because questions between a studio and its first class are what make
+studios abandon setup. That reasoning is right. The sentence after it —
+"all editable later" — was not true. There was no later, and the comment had
+been standing in for the screen nobody built.
+
+So they appear when EDITING and not when creating. The six questions survive;
+the later now exists.
+
+**A bug caught on the way in.** `Classes` builds the edit draft field by field
+rather than spreading the row, so the four new fields would have arrived
+undefined, rendered as defaults, and been written back over real values on the
+next save — a screen that silently reset a studio's deposit terms every time
+somebody renamed a class. Both the type and the call now carry them, with a
+note saying why a field this type forgets is a field the next save destroys.
+
+**Not ported, and none of it close:** tax and service fees (there is no tax
+anywhere in this product — that is a feature decision, not a styling one),
+date and time format (rendered per locale), the payment provider picker (Stripe
+by design), pay-on-arrival and cash at the meeting point, waivers, child
+tickets, the overbooking buffer — which is the product thesis inverted — the
+per-studio SMS provider and sender ID, the email from-address (per-studio
+sending needs DNS verification per domain, which is its own project), and the
+danger zone, whose only control resets the demo.
+
+**Quiet hours stay platform-wide.** The demo makes them a per-studio setting.
+Ours are `SMS_QUIET_START_HOUR` / `SMS_QUIET_END_HOUR` in config, applied in
+the studio's local time, and they exist because TCPA says so. That is a legal
+floor, not a preference, and a per-studio override is a setting whose only use
+is breaking the law.
+
+**Where ours was already ahead:** the demo's Users & Permissions is a checkbox
+matrix over invented roles. Ours has real ones behind it from S9 and S13 —
+invitations, cross-tenant assignment, and an instructor who genuinely cannot
+sell a class pack. Not flattened.
+
+**Not verified in a browser**, same as D12 and for the same reason. Client
+typecheck and production build are clean, no server code changed, so the 922
+stands. The edit form needs walking: open an activity, set a percentage
+deposit, save, reopen and confirm it came back — that last step is the one that
+would catch the draft bug if it ever returns.
 
 ### Known per-item notes
 

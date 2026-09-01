@@ -17,12 +17,28 @@ import { api } from '../lib/api';
  *
  * ---
  *
- * The schema behind this has twenty fields. This form asks for SIX and lets
+ * The schema behind this has twenty fields. Creating one asks for SIX and lets
  * the server default the rest, because the difference between a studio that
  * finishes setup and one that abandons it is how many questions stand between
  * them and a bookable class. Padding, notice windows, deposit terms and staff
- * preference are all real and all editable later; none of them belongs in the
- * way of a first class.
+ * preference are all real; none of them belongs in the way of a first class.
+ *
+ * ---
+ *
+ * That reasoning was right and the sentence that followed it — "all editable
+ * later" — was not true. There was no later. `minNoticeMinutes`,
+ * `maxHorizonDays`, `depositType` and `depositValue` are accepted by the API,
+ * validated there, and drive real behaviour: the first two bound every
+ * availability query, and the second two decide whether checkout takes part of
+ * the price or all of it. No screen wrote any of them, so every studio ran on
+ * the defaults — no notice, 120 days, no deposits — and could not say
+ * otherwise.
+ *
+ * D12's finding in a different costume, and D4's before that: the capability
+ * was whole and had nobody to speak for it.
+ *
+ * So they appear when EDITING and not when creating. That keeps the six
+ * questions a new studio answers, and builds the later the comment promised.
  */
 
 export type ServiceDraft = {
@@ -35,6 +51,12 @@ export type ServiceDraft = {
   priceCents: number;
   color: string;
   isActive?: boolean;
+  /** Optional because creating a service never sends them — see the note above. */
+  minNoticeMinutes?: number;
+  maxHorizonDays?: number;
+  depositType?: 'none' | 'percent' | 'fixed';
+  /** A percentage when depositType is "percent", otherwise cents. */
+  depositValue?: number;
 };
 
 const MODES = [
@@ -73,6 +95,23 @@ export function ServiceForm({
   );
   const [color, setColor] = useState(existing?.color ?? '#4f46e5');
 
+  const [notice, setNotice] = useState(existing?.minNoticeMinutes ?? 0);
+  const [horizon, setHorizon] = useState(existing?.maxHorizonDays ?? 120);
+  const [depositType, setDepositType] = useState<
+    NonNullable<ServiceDraft['depositType']>
+  >(existing?.depositType ?? 'none');
+  /**
+   * Held as a string for the same reason `price` is: a number input the user is
+   * mid-way through clearing produces NaN, and NaN in a controlled input is a
+   * React warning and an empty box the user cannot type into.
+   */
+  const [depositValue, setDepositValue] = useState(() => {
+    if (!existing?.depositValue) return '';
+    return existing.depositType === 'fixed'
+      ? String(existing.depositValue / 100)
+      : String(existing.depositValue);
+  });
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -99,6 +138,26 @@ export function ServiceForm({
       // no caller downstream has to remember which unit it is holding.
       priceCents: Math.round(Number(price || 0) * 100),
       color,
+      /**
+       * Only when editing. Sending them on create would put the server's
+       * defaults back as if they were choices, and the whole point of leaving
+       * them out of the create form is that nobody has made one yet.
+       */
+      ...(existing
+        ? {
+            minNoticeMinutes: notice,
+            maxHorizonDays: horizon,
+            depositType,
+            // Percent goes as typed; a fixed deposit is money, so it crosses
+            // into cents at the same boundary `price` does.
+            depositValue:
+              depositType === 'none'
+                ? 0
+                : depositType === 'fixed'
+                  ? Math.round(Number(depositValue || 0) * 100)
+                  : Number(depositValue || 0),
+          }
+        : {}),
     };
 
     try {
@@ -223,6 +282,89 @@ export function ServiceForm({
         />
         <p className="tiny muted">How it appears on your calendar.</p>
       </div>
+
+      {existing && (
+        <>
+          <hr />
+
+          <h3>Booking terms</h3>
+          <p className="tiny muted">
+            Kept out of the way when you created this, because none of it should
+            stand between a new studio and its first class. Set it here.
+          </p>
+
+          <div className="row">
+            <div>
+              <label htmlFor="svcNotice">Minimum notice (minutes)</label>
+              <input
+                id="svcNotice"
+                type="number"
+                min={0}
+                max={525_600}
+                value={notice}
+                onChange={(e) => setNotice(Number(e.target.value))}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="svcHorizon">Bookable up to (days ahead)</label>
+              <input
+                id="svcHorizon"
+                type="number"
+                min={1}
+                max={730}
+                value={horizon}
+                onChange={(e) => setHorizon(Number(e.target.value))}
+              />
+            </div>
+          </div>
+          <p className="tiny muted">
+            Every availability search is bounded by these: nothing sooner than
+            the notice, nothing further out than the horizon.
+          </p>
+
+          <div className="row">
+            <div>
+              <label htmlFor="svcDepositType">Deposit</label>
+              <select
+                id="svcDepositType"
+                value={depositType}
+                onChange={(e) =>
+                  setDepositType(
+                    e.target.value as NonNullable<ServiceDraft['depositType']>,
+                  )
+                }
+              >
+                <option value="none">Pay in full</option>
+                <option value="percent">Percentage of the price</option>
+                <option value="fixed">Fixed amount</option>
+              </select>
+            </div>
+
+            {depositType !== 'none' && (
+              <div>
+                <label htmlFor="svcDepositValue">
+                  {depositType === 'percent' ? 'Percent' : 'Amount'}
+                </label>
+                <input
+                  id="svcDepositValue"
+                  type="number"
+                  min={depositType === 'percent' ? 1 : 0.01}
+                  max={depositType === 'percent' ? 100 : undefined}
+                  step={depositType === 'percent' ? 1 : 0.01}
+                  value={depositValue}
+                  placeholder={depositType === 'percent' ? '25' : '0.00'}
+                  onChange={(e) => setDepositValue(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+          <p className="tiny muted">
+            A deposit takes part of the price at checkout and leaves the balance
+            owing, which then shows on the customer and on the daily sheet.
+          </p>
+        </>
+      )}
 
       {error && (
         <div className="alert danger" role="alert">

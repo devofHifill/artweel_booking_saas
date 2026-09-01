@@ -24,6 +24,15 @@ type ServiceOption = {
   priceCents?: number;
   color?: string;
   isActive?: boolean;
+  /**
+   * Carried through to the edit form. They must be READ here even though this
+   * screen never displays them: the form sends whatever it holds, so a field
+   * this type forgets is a field the next save quietly resets to its default.
+   */
+  minNoticeMinutes?: number;
+  maxHorizonDays?: number;
+  depositType?: 'none' | 'percent' | 'fixed';
+  depositValue?: number;
 };
 
 type SessionRow = {
@@ -463,6 +472,10 @@ export default function Classes() {
                           capacityMax: svc.capacityMax,
                           priceCents: svc.priceCents ?? 0,
                           color: svc.color ?? '#4f46e5',
+                          minNoticeMinutes: svc.minNoticeMinutes,
+                          maxHorizonDays: svc.maxHorizonDays,
+                          depositType: svc.depositType,
+                          depositValue: svc.depositValue,
                         });
                         setShowForm(true);
                       }}
