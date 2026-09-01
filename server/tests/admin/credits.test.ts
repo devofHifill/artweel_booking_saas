@@ -20,6 +20,17 @@ import { signUpStudio, type Studio } from '../helpers/api';
  * studio is either giving away seats or refusing ones it owes.
  */
 
+/**
+ * A class far enough ahead that it stays ahead.
+ *
+ * Redeeming a credit is refused for a session that has already started, so a
+ * fixture booking a credit into a class needs that class to be in the future —
+ * which a written-down date only is until it isn't.
+ */
+function futureLocalDate(): string {
+  return new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+}
+
 const app = createApp();
 let studio: Studio;
 let serviceId: string;
@@ -220,7 +231,7 @@ describe('spending credits', () => {
               priceCents: 0,
             })
         ).body.service.id,
-        startLocalDate: '2027-05-01',
+        startLocalDate: futureLocalDate(),
         localStartTime: '10:00',
         capacity: 8,
       });
@@ -453,7 +464,7 @@ describe('managing credits by hand', () => {
       .set(studio.headers)
       .send({
         serviceTypeId: slot.body.service.id,
-        startLocalDate: '2027-05-01',
+        startLocalDate: futureLocalDate(),
         localStartTime: '10:00',
         capacity: 8,
       });

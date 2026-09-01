@@ -97,6 +97,24 @@ beforeEach(async () => {
 
 const AT = (iso: string) => new Date(iso).toISOString();
 
+/**
+ * A booking that is still ahead of now, whenever "now" happens to be.
+ *
+ * `lastVisit` counts only the bookings that have already happened, so a test
+ * about a FUTURE booking has to keep being about one. A fixed date here does
+ * not fail loudly when it passes — it inverts the assertion, and a test named
+ * "does not count a future booking as a last visit" starts proving that a past
+ * one does.
+ *
+ * 14:00 UTC is inside the 09:00–18:00 New York working rule in either half of
+ * the year, so the booking is never refused for being outside working hours.
+ */
+function futureBookingAt(): string {
+  const d = new Date(Date.now() + 30 * 86_400_000);
+  d.setUTCHours(14, 0, 0, 0);
+  return d.toISOString();
+}
+
 async function bookAppointment(startsAt: string, name = 'Ada Potter') {
   return request(app)
     .post(`${studio.base}/bookings`)
@@ -490,7 +508,7 @@ describe('customers', () => {
    * column headed "last visit".
    */
   it('does not count a future booking as a last visit', async () => {
-    await bookAppointment(AT('2026-09-15T14:00:00Z'));
+    await bookAppointment(futureBookingAt());
 
     const res = await request(app)
       .get(`${studio.base}/customers`)
