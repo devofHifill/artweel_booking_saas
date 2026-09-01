@@ -1836,12 +1836,31 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
     display: flex;
     align-items: center;
     gap: var(--space-4);
-    padding: var(--space-2) var(--space-6);
+    /* A fixed 60px rather than padding around whatever is tallest, matching the
+       prototype. The bar's height stopped depending on its contents, so adding
+       a control no longer nudges the whole page down a few pixels. */
+    height: 60px;
+    padding: 0 var(--space-6);
     background: var(--card);
     border-bottom: 1px solid var(--line);
     position: sticky;
     top: 0;
     z-index: 30;
+  }
+
+  /* Translucent only where the blur behind it actually works.
+
+     Without `backdrop-filter` a semi-transparent bar is just content showing
+     through the text, which is worse than a solid one — so the opacity and the
+     blur are applied together or not at all. `color-mix` on `--card` rather
+     than the prototype's literal `rgba(255,255,255,.86)`, because ours has a
+     dark theme and a hardcoded white bar would be a white stripe across it. */
+  @supports (backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px)) {
+    .shell.has-topbar > .topbar {
+      background: color-mix(in srgb, var(--card) 86%, transparent);
+      -webkit-backdrop-filter: saturate(180%) blur(12px);
+      backdrop-filter: saturate(180%) blur(12px);
+    }
   }
 
   /* The sidebar already shows both at this width. */
@@ -1886,7 +1905,11 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
 .icon-btn:hover { background: var(--clay-lt); color: var(--ink); }
 
 /* --- Search -------------------------------------------------------------- */
-.search-wrap { position: relative; flex: 1; min-width: 0; max-width: 460px; }
+/* `0 1 380px` matches the prototype: a fixed comfortable width that may shrink
+   but never grows to fill. It read as 460px-and-growing before, which let the
+   input dominate a wide bar and pushed everything else to the far edge. On the
+   drawer breakpoint below it grows again, where filling IS the right answer. */
+.search-wrap { position: relative; flex: 0 1 380px; min-width: 0; }
 .search-icon {
   position: absolute;
   left: 10px;
@@ -2103,7 +2126,9 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
   /* So the last row of a page is not permanently under the bar. */
   .shell.has-topbar > .main { padding-bottom: 84px; }
 
-  .shell.has-topbar > .topbar .search-wrap { max-width: none; }
+  /* Grows again here: at this width the bar holds little else, and a 380px
+     island with dead space beside it looks like a mistake. */
+  .shell.has-topbar > .topbar .search-wrap { flex: 1 1 auto; max-width: none; }
 }
 
 /* --- Layout primitives ---------------------------------------------------- */
