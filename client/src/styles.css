@@ -2536,12 +2536,25 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
 .mini-end { text-align: right; }
 .tiny { font-size: var(--text-xs); }
 
+/* Filled, not tinted.
+
+   This was `--clay-lt` behind `--ink`: a pale disc with dark letters, which
+   goes soft against a light page and reads as a placeholder rather than a
+   person. The prototype fills its avatar and puts white on it, and that single
+   difference is most of why its bar looks crisper than ours did.
+
+   `--clay` rather than the prototype's fixed brand-to-violet gradient, so the
+   chip wears whatever colour the studio chose. White on it is safe by
+   construction: the accent is contrast-adjusted on save precisely so that
+   white button text stays readable, which is the same guarantee. */
 .avatar {
   flex: 0 0 30px;
   height: 30px;
   border-radius: 50%;
-  background: var(--clay-lt);
-  color: var(--ink);
+  background: var(--clay);
+  color: #fff;
+  font-weight: 650;
+  letter-spacing: .02em;
   display: grid;
   place-items: center;
   font-size: var(--text-xs);
