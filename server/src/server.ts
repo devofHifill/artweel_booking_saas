@@ -45,9 +45,15 @@ startSweepWorker();
  */
 async function shutdown(signal: string) {
   logger.info({ signal }, 'Shutting down');
-  stopNotificationWorker();
-  stopCalendarWorker();
-  stopSweepWorker();
+  // Awaited: stopping only clears the interval, so a tick already inside a
+  // transaction is still running. Closing the pool underneath one is the
+  // mid-transaction kill this shutdown path exists to avoid. The 10s failsafe
+  // below still applies if a tick will not finish.
+  await Promise.all([
+    stopNotificationWorker(),
+    stopCalendarWorker(),
+    stopSweepWorker(),
+  ]);
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);

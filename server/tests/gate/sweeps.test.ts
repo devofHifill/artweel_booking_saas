@@ -71,8 +71,10 @@ beforeEach(async () => {
   sessionId = cls.body.created[0].id;
 });
 
-afterEach(() => {
-  stopSweepWorker();
+// Awaited, so the next test's `resetDb` cannot TRUNCATE underneath a sweep
+// that is still holding row locks.
+afterEach(async () => {
+  await stopSweepWorker();
 });
 
 async function fillClass(count = 2) {
@@ -240,7 +242,7 @@ describe('the worker loop', () => {
 
   it('stops when told to', async () => {
     startSweepWorker(50);
-    stopSweepWorker();
+    await stopSweepWorker();
 
     await lapsedOffer();
     await new Promise((r) => setTimeout(r, 300));

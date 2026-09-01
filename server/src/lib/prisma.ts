@@ -26,6 +26,20 @@ export const prisma =
           : ['error'],
   });
 
-if (config.NODE_ENV !== 'production') {
+/**
+ * Development only, and NOT test — which is what this said before.
+ *
+ * Vitest runs every file in one worker thread, and `globalThis` is shared
+ * across them even though the module registry is not. So the stash handed all
+ * 59 files a single client, each one calling `$disconnect()` in its `afterAll`
+ * and the next calling `$connect()` on the corpse. Prisma's library engine
+ * does not reliably survive that cycle, and when it does not, the first query
+ * of a file fails with "Engine is not yet connected" — in `beforeEach`, before
+ * any assertion runs, in a file that passes perfectly on its own.
+ *
+ * Each test file now builds and disposes its own client, which is what the
+ * per-file `$connect`/`$disconnect` pair already assumed it was doing.
+ */
+if (config.NODE_ENV === 'development') {
   globalForPrisma.prisma = prisma;
 }

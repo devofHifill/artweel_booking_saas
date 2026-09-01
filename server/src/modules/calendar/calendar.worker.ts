@@ -109,6 +109,9 @@ export async function processCalendarBatch(limit = 20) {
 
 let timer: NodeJS.Timeout | null = null;
 
+/** The tick currently running. See the note in `workers/sweep.worker.ts`. */
+let inFlight: Promise<void> | null = null;
+
 export function startCalendarWorker(intervalMs = 10_000) {
   if (timer) return;
 
@@ -133,14 +136,19 @@ export function startCalendarWorker(intervalMs = 10_000) {
     }
   };
 
-  timer = setInterval(() => void tick(), intervalMs);
+  timer = setInterval(() => {
+    inFlight = tick();
+  }, intervalMs);
   timer.unref();
   logger.info({ intervalMs }, 'Calendar worker started');
 }
 
-export function stopCalendarWorker() {
+export async function stopCalendarWorker() {
   if (timer) {
     clearInterval(timer);
     timer = null;
   }
+
+  await inFlight?.catch(() => {});
+  inFlight = null;
 }

@@ -189,6 +189,9 @@ export async function reconcileMissingConfirmations(graceMinutes = 2) {
 
 let timer: NodeJS.Timeout | null = null;
 
+/** The tick currently running. See the note in `workers/sweep.worker.ts`. */
+let inFlight: Promise<void> | null = null;
+
 /**
  * Polling loop.
  *
@@ -225,14 +228,19 @@ export function startNotificationWorker(intervalMs = 5_000) {
     }
   };
 
-  timer = setInterval(() => void tick(), intervalMs);
+  timer = setInterval(() => {
+    inFlight = tick();
+  }, intervalMs);
   timer.unref();
   logger.info({ intervalMs }, 'Notification worker started');
 }
 
-export function stopNotificationWorker() {
+export async function stopNotificationWorker() {
   if (timer) {
     clearInterval(timer);
     timer = null;
   }
+
+  await inFlight?.catch(() => {});
+  inFlight = null;
 }

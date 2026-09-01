@@ -44,8 +44,8 @@ beforeEach(async () => {
   await grantPlatformAdmin({ email: user.email });
 });
 
-afterEach(() => {
-  stopSweepWorker();
+afterEach(async () => {
+  await stopSweepWorker();
 });
 
 function worker(health: Awaited<ReturnType<typeof getPlatformHealth>>, name: string) {

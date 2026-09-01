@@ -70,6 +70,17 @@ export async function processSweepBatch(opts: { billing?: boolean } = {}) {
 let timer: NodeJS.Timeout | null = null;
 
 /**
+ * The tick currently running, if one is.
+ *
+ * `clearInterval` stops the NEXT tick; it says nothing about the transaction
+ * the current one is inside. Stopping therefore has to wait for it, or the
+ * caller gets control back while a sweep still holds row locks — which under
+ * test is a `TRUNCATE` deadlocking against locks nobody can see, and in
+ * production is the shutdown path closing the pool underneath a live write.
+ */
+let inFlight: Promise<void> | null = null;
+
+/**
  * A minute is the right cadence for the two that matter.
  *
  * Booking holds live ten minutes and waitlist offers twelve hours, so a
@@ -111,14 +122,22 @@ export function startSweepWorker(intervalMs = 60_000) {
     }
   };
 
-  timer = setInterval(() => void tick(), intervalMs);
+  timer = setInterval(() => {
+    inFlight = tick();
+  }, intervalMs);
   timer.unref();
   logger.info({ intervalMs }, 'Sweep worker started');
 }
 
-export function stopSweepWorker() {
+export async function stopSweepWorker() {
   if (timer) {
     clearInterval(timer);
     timer = null;
   }
+
+  // A tick that threw is the tick's own business — it has already been logged
+  // where it happened. Stopping must not inherit that failure, or shutdown
+  // turns into a second error about the first one.
+  await inFlight?.catch(() => {});
+  inFlight = null;
 }
