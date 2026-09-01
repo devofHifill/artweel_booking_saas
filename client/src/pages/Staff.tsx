@@ -74,6 +74,28 @@ type Rule = {
   timezone: string;
 };
 
+/**
+ * A single dated exception to the weekly pattern.
+ *
+ * `startMinute`/`endMinute` are null for a DAY_OFF and required for the other
+ * two — the server enforces both halves of that, so the form follows the same
+ * shape rather than sending a window it will be told off for.
+ */
+type Override = {
+  id: string;
+  overrideType: 'DAY_OFF' | 'CUSTOM_HOURS' | 'EXTRA_HOURS';
+  localDate: string;
+  startMinute: number | null;
+  endMinute: number | null;
+  reason: string | null;
+};
+
+const OVERRIDE_LABELS: Record<Override['overrideType'], string> = {
+  DAY_OFF: 'Day off',
+  CUSTOM_HOURS: 'Different hours',
+  EXTRA_HOURS: 'Extra hours',
+};
+
 const DAYS = [
   { code: 'MO', label: 'Mon' },
   { code: 'TU', label: 'Tue' },
@@ -567,13 +589,28 @@ function WorkingHours({
   const [start, setStart] = useState('10:00');
   const [end, setEnd] = useState('18:00');
 
+  const [overrides, setOverrides] = useState<Override[]>([]);
+  const [oType, setOType] = useState<Override['overrideType']>('DAY_OFF');
+  const [oDate, setODate] = useState('');
+  const [oStart, setOStart] = useState('10:00');
+  const [oEnd, setOEnd] = useState('14:00');
+  const [oReason, setOReason] = useState('');
+
   const load = useCallback(async () => {
     setError(null);
     try {
-      const res = await api.get<{ rules: Rule[] }>(
-        `${base}/schedules/${staff.id}/rules`,
-      );
-      setRules(res.rules);
+      const [ruleRes, overrideRes] = await Promise.all([
+        api.get<{ rules: Rule[] }>(`${base}/schedules/${staff.id}/rules`),
+        // From today: a day off last March is history, not something anyone is
+        // about to change, and the list is for deciding what happens next.
+        api.get<{ overrides: Override[] }>(
+          `${base}/schedules/${staff.id}/overrides?from=${new Date()
+            .toISOString()
+            .slice(0, 10)}`,
+        ),
+      ]);
+      setRules(ruleRes.rules);
+      setOverrides(overrideRes.overrides);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load hours.');
     }
@@ -613,6 +650,47 @@ function WorkingHours({
     setError(null);
     try {
       await api.del(`${base}/schedules/${staff.id}/rules/${ruleId}`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addOverride() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`${base}/schedules/${staff.id}/overrides`, {
+        overrideType: oType,
+        localDate: oDate,
+        // A day off must carry NO window; the other two must carry one. The
+        // server rejects either mistake, so the shape is decided here.
+        startMinute: oType === 'DAY_OFF' ? null : toMinutes(oStart),
+        endMinute: oType === 'DAY_OFF' ? null : toMinutes(oEnd),
+        reason: oReason.trim() || null,
+      });
+      setODate('');
+      setOReason('');
+      await load();
+    } catch (err) {
+      /*
+        Worth showing verbatim. Marking a day off over live bookings is refused
+        and the message says how many are in the way — which is the number the
+        person needs in order to decide what to do next.
+      */
+      setError(err instanceof Error ? err.message : 'Could not save.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeOverride(overrideId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.del(`${base}/schedules/${staff.id}/overrides/${overrideId}`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not remove.');
@@ -717,19 +795,133 @@ function WorkingHours({
             Patterns add together, so a split week is two of them — Tuesday to
             Thursday mornings, Saturday afternoons.
           </p>
+
+          <div className="page-actions">
+            <button
+              className="primary"
+              disabled={
+                busy || days.length === 0 || toMinutes(end) <= toMinutes(start)
+              }
+              onClick={() => void add()}
+            >
+              {busy ? 'Saving…' : 'Add these hours'}
+            </button>
+          </div>
         </>
       )}
 
+      <hr />
+
+      <h3>Days off and exceptions</h3>
+      <p className="tiny muted">
+        One date at a time, on top of the weekly pattern. A day off over a live
+        booking is refused rather than silently stranding the customer.
+      </p>
+
+      {overrides.length > 0 ? (
+        <ul className="mini-list">
+          {overrides.map((o) => (
+            <li key={o.id} className="row-between">
+              <span>
+                <strong>{o.localDate}</strong> · {OVERRIDE_LABELS[o.overrideType]}
+                {o.startMinute != null && o.endMinute != null && (
+                  <> · {toTime(o.startMinute)}–{toTime(o.endMinute)}</>
+                )}
+                {o.reason && <span className="sub tiny"> {o.reason}</span>}
+              </span>
+              {canEdit && (
+                <button
+                  className="link danger"
+                  disabled={busy}
+                  onClick={() => void removeOverride(o.id)}
+                >
+                  Remove
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="tiny muted">Nothing coming up.</p>
+      )}
+
+      {canEdit && (
+        <>
+          <div className="fields">
+            <label>
+              What
+              <select
+                value={oType}
+                onChange={(e) =>
+                  setOType(e.target.value as Override['overrideType'])
+                }
+              >
+                <option value="DAY_OFF">Day off</option>
+                <option value="CUSTOM_HOURS">Different hours</option>
+                <option value="EXTRA_HOURS">Extra hours</option>
+              </select>
+            </label>
+
+            <label>
+              Date
+              <input
+                type="date"
+                value={oDate}
+                onChange={(e) => setODate(e.target.value)}
+              />
+            </label>
+
+            {oType !== 'DAY_OFF' && (
+              <>
+                <label>
+                  From
+                  <input
+                    type="time"
+                    value={oStart}
+                    onChange={(e) => setOStart(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Until
+                  <input
+                    type="time"
+                    value={oEnd}
+                    onChange={(e) => setOEnd(e.target.value)}
+                  />
+                </label>
+              </>
+            )}
+
+            <label>
+              Reason
+              <input
+                value={oReason}
+                maxLength={500}
+                placeholder="Optional — kiln repair, holiday"
+                onChange={(e) => setOReason(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="page-actions">
+            <button
+              className="primary"
+              disabled={
+                busy ||
+                !oDate ||
+                (oType !== 'DAY_OFF' && toMinutes(oEnd) <= toMinutes(oStart))
+              }
+              onClick={() => void addOverride()}
+            >
+              {busy ? 'Saving…' : 'Add exception'}
+            </button>
+          </div>
+        </>
+      )}
+
+      <hr />
+
       <div className="page-actions">
-        {canEdit && (
-          <button
-            className="primary"
-            disabled={busy || days.length === 0 || toMinutes(end) <= toMinutes(start)}
-            onClick={() => void add()}
-          >
-            {busy ? 'Saving…' : 'Add these hours'}
-          </button>
-        )}
         <button onClick={onClose} disabled={busy}>
           Done
         </button>
