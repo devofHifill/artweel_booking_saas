@@ -99,6 +99,16 @@ by tests:
   proxy can accept on `::1:15432` and forward nothing, and a half-working
   proxy shows up as a FAILED ASSERTION in the concurrency gate rather than as
   a connection error. Use `127.0.0.1`; `.env.example` explains why.
+- **The sidebar clips popovers, and that is `overflow` doing its job.** It is
+  `position: sticky` with `overflow-y: auto` so its foot — help, who is signed
+  in, the theme control — stays reachable without scrolling to the bottom of a
+  2,600px page. The cost is that any absolutely-positioned child is clipped to
+  its box: a `bell-panel` opened from a sidebar button appears as a sliver and
+  looks like a CSS mistake. Nothing in there needs one today — every row is a
+  link, and `ThemeToggle` cycles rather than opening. If something ever does,
+  the answer is a fixed-position portal, not removing the scroll. Cost half an
+  hour on 2026-09-01, which ended with sidebar help becoming `/help` instead —
+  a better answer for its own reasons, arrived at from this one.
 - **Do not leave the dev API server running during a full suite.** It polls
   Postgres continuously, and the browser-verification clicking adds more, on
   the same container the tests use. Both failures seen in this phase were in
