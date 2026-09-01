@@ -727,10 +727,10 @@ function WorkingHours({
       {working.length > 0 && (
         <ul className="mini-list">
           {working.map((rule) => (
-            <li key={rule.id} className="row-between">
-              <span>
-                {describe(rule)}
-                <span className="sub tiny"> {rule.timezone}</span>
+            <li key={rule.id} className="mini-row">
+              <span className="mini-main">
+                <b>{describe(rule)}</b>
+                <span className="tiny muted">{rule.timezone}</span>
               </span>
               {canEdit && (
                 <button
@@ -750,9 +750,17 @@ function WorkingHours({
         <>
           <hr />
           <div className="fields">
-            <fieldset>
-              <legend>Days</legend>
-              <div className="row">
+            {/*
+              role="group" rather than a fieldset: nothing else in this client
+              uses fieldset/legend, and unstyled they arrive with a browser
+              border and an inset caption that match none of the surrounding
+              forms. The grouping still reaches a screen reader.
+            */}
+            <div className="setting-stack" role="group" aria-label="Working days">
+              <span className="tiny muted">Days</span>
+              {/* `.days` already exists for a wrapping row of day controls.
+                  `.row`, used elsewhere in this codebase, has no rule at all. */}
+              <div className="days">
                 {DAYS.map((d) => (
                   <label key={d.code} className="check">
                     <input
@@ -770,7 +778,7 @@ function WorkingHours({
                   </label>
                 ))}
               </div>
-            </fieldset>
+            </div>
 
             <label>
               From
@@ -821,13 +829,18 @@ function WorkingHours({
       {overrides.length > 0 ? (
         <ul className="mini-list">
           {overrides.map((o) => (
-            <li key={o.id} className="row-between">
-              <span>
-                <strong>{o.localDate}</strong> · {OVERRIDE_LABELS[o.overrideType]}
-                {o.startMinute != null && o.endMinute != null && (
-                  <> · {toTime(o.startMinute)}–{toTime(o.endMinute)}</>
-                )}
-                {o.reason && <span className="sub tiny"> {o.reason}</span>}
+            <li key={o.id} className="mini-row">
+              <span className="mini-main">
+                <b>
+                  {o.localDate} · {OVERRIDE_LABELS[o.overrideType]}
+                  {o.startMinute != null && o.endMinute != null && (
+                    <>
+                      {' '}
+                      · {toTime(o.startMinute)}–{toTime(o.endMinute)}
+                    </>
+                  )}
+                </b>
+                {o.reason && <span className="tiny muted">{o.reason}</span>}
               </span>
               {canEdit && (
                 <button
