@@ -16,6 +16,8 @@ import Dashboard from './pages/Dashboard';
 import Bookings from './pages/Bookings';
 import CalendarPage from './pages/Calendar';
 import MySchedule from './pages/MySchedule';
+import { HelpMenu } from './components/HelpMenu';
+import { AccountMenu } from './components/AccountMenu';
 import Customers from './pages/Customers';
 import Register from './pages/Register';
 import Classes from './pages/Classes';
@@ -43,8 +45,7 @@ import { AlertBell } from './components/AlertBell';
 import { useShellSummary } from './lib/useShellSummary';
 
 export default function App() {
-  const { user, loading, signOut, memberships, activeOrgId, setActiveOrg } =
-    useAuth();
+  const { user, loading, signOut, memberships } = useAuth();
   const org = useActiveOrg();
   const location = useLocation();
   const [showSignUp, setShowSignUp] = useState(false);
@@ -159,34 +160,51 @@ export default function App() {
           <GlobalSearch />
 
           <div className="topbar-right">
-            {/* Today's date, so the dashboard's figures have a stated anchor. */}
+            {/*
+              Today's date, so the dashboard's figures have a stated anchor.
+
+              With the YEAR. It was "Tue, Sep 1", which is fine until somebody
+              is looking at a course that runs into next year, or reading a
+              screenshot months later — and this product schedules a long way
+              ahead. The long form matches the prototype and costs a little
+              width; `topbar-date` is hidden on narrow screens already.
+            */}
             <span className="topbar-date">
               {new Date().toLocaleDateString(undefined, {
-                weekday: 'short',
+                weekday: 'long',
                 day: 'numeric',
-                month: 'short',
+                month: 'long',
+                year: 'numeric',
               })}
             </span>
 
             <AlertBell alerts={summary.alerts} />
 
+            <HelpMenu />
+
             {/*
               A real link to the real page, not a preview modal. It is the thing
               customers see, and the fastest way to check a change landed is to
               look at it. Opens in a new tab so the dashboard is not lost.
+
+              Labelled, not a bare glyph. It had `title` and `aria-label`, so a
+              screen reader always got it — but a sighted person met a generic
+              open-in-new-window mark and had to hover to learn that the most
+              useful control on this bar goes to their own booking page.
             */}
             {org && (
               <a
-                className="icon-btn"
+                className="button-link topbar-cta"
                 href={`/public/${org.organization.slug}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                title="View your booking page"
-                aria-label="View your booking page"
               >
-                <Icon name="external" size={18} />
+                <Icon name="external" size={16} />
+                View booking page
               </a>
             )}
+
+            <AccountMenu />
           </div>
         </div>
       }
@@ -342,28 +360,17 @@ export default function App() {
 
           <div className="spacer" />
 
-          {memberships.length > 1 && (
-            <>
-              <label htmlFor="org">Studio</label>
-              <select
-                id="org"
-                value={activeOrgId ?? ''}
-                onChange={(e) => setActiveOrg(e.target.value)}
-              >
-                {memberships.map((m) => (
-                  <option key={m.organizationId} value={m.organizationId}>
-                    {m.organization.name}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
+          {/*
+            The studio switcher and Sign out moved to the account menu in the
+            topbar, which is where people look for an account. They MOVED —
+            leaving copies here would be one question with two answers, free to
+            drift apart, which is the thing this phase has declined three times.
+
+            The theme control stays: it is a preference for this device, not
+            part of an account.
+          */}
 
           <ThemeToggle />
-
-          <button onClick={signOut} style={{ marginTop: 12 }}>
-            Sign out
-          </button>
         </>
       }
     >
