@@ -15,6 +15,7 @@ import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import Bookings from './pages/Bookings';
 import CalendarPage from './pages/Calendar';
+import MySchedule from './pages/MySchedule';
 import Customers from './pages/Customers';
 import Register from './pages/Register';
 import Classes from './pages/Classes';
@@ -264,6 +265,19 @@ export default function App() {
                 Staff &amp; Guides
               </NavLink>
             )}
+            {/*
+              Shown to non-admins only. An owner or admin who also teaches
+              reaches the same panel through Staff & Guides, where they can
+              also change hours — so a second entry point for them would be a
+              second answer to one question. For everybody else it is the only
+              answer there is.
+            */}
+            {!isAdmin && (
+              <NavLink to="/my-schedule">
+                <Icon name="staff" />
+                My schedule
+              </NavLink>
+            )}
             {isAdmin && (
               <NavLink to="/payments">
                 <Icon name="plan" />
@@ -388,6 +402,14 @@ export default function App() {
           path="/staff"
           element={isAdmin ? <StaffPage /> : <Navigate to="/" replace />}
         />
+        {/*
+          Ungated on purpose. The page finds the viewer's OWN staff record and
+          shows nothing else, so an admin who also teaches gets the same thing
+          as an instructor, and a front-desk account with no staff record gets
+          an explanation. The write it offers is `requireAdminOrSelf` on the
+          server, which is the guard that actually decides.
+        */}
+        <Route path="/my-schedule" element={<MySchedule />} />
         <Route
           path="/payments"
           element={isAdmin ? <PaymentsPage /> : <Navigate to="/" replace />}
