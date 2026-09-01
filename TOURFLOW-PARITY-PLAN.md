@@ -2,20 +2,37 @@
 
 ---
 
-## RESUMING HERE — state as of 2026-08-25
+## RESUMING HERE — state as of 2026-09-01
 
-**Done:** D0, D1, D2, D4, D5, D6, D7, D8, D9, D10, D11. **D3 is PARTIAL**
+**Done:** D0, D1, D2, D4, D5, D6, D7, D8, D9, D10, D11, D12. **D3 is PARTIAL**
 (month + week shipped; day view, side panel, block-a-date and add-slot
-deliberately not built — see its section). **D12–D13 not started:** Website &
-Widget, Settings.
+deliberately not built — see its section). **D13 Settings is the only item
+left**, and it is the last of the thirteen.
 
-**Suite: 882 tests, 59 files, green.** Run it with `npm test` from `server/`;
-it takes about 37 minutes, so start it before doing anything else.
+**D12 has not been looked at in a browser.** Client typecheck and a production
+build are clean, and it changes no server code, but the screen itself has not
+been walked. It is a link moved into the page head and a paragraph added under
+the embed snippet — small, but unverified is unverified. Whoever opens D13 is
+on the same screen family and should glance at it.
+
+**Suite: 922 tests, 59 files, green**, plus the timing gate at p95 174ms. Run
+it with `npm test` from `server/`; it takes about 40 minutes, so start it
+before doing anything else. **Two sessions must not share a test database** —
+point the second at `booking_test_b` via `TEST_DATABASE_URL`, or both runs
+truncate each other's fixtures and produce failures that look like real ones.
+
+**Fixed dates in fixtures are a live hazard.** Five expired or were about to;
+see the audit note under D12's section and commits `142e3bf`, `7798ea9`,
+`4127a6f`. The rule: a past date is inert, a future date only matters if the
+product compares it against real `now`, and the list of things that do is
+short.
 
 **Deployed and verified on staging** (`artweel.fillforge.cloud`): all migrations
 through `default_brand_indigo`, plus the `.dockerignore` fix that keeps
-`prisma/demo.ts` out of the production image. **D7 adds no migration**, so
-nothing new is owed to staging.
+`prisma/demo.ts` out of the production image. Staging carries D7–D11 and the
+harness fix, at `7798ea9`. **Nothing since adds a migration**, so only code is
+ever owed. Check the deployed commit after a pull — it was one behind once
+today, and only the fact that the missing commit was test-only made that free.
 
 **The demo data cannot exercise everything.** `npm run db:demo` sells classes
 and nothing else — no packs, no courses, no refunds — so the payments
@@ -234,7 +251,7 @@ prototype has no upside.
 | **D9** | Daily Manifest | phone, address, doorstep | **DONE** — 7 tests, no migration |
 | **D10** | Notifications | figures, tabs, tokens, test send | **DONE** — 14 tests, no migration |
 | **D11** | Integrations | the calendar buttons | **DONE** — 4 tests, no migration |
-| **D12** | Website & Widget | the link, and `data-height` | **DONE** — no server change, no migration |
+| **D12** | Website & Widget | the link, and `data-height` | **DONE** — not yet walked in a browser |
 | **D13** | Settings | | not started |
 
 D0 first and alone, because every item after it is judged against the finished
