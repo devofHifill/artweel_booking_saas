@@ -435,7 +435,23 @@ function Appearance() {
     try {
       const res = await api.get<ThemeResponse>(`${base}/theme`);
       setState(res);
-      if (res.accent) setCustom(res.accent);
+
+      /*
+        `accent` is only set for a CUSTOM colour — a studio on a preset has
+        null, and the field used to keep its hardcoded clay default. So a
+        studio on Indigo opened this screen and saw terracotta sitting in a box
+        labelled "or use your own", one click from silently restyling
+        themselves to a colour they had never chosen.
+
+        With no custom accent, seed it from the active preset's own swatch: the
+        field then opens on the colour the studio is actually wearing, which is
+        the only sensible starting point for changing it.
+      */
+      setCustom(
+        res.accent ??
+          res.presets.find((p) => p.id === res.preset)?.swatch ??
+          '#a6522c',
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load your theme.');
     }
