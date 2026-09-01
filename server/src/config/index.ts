@@ -116,6 +116,20 @@ const EnvSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().email().default('bookings@example.test'),
 
+  /**
+   * How the product is SHAPED — radii and density — for every studio at once.
+   *
+   * Not a studio setting and not a per-person one: a studio moves its accent
+   * and nothing else, which is the boundary `brand.test.ts` guards. A pack can
+   * reach no colour at all, so choosing one cannot weaken a contrast guarantee.
+   *
+   * Must match `VITE_THEME_PACK` in the client build, or the marketing site and
+   * booking page will be a different shape from the dashboard. An enum rather
+   * than a string, so a typo fails at boot rather than silently rendering the
+   * default.
+   */
+  THEME_PACK: z.enum(['artweel', 'crisp']).default('artweel'),
+
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_FROM_NUMBER: z.string().optional(),

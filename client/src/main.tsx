@@ -23,6 +23,24 @@ adoptSupportTokenFromUrl();
 // navigates away immediately.
 captureAttribution();
 
+/*
+  The theme pack: how the PRODUCT is shaped, chosen once for everybody.
+
+  A build-time value, not a setting. It is not per studio — studios move their
+  accent and nothing else, which is the boundary `brand.test.ts` guards — and
+  it is not per person either, so there is nothing to store, fetch or
+  invalidate. Baking it in also means no attribute swap after mount, and so no
+  frame where the product is a different shape than it settles on.
+
+  `artweel` is the default and emits nothing; the packs live in
+  `styles.css` under `[data-pack]`, mirrored from `server/src/lib/design-tokens.ts`
+  and checked against it by `tests/design/packs.test.ts`.
+*/
+const pack = import.meta.env.VITE_THEME_PACK;
+if (pack && pack !== 'artweel') {
+  document.documentElement.dataset.pack = pack;
+}
+
 // Before the first paint: otherwise the page renders in the system theme and
 // corrects itself once React mounts, which is a white flash on every load for
 // anyone who chose dark.

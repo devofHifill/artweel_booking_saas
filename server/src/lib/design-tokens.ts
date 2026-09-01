@@ -199,6 +199,73 @@ export const DARK_SCALE_TOKENS = {
   '--shadow-lg': '0 12px 32px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.35)',
 } as const;
 
+/* --- Theme packs ----------------------------------------------------------
+ *
+ * How the PRODUCT looks, chosen once for everybody — not a studio setting.
+ *
+ * A studio may move its accent and nothing else. That limit is deliberate and
+ * `brand.test.ts` guards it: a theme that could move `--ink` or `--card` is a
+ * theme that can make a dashboard unreadable, and support calls for a mess the
+ * studio made itself. Packs do not touch that boundary. They sit one level up
+ * and change the shape of the product for every studio at once.
+ *
+ * So a pack may set SHAPE, DENSITY, ELEVATION and MOTION — and no colour at
+ * all. `PACKABLE` is that list, and a test asserts no pack exceeds it. Keeping
+ * colour out is what makes packs safe by construction rather than by review:
+ * contrast cannot regress if nothing in a pack can reach a colour.
+ */
+export const PACKABLE = [
+  '--radius-sm',
+  '--radius',
+  '--radius-md',
+  '--radius-lg',
+  '--space-2',
+  '--space-3',
+  '--space-4',
+  '--space-5',
+  '--space-6',
+  '--motion-fast',
+  '--motion-base',
+] as const;
+
+/*
+  Shadows are deliberately NOT packable, and the reason is worth keeping.
+
+  `DARK_SCALE_TOKENS` re-declares all three because a shadow that reads on
+  white disappears on a dark ground — it is a colour decision wearing a
+  geometry name. It is emitted after the pack, so a pack flattening shadows
+  would have flattened them in light mode and been silently overridden in
+  dark: the product looking like two different products depending on a
+  setting nobody connected to it.
+
+  Doing it properly means packs carrying light AND dark shadow sets, which is
+  a bigger surface than this needs today. Shape and density are what "crisp"
+  actually reads as.
+*/
+
+export type PackId = 'artweel' | 'crisp';
+
+export const THEME_PACKS: Record<PackId, Record<string, string>> = {
+  /** The shipped values. An empty pack, so the default emits nothing at all. */
+  artweel: {},
+
+  /**
+   * Tighter, the shape the TourFlow prototype wears: smaller radii and a step
+   * less air.
+   *
+   * Every value here is one step off the base scale rather than a new number,
+   * so the product stays on its own scale instead of growing a second one.
+   */
+  crisp: {
+    '--radius-sm': '4px',
+    '--radius': '6px',
+    '--radius-md': '10px',
+    '--radius-lg': '14px',
+    '--space-5': '16px',
+    '--space-6': '20px',
+  },
+};
+
 function declare(tokens: Record<string, string>): string {
   return Object.entries(tokens)
     .map(([name, value]) => `${name}:${value}`)
@@ -206,13 +273,32 @@ function declare(tokens: Record<string, string>): string {
 }
 
 /**
+ * A pack's overrides, or nothing.
+ *
+ * Emitted on `:root` rather than a `[data-pack]` selector on the server: these
+ * surfaces are rendered per request and already know which pack is configured,
+ * so there is no reason to ship the others and select between them. The client
+ * bundle is static and does the opposite — see the `[data-pack]` blocks in
+ * `styles.css`.
+ */
+export function packCss(pack: PackId): string {
+  const overrides = THEME_PACKS[pack];
+  return Object.keys(overrides).length === 0
+    ? ''
+    : `:root{${declare(overrides)}}`;
+}
+
+/**
  * The `:root` block, for inlining into a server-rendered page.
  *
  * Emitted compact because it ships in the document on every request.
  */
-export function tokensCss(): string {
+export function tokensCss(pack: PackId = 'artweel'): string {
   return [
     `:root{${declare({ ...COLOR_TOKENS.light, ...SCALE_TOKENS })}}`,
+    /* After the base block, so it overrides it, and before the dark one, whose
+       shadows are a colour decision a pack must not undo. */
+    packCss(pack),
     `@media(prefers-color-scheme:dark){:root{${declare({
       ...COLOR_TOKENS.dark,
       ...DARK_SCALE_TOKENS,

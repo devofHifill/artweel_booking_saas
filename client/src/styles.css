@@ -3359,3 +3359,23 @@ td.strong { font-weight: 600; }
   white-space: nowrap;
 }
 .side-user .tiny { text-transform: capitalize; }
+
+/* --- Theme packs ----------------------------------------------------------
+   How the PRODUCT is shaped, chosen once for everybody by VITE_THEME_PACK.
+   NOT a studio setting: a studio moves its accent and nothing else.
+
+   Mirrored from THEME_PACKS in server/src/lib/design-tokens.ts. The client
+   cannot import that file, so `tests/design/packs.test.ts` parses this block
+   and fails if the two disagree — the same guard that keeps the base tokens
+   from drifting.
+
+   Shape and density only. Colours are never packable, so no contrast
+   guarantee in this product can be weakened by choosing a pack. */
+:root[data-pack='crisp'] {
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --space-5: 16px;
+  --space-6: 20px;
+}

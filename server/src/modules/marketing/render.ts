@@ -59,7 +59,7 @@ const MARK = `<svg class="mark" width="24" height="24" viewBox="0 0 26 26" aria-
 <circle cx="13" cy="13" r="4.5" fill="none" stroke="url(#m)" stroke-width="1.6"/></svg>`;
 
 const STYLES = `
-${tokensCss()}
+${tokensCss(config.THEME_PACK)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
 font:17px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;

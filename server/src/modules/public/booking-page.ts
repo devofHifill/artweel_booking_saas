@@ -1,3 +1,4 @@
+import { config } from '../../config';
 import { clientScript } from './booking-page.client';
 import { tokensCss } from '../../lib/design-tokens';
 import { brandCss, resolveBrand } from '../../lib/brand';
@@ -107,7 +108,7 @@ type PageData = {
 };
 
 const STYLES = `
-${tokensCss()}
+${tokensCss(config.THEME_PACK)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
 font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
