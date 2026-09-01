@@ -20,19 +20,40 @@ have no concept of equipment.
 - Spec: `D:\Projects\2026\booking-saas-spec.md`
 - Phase plan: `D:\Projects\2026\booking-saas-phases.pdf`
 
-## Status
+## Status — 2026-09-01
 
-**Phases 0, 1 and 2 are all code-complete, and every workstream is now deployed
-to staging.** 499 tests green in the default suite, plus an isolated performance
-gate under 200ms p95. Both typechecks clean.
+**Phases 0, 1 and 2 are code-complete. Since then: a design-system port,
+superadmin Stages 1 and 2, and the thirteen-item TourFlow parity pass, which is
+now finished.** 922 tests green in the default suite, plus the isolated timing
+gate at p95 174ms. Both typechecks clean.
 
-The dashboard now covers every Phase 2 module — waitlists, courses, pieces,
-firings, credits and packs all have screens. See `PHASE-2-CLOSEOUT.md` for what
-remains.
+Read `TOURFLOW-PARITY-PLAN.md` first — its RESUMING HERE block is the current
+one. `PHASE-2-CLOSEOUT.md` is history now; everything in it landed.
 
-What is left is unfinished edges rather than missing features, and the plan for
-closing them is `PHASE-2-CLOSEOUT.md`. The largest item is that six Phase 2
-modules have no dashboard screens at all.
+**What is actually left:**
+
+- **Four client changes have never been walked in a browser** — D12 Website &
+  widget, D13's booking terms on the service form, and the working-hours and
+  exceptions panels on Staff. They typecheck and build, and a static pass fixed
+  three defects in them, but nobody has looked at the screens. This is the one
+  real debt.
+- **Staging is five commits behind**, at `7798ea9`. Everything from D12 onward
+  exists only in git.
+- **D3 Calendar is partial** by decision — month and week shipped; day view and
+  the side panel were declined with reasons, and add-slot belongs to Classes,
+  which already has it.
+
+**What the parity pass turned up, which is the useful part.** Five of the
+thirteen items were not styling gaps at all but capabilities with no caller:
+a studio could not create an activity (D4), connect a calendar (D11), set a
+notice window, booking horizon or deposit (D13), or give an instructor working
+hours — which meant **anyone hired after signup was permanently unbookable**,
+silently. The onboarding wizard seeds hours for the FIRST instructor only. That
+pattern is the thing to keep looking for.
+
+Two harness faults were fixed the same day: worker stops that did not await the
+tick in flight, and a Prisma client shared across every test file. Together
+they were producing up to 47 phantom failures in a run.
 
 Deployed to staging on 2026-08-12: W2.1 (course cohorts + paid checkout),
 W2.2a (attendance registers) and W2.2c (drop-in class scheduling).
@@ -129,7 +150,9 @@ under "Being built next — not available yet". A test enforces this.
 | Migrations | `prisma migrate dev` needs a TTY and fails here. Use `prisma migrate diff --from-migrations … --script` into a temp file, write it to a new `prisma/migrations/<timestamp>_name/migration.sql`, then `prisma migrate deploy`. |
 | PowerShell + .NET | `[System.IO.File]::WriteAllText` uses the *process* CWD, not `Set-Location`. Always pass absolute paths. |
 | Perf suite | Must run **alone**: `npm run test:perf`. It is excluded from `npm test`. Running it alongside anything else inflates p95 and produces a false failure. |
-| Suite length vs edits | The suite now takes ~25 minutes, which is long enough that editing source while it runs is easy to do by accident — and the result then describes code that no longer exists. It happened once here and produced two false failures. **Never run two suites at once either**: they share `booking_test` and truncate tables between tests, so they corrupt each other. Kill a run you have invalidated rather than reading its output. |
+| Suite length vs edits | The suite now takes ~40 minutes, which is long enough that editing source while it runs is easy to do by accident — and the result then describes code that no longer exists. It happened once here and produced two false failures. Kill a run you have invalidated rather than reading its output. |
+| Two sessions, two databases | **Never run two suites against one database.** They truncate between tests and corrupt each other. On 2026-09-01 this produced 35 failures that were not real; the tell was `signUpStudio failed: 500` and, in the Postgres log, two backends hitting `organizations_slug_key` a second apart. `booking_test` and `booking_test_b` both exist and are migrated — the second session sets `TEST_DATABASE_URL`. |
+| A quiet machine, or a phantom gate failure | Five full-suite attempts on 2026-09-01: one killed by Docker Desktop restarting mid-run, one by concurrent runs, one by edits, one by the port proxy dropping connections under load. Only the fifth, on an otherwise idle machine, was clean. A gate test reporting a raw `PrismaClientKnownRequestError` where it expects the app's own error is almost always this, not the code. |
 | Test plan defaults | `signUpStudio` defaults orgs to plan `PRO` so plan limits don't interfere with unrelated suites. Billing tests pass `plan: 'SOLO'` explicitly. |
 
 ---
@@ -137,8 +160,8 @@ under "Being built next — not available yet". A test enforces this.
 ## COMMANDS
 
 ```
-cd server && npm test              # 475 tests, ~25 min — see the warning below
-cd server && npm run test:perf     # isolated timing gate — run alone
+cd server && npm test              # 922 tests, ~40 min — see the warning below
+cd server && npm run test:perf     # isolated timing gate — run alone (p95 174ms)
 cd server && npm run typecheck
 cd server && npm run db:seed       # prints booking URL + login
 cd server && npm run dev           # API on 4000
@@ -156,7 +179,20 @@ cd client && npm run dev           # dashboard on 5173
 
 ## DEPLOYMENT (staging, live since 2026-08-12)
 
-Runbook: `DEPLOY.md`. Box: `root@fillforge`, code at `~/artweel`.
+Runbook: `DEPLOY.md`. Code at `~/artweel`.
+
+**`root@fillforge` does not resolve** — it is shorthand, not a hostname, and it
+sent a session hunting on 2026-09-01. The box is whatever
+`artweel.fillforge.cloud` resolves to; the local `my-vps` SSH alias is a
+DIFFERENT machine and does not answer.
+
+**Check the deployed commit after every pull.** `git log --oneline -1` in
+`~/artweel`. It was one behind what was expected once, and the only reason that
+cost nothing is that the missing commit touched test files, which never enter
+the image.
+
+Staging is currently at `7798ea9` — five commits behind `main`'s branch head.
+Nothing since adds a migration, so only code is ever owed.
 
 The VPS is **shared** — n8n and FDGSMS run there too, and **Traefik owns 80/443**.
 There is no host nginx and no certbot. Routing is container labels on the
@@ -199,10 +235,11 @@ Calendar (blank credentials fall back to the in-memory fake).
 
 ## OPEN DECISIONS
 
-1. **Product name.** Repo says "artweel"; code still says "Studio Bookings"
-   everywhere (marketing titles, JSON-LD, notification sender, package names).
-   Needs a decision then a find-and-replace. Matters because SEO bakes in
-   `PUBLIC_URL` and re-indexing later is costly.
+1. ~~**Product name.**~~ **Settled 2026-08-14: the product is Artweel.** The
+   repo, staging hostnames, WordPress plugin and embed protocol already said
+   so; only the marketing footer and two JSON-LD fields held out, and they were
+   moved to match. Nothing is indexed under any name while staging carries
+   `X-Robots-Tag: noindex`.
 2. **Talk to three US ceramics studios.** Still open, and now the binding
    constraint on Phase 2 rather than a nice-to-have. W2.1 was built ahead of it
    on the judgement that cohorts and enrolment are structurally obvious —
