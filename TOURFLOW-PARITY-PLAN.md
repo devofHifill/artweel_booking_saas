@@ -234,7 +234,7 @@ prototype has no upside.
 | **D9** | Daily Manifest | phone, address, doorstep | **DONE** — 7 tests, no migration |
 | **D10** | Notifications | figures, tabs, tokens, test send | **DONE** — 14 tests, no migration |
 | **D11** | Integrations | the calendar buttons | **DONE** — 4 tests, no migration |
-| **D12** | Website & Widget | | not started |
+| **D12** | Website & Widget | the link, and `data-height` | **DONE** — no server change, no migration |
 | **D13** | Settings | | not started |
 
 D0 first and alone, because every item after it is judged against the finished
@@ -1127,6 +1127,60 @@ page-blanking bug, and is the second time in this phase that a deliberately
 broken fixture has been more useful than a working one. Both rows were deleted
 afterwards: a permanently broken calendar left in the dev database would be a
 puzzle for whoever opened the page next.
+
+### D12 — the smallest item in the phase, 2026-09-01
+
+**Almost all of this screen's difference is pile three.** The prototype's
+Website is a site BUILDER — seven sections against our four — and five of the
+seven describe a product we do not have.
+
+**Not ported, and none of it close:**
+
+- **Pages.** A table of pages with paths, view counts and publish toggles.
+  TourFlow edits a multi-page site; a studio here has one booking page. There
+  is nothing to list.
+- **Navigation.** Nav items and a header call to action, for the nav that
+  multi-page site would need.
+- **The Overview KPIs** — page views, bookings from site, conversion. The
+  prototype has no backend, so these are invented. We have `MarketingEvent`
+  rows but nothing aggregates them into page views, so porting the tiles means
+  inventing our own numbers, which is worse than not showing them.
+- **The checklist.** Six items, four of which do not exist here: custom
+  domain, SSL certificate, gift cards page, Google Analytics. We DO have a real
+  one — `getOnboardingState` derives every step from the data rather than from
+  a flag — but it already has a home in the onboarding wizard, and a second
+  copy on this screen is the D3 side-panel argument again: one question, two
+  answers, drifting.
+- **The widget's accent colour.** Ours points at Settings → Appearance on
+  purpose, because two pickers writing one column drift. The demo has both.
+- **Ratings.** No such thing in this product.
+
+**Where ours is ahead and was not flattened.** The demo previews the site with
+a hand-built gradient mock of a browser window; ours renders the real booking
+page in an iframe. The demo's embed is a fixed-height iframe; ours posts its
+height to the host and grows with the content, which is the difference between
+an embed and an embed that looks bought.
+
+**What was actually worth closing, both small:**
+
+**The booking page link was in the fourth tab.** "Where is my page?" is the
+first question this screen gets asked, and the only route to an answer was
+Widget — past two forms, on the section a studio opens least. It is in the page
+head now, so it is there from every section. This is the same shape as D9's
+finding: not a missing feature, a missing reader.
+
+**`data-height` was undocumented.** The loader has read it since W2.7 and
+nothing a studio can see has ever mentioned it. The frame resizes itself, so it
+only governs the height the widget opens at — but on a slow connection that is
+the height the visitor sees first, and a studio embedding into a fixed layout
+has no other way to ask.
+
+**Not verified in a browser, and that is owed.** This session's working
+directory is a different project, so `preview_start` resolves the wrong
+`launch.json` and the dashboard cannot be walked from here. Client typecheck is
+clean and the change is a link move plus a paragraph, but the screen has not
+been looked at. Whoever picks up D13 is already in the right folder and should
+eyeball it.
 
 ### Known per-item notes
 

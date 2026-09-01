@@ -85,9 +85,27 @@ export default function Website() {
 
   return (
     <>
+      {/*
+        The link belongs in the head, not in the fourth tab.
+        "Where is my page?" is the first question this screen is opened with,
+        and until now the only way through to it was Widget — three clicks past
+        two forms, on the one section a studio visits least.
+      */}
       <PageHead
         title="Website &amp; widget"
         lede="What your customers see, and the two lines you paste into your own site."
+        actions={
+          data && (
+            <a
+              className="button-link"
+              href={data.embed.bookingUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open the booking page
+            </a>
+          )
+        }
       />
 
       <div className="settings-wrap">
@@ -513,15 +531,18 @@ function WidgetSection({ embed }: { embed: WebsiteResponse['embed'] }) {
           <button type="button" className="primary" onClick={() => void copy()}>
             {copied ? 'Copied' : 'Copy snippet'}
           </button>
-          <a
-            className="button-link"
-            href={embed.bookingUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open the booking page
-          </a>
         </div>
+
+        {/*
+          `data-height` has been read by the loader since W2.7 and has never
+          been written down anywhere a studio would look. The frame resizes
+          itself, so this only governs the height it opens at — but on a slow
+          connection that is the height the visitor sees first.
+        */}
+        <p className="sub">
+          The frame grows with its content on its own. To choose the height it
+          starts at, add <code>data-height="600"</code> to the div.
+        </p>
       </div>
 
       <hr />
