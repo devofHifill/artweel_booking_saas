@@ -16,12 +16,20 @@ import { useEffect, useRef, useState } from 'react';
  * away.
  */
 
-const SHORTCUTS: { keys: string; what: string }[] = [
+export const SHORTCUTS: { keys: string; what: string }[] = [
   { keys: '/', what: 'Jump to search, from anywhere' },
   { keys: 'Esc', what: 'Close this, or any other panel' },
 ];
 
-export function HelpMenu() {
+/**
+ * Two triggers, one panel.
+ *
+ * The prototype puts help in both places — a `?` in the bar and "Help &
+ * Support" in the sidebar — so both exist here. What is NOT duplicated is the
+ * content: `SHORTCUTS` is declared once, and a second list that drifted out of
+ * step with the first is the failure this avoids.
+ */
+export function HelpMenu({ variant = 'icon' }: { variant?: 'icon' | 'nav' }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -47,7 +55,7 @@ export function HelpMenu() {
     <div className="bell-wrap" ref={wrapRef}>
       <button
         type="button"
-        className="icon-btn"
+        className={variant === 'nav' ? 'nav-help' : 'icon-btn'}
         aria-label="Keyboard shortcuts"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
@@ -57,6 +65,7 @@ export function HelpMenu() {
         <span aria-hidden="true" style={{ fontSize: 15, fontWeight: 600 }}>
           ?
         </span>
+        {variant === 'nav' && <span>Help &amp; Support</span>}
       </button>
 
       {open && (

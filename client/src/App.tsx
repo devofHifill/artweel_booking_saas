@@ -16,6 +16,7 @@ import Dashboard from './pages/Dashboard';
 import Bookings from './pages/Bookings';
 import CalendarPage from './pages/Calendar';
 import MySchedule from './pages/MySchedule';
+import Help from './pages/Help';
 import { HelpMenu } from './components/HelpMenu';
 import { AccountMenu } from './components/AccountMenu';
 import Customers from './pages/Customers';
@@ -39,6 +40,7 @@ import AcceptInvite from './pages/AcceptInvite';
 import AdminApp from './admin/AdminApp';
 import { Shell } from './components/Shell';
 import { Icon } from './components/Icon';
+import { initials } from './components/layout';
 import { ThemeToggle } from './components/ThemeToggle';
 import { GlobalSearch } from './components/GlobalSearch';
 import { AlertBell } from './components/AlertBell';
@@ -370,6 +372,40 @@ export default function App() {
             part of an account.
           */}
 
+          {/*
+            Help in the sidebar as well as the bar, which is what the prototype
+            does — but as a LINK, because every other row in this list
+            navigates and one that opens a panel instead misdescribes itself.
+            The page and the top bar's popover both read one list of shortcuts,
+            so they cannot drift apart.
+          */}
+          <NavLink to="/help">
+            <Icon name="external" size={20} />
+            Help &amp; Support
+          </NavLink>
+
+          {/*
+            Who is signed in, at the foot of the sidebar.
+
+            Informational only: the account ACTIONS — switch studio, sign out —
+            live in the topbar menu, and putting buttons here too would rebuild
+            the duplication that menu just replaced. This says who and where,
+            which is the part worth having in view while you work.
+          */}
+          {user && (
+            <div className="side-user">
+              <span className="avatar sm">{initials(user.name || user.email)}</span>
+              <span className="mini-main">
+                <b>{user.name || user.email}</b>
+                <span className="tiny muted">
+                  {org
+                    ? `${org.role.toLowerCase().replace('_', ' ')} · ${org.organization.name}`
+                    : user.email}
+                </span>
+              </span>
+            </div>
+          )}
+
           <ThemeToggle />
         </>
       }
@@ -417,6 +453,7 @@ export default function App() {
           server, which is the guard that actually decides.
         */}
         <Route path="/my-schedule" element={<MySchedule />} />
+        <Route path="/help" element={<Help />} />
         <Route
           path="/payments"
           element={isAdmin ? <PaymentsPage /> : <Navigate to="/" replace />}

@@ -1813,6 +1813,22 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
     grid-template-rows: auto 1fr;
   }
   .shell.has-topbar > .sidebar { grid-area: sidebar; }
+
+  /* Pinned to the viewport, so what sits at the FOOT of the sidebar — help,
+     who is signed in, the theme control — is reachable without scrolling to
+     the bottom of the page.
+
+     It had no height of its own, so it stretched to the document: on the
+     dashboard that is about 2,600px, which put its footer two and a half
+     screens down. Nothing was broken, but nothing down there was ever seen
+     either. `align-self: start` is what stops the grid stretching it back. */
+  .shell.has-topbar > .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
+  }
   .shell.has-topbar > .topbar { grid-area: topbar; }
   .shell.has-topbar > .main { grid-area: main; }
 
@@ -3267,3 +3283,41 @@ td.strong { font-weight: 600; }
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--text-xs);
 }
+
+/* Sidebar help trigger, styled as a nav row rather than an icon button.
+   Matches `.nav a` so it sits in the list without announcing itself as a
+   different kind of thing. */
+.nav-help {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.nav-help:hover { background: var(--clay-lt); }
+
+/* Who is signed in, at the foot of the sidebar. Informational — the actions
+   are in the topbar account menu. */
+.side-user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  min-width: 0;
+}
+.side-user .mini-main { min-width: 0; }
+.side-user b {
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.side-user .tiny { text-transform: capitalize; }

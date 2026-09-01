@@ -17,9 +17,25 @@ export type Theme = 'light' | 'dark' | 'system';
 
 const KEY = 'bsaas.theme';
 
+/**
+ * Light until told otherwise.
+ *
+ * This defaulted to `system`, which is the more polite answer and was the right
+ * one while the product had no opinion. It now does: light with the indigo
+ * accent is the studio-facing design, and somebody on a dark OS met a dashboard
+ * that did not look like the product they were shown.
+ *
+ * The cost is real and worth stating: a person whose machine is set to dark now
+ * gets light on first load, against their stated preference, until they pick
+ * something on Settings → Appearance. `system` is still there and still works —
+ * it is one click away and stored per device, so choosing it once is permanent.
+ */
 function read(): Theme {
   const stored = localStorage.getItem(KEY);
-  return stored === 'light' || stored === 'dark' ? stored : 'system';
+  if (stored === 'light' || stored === 'dark' || stored === 'system') {
+    return stored;
+  }
+  return 'light';
 }
 
 /**
@@ -67,10 +83,19 @@ export function setTheme(next: Theme) {
   current = next;
   applyTheme(next);
 
-  // 'system' removes the key rather than storing the word, matching applyTheme:
-  // a stored "system" would match neither selector on the next load.
-  if (next === 'system') localStorage.removeItem(KEY);
-  else localStorage.setItem(KEY, next);
+  /*
+    'system' is now STORED rather than cleared.
+
+    It used to be written by deleting the key, because an absent key meant
+    "follow the OS" and that was the default. The default is light now, so
+    deleting the key would mean light — and choosing System would quietly turn
+    into Light on the next load, which is the setting doing the opposite of
+    what it says.
+
+    `applyTheme` still removes the ATTRIBUTE for 'system'; that part was always
+    about the stylesheet, not about storage, and is unchanged.
+  */
+  localStorage.setItem(KEY, next);
 
   for (const listener of listeners) listener();
 }
