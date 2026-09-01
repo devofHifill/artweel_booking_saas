@@ -50,6 +50,64 @@ const BLANK = {
   maxBookingsPerDay: 0,
 };
 
+/**
+ * Working hours.
+ *
+ * `/schedules/:staffId/rules` has existed since W1 — list, create, delete, with
+ * `requireAdmin` on the writes — and nothing in the client ever called it. The
+ * onboarding wizard creates ONE rule, Tuesday to Saturday 10:00–18:00, for the
+ * FIRST instructor, and `POST /staff` takes no hours at all.
+ *
+ * So everyone hired afterwards had no working window, and availability is built
+ * by filtering `rule_type === 'WORKING'` per person: no rule, no windows, no
+ * bookable slots, ever. A studio could add an instructor, qualify them to teach,
+ * put them on the rota, and never understand why nobody could book them.
+ *
+ * That is why the panel leads with the warning rather than the form.
+ */
+type Rule = {
+  id: string;
+  ruleType: 'WORKING' | 'BREAK';
+  rrule: string;
+  startMinute: number;
+  endMinute: number;
+  timezone: string;
+};
+
+const DAYS = [
+  { code: 'MO', label: 'Mon' },
+  { code: 'TU', label: 'Tue' },
+  { code: 'WE', label: 'Wed' },
+  { code: 'TH', label: 'Thu' },
+  { code: 'FR', label: 'Fri' },
+  { code: 'SA', label: 'Sat' },
+  { code: 'SU', label: 'Sun' },
+] as const;
+
+/** Minutes past local midnight, which is how the column stores it. */
+function toTime(minutes: number) {
+  const h = Math.floor(minutes / 60) % 24;
+  return `${String(h).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+}
+
+function toMinutes(value: string) {
+  const [h, m] = value.split(':').map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+/** `FREQ=WEEKLY;BYDAY=TU,TH` → ['TU','TH']. */
+function daysOf(rrule: string): string[] {
+  const match = /BYDAY=([A-Z,]+)/.exec(rrule);
+  return match ? match[1]!.split(',') : [];
+}
+
+function describe(rule: Rule) {
+  const codes = daysOf(rule.rrule);
+  const names = DAYS.filter((d) => codes.includes(d.code)).map((d) => d.label);
+  const when = names.length ? names.join(', ') : 'Every day';
+  return `${when} · ${toTime(rule.startMinute)}–${toTime(rule.endMinute)}`;
+}
+
 export default function Staff() {
   const base = useOrgBase();
   const org = useActiveOrg();
@@ -65,6 +123,11 @@ export default function Staff() {
 
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState({ ...BLANK });
+
+  /** Whose hours are open, if anyone's. Its own panel, not part of the edit form. */
+  const [hoursFor, setHoursFor] = useState<{ id: string; name: string } | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     try {
@@ -279,6 +342,15 @@ export default function Staff() {
         </div>
       )}
 
+      {hoursFor && (
+        <WorkingHours
+          base={base}
+          staff={hoursFor}
+          canEdit={isAdmin}
+          onClose={() => setHoursFor(null)}
+        />
+      )}
+
       {editing && isAdmin && (
         <form className="card schedule" onSubmit={(e) => void save(e)}>
           <h2>{editing === 'new' ? 'Add someone' : 'Edit'}</h2>
@@ -432,6 +504,14 @@ export default function Staff() {
                       <button className="link" onClick={() => startEdit(row)}>
                         Edit
                       </button>
+                      <button
+                        className="link"
+                        onClick={() =>
+                          setHoursFor({ id: row.id, name: row.name })
+                        }
+                      >
+                        Hours
+                      </button>
                       {row.isActive ? (
                         <button
                           className="link"
@@ -465,6 +545,196 @@ export default function Staff() {
         </div>
       )}
     </>
+  );
+}
+
+function WorkingHours({
+  base,
+  staff,
+  canEdit,
+  onClose,
+}: {
+  base: string;
+  staff: { id: string; name: string };
+  canEdit: boolean;
+  onClose: () => void;
+}) {
+  const [rules, setRules] = useState<Rule[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const [days, setDays] = useState<string[]>(['TU', 'WE', 'TH', 'FR', 'SA']);
+  const [start, setStart] = useState('10:00');
+  const [end, setEnd] = useState('18:00');
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await api.get<{ rules: Rule[] }>(
+        `${base}/schedules/${staff.id}/rules`,
+      );
+      setRules(res.rules);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load hours.');
+    }
+  }, [base, staff.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const working = (rules ?? []).filter((r) => r.ruleType === 'WORKING');
+
+  async function add() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`${base}/schedules/${staff.id}/rules`, {
+        ruleType: 'WORKING',
+        // BYDAY omitted entirely would mean "every day", which is a different
+        // rule from "no days chosen" — so the button is disabled instead.
+        rrule: `FREQ=WEEKLY;BYDAY=${days.join(',')}`,
+        startMinute: toMinutes(start),
+        endMinute: toMinutes(end),
+        // No timezone: the server falls back to the instructor's own, which is
+        // what keeps a studio spanning two zones correct.
+        effectiveFrom: new Date().toISOString(),
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(ruleId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.del(`${base}/schedules/${staff.id}/rules/${ruleId}`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card schedule">
+      <h2>When {staff.name} works</h2>
+
+      {error && (
+        <div className="alert danger" role="alert">
+          {error}
+        </div>
+      )}
+
+      {rules && working.length === 0 && (
+        <div className="alert warn" role="status">
+          <strong>{staff.name} cannot be booked.</strong> Availability is built
+          from working hours, and there are none — so no slot ever appears for
+          them, however many classes they are qualified to teach. Add a pattern
+          below.
+        </div>
+      )}
+
+      {!rules && (
+        <LoadingRegion label="Loading hours">
+          <SkeletonTable rows={2} />
+        </LoadingRegion>
+      )}
+
+      {working.length > 0 && (
+        <ul className="mini-list">
+          {working.map((rule) => (
+            <li key={rule.id} className="row-between">
+              <span>
+                {describe(rule)}
+                <span className="sub tiny"> {rule.timezone}</span>
+              </span>
+              {canEdit && (
+                <button
+                  className="link danger"
+                  disabled={busy}
+                  onClick={() => void remove(rule.id)}
+                >
+                  Remove
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canEdit && (
+        <>
+          <hr />
+          <div className="fields">
+            <fieldset>
+              <legend>Days</legend>
+              <div className="row">
+                {DAYS.map((d) => (
+                  <label key={d.code} className="check">
+                    <input
+                      type="checkbox"
+                      checked={days.includes(d.code)}
+                      onChange={(e) =>
+                        setDays((prev) =>
+                          e.target.checked
+                            ? [...prev, d.code]
+                            : prev.filter((c) => c !== d.code),
+                        )
+                      }
+                    />
+                    {d.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <label>
+              From
+              <input
+                type="time"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+              />
+            </label>
+
+            <label>
+              Until
+              <input
+                type="time"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <p className="tiny muted">
+            Patterns add together, so a split week is two of them — Tuesday to
+            Thursday mornings, Saturday afternoons.
+          </p>
+        </>
+      )}
+
+      <div className="page-actions">
+        {canEdit && (
+          <button
+            className="primary"
+            disabled={busy || days.length === 0 || toMinutes(end) <= toMinutes(start)}
+            onClick={() => void add()}
+          >
+            {busy ? 'Saving…' : 'Add these hours'}
+          </button>
+        )}
+        <button onClick={onClose} disabled={busy}>
+          Done
+        </button>
+      </div>
+    </section>
   );
 }
 
