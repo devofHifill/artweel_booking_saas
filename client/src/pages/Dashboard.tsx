@@ -165,7 +165,14 @@ export default function Dashboard() {
               <Icon name="register" size={16} />
               Daily manifest
             </Link>
-            <Link className="button-link primary" to="/bookings">
+            {/*
+              `?new=1`, not plain `/bookings`. This linked to the bookings LIST
+              until G0, which had no create form — the most prominent button on
+              the first screen an owner sees named an action the product could
+              not perform. The form it now opens is gated to front desk, the
+              same three roles the server allows.
+            */}
+            <Link className="button-link primary" to="/bookings?new=1">
               <Icon name="bookings" size={16} />
               New booking
             </Link>

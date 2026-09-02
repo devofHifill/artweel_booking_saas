@@ -46,6 +46,16 @@ const baseService = z.object({
   prerequisiteServiceTypeId: z.string().uuid().optional().nullable(),
   cancellationPolicyId: z.string().uuid().optional().nullable(),
 
+  /**
+   * G3 — what a customer needs to know before booking.
+   *
+   * One bullet per line. The bounds match the CHECK constraints exactly, so
+   * the API refuses with a readable message rather than letting the database
+   * do it with a raw Postgres error — the same pairing as the storefront copy.
+   */
+  highlights: z.string().max(1200).optional().nullable(),
+  preparationNotes: z.string().max(2000).optional().nullable(),
+
   color: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #A6522C.')
@@ -74,7 +84,17 @@ export const createServiceSchema = baseService
   .refine(
     (s) => s.bookingMode !== 'APPOINTMENT' || s.capacityMax === 1,
     'Appointments are one-to-one; use EVENT for group classes.',
+  )
+  .refine(
+    (s) => countLines(s.highlights) <= 12,
+    'Twelve highlights is the most a booking page will show.',
   );
+
+/** Matches the CHECK constraint's newline count exactly. */
+function countLines(value: string | null | undefined): number {
+  if (!value) return 0;
+  return value.split('\n').length;
+}
 
 export const updateServiceSchema = baseService
   .partial()
@@ -84,6 +104,10 @@ export const updateServiceSchema = baseService
       s.capacityMax === undefined ||
       s.capacityMin <= s.capacityMax,
     'Minimum capacity cannot exceed maximum capacity.',
+  )
+  .refine(
+    (s) => countLines(s.highlights) <= 12,
+    'Twelve highlights is the most a booking page will show.',
   );
 
 export const createCategorySchema = z.object({

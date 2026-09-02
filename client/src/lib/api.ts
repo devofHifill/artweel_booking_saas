@@ -389,3 +389,37 @@ export function dateIn(iso: string, timezone: string): string {
     timeZone: timezone,
   }).format(new Date(iso));
 }
+
+/**
+ * Today's date in the STUDIO's zone, as `YYYY-MM-DD`.
+ *
+ * `en-CA` because it formats as ISO, which is what every endpoint taking a
+ * `localDate` expects. Not `new Date().toISOString().slice(0, 10)` — that is
+ * today in UTC, and a studio in Portland loading this at 6pm would be handed
+ * tomorrow.
+ *
+ * Lived privately in Classes.tsx until the counter booking form wanted the
+ * same two. A third copy of a date helper is how the three drift apart.
+ */
+export function todayIn(timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+/**
+ * Walks a `YYYY-MM-DD` forward by whole days.
+ *
+ * Anchored at UTC midnight deliberately: this is calendar arithmetic on a
+ * wall-clock date, not on an instant, so it must not pick up a daylight-saving
+ * shift on the way. Adding 30 days to a local date should land on the same
+ * clock date regardless of what the zone did in between.
+ */
+export function plusDays(localDate: string, days: number): string {
+  const d = new Date(`${localDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}

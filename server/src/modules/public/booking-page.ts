@@ -61,6 +61,22 @@ function duration(minutes: number): string {
   return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
 }
 
+/**
+ * "6 Oct – 10 Nov", in the STUDIO's zone.
+ *
+ * A cohort's span is the first thing a student checks against their diary, and
+ * it must be the studio's calendar dates: a term starting Monday evening in
+ * Portland is still Monday for a student reading the page from Berlin.
+ */
+function dateRange(from: Date, to: Date, timezone: string): string {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: timezone,
+  });
+  return `${fmt.format(from)} – ${fmt.format(to)}`;
+}
+
 type PageData = {
   organization: {
     id: string;
@@ -84,6 +100,8 @@ type PageData = {
     seoDescription?: string | null;
   };
   acceptingBookings: boolean;
+  /** Whether the studio has finished Stripe onboarding. Never the account id. */
+  acceptsPayment: boolean;
   services: {
     id: string;
     name: string;
@@ -95,8 +113,19 @@ type PageData = {
     priceCents: number;
     color: string;
     skillLevel: string | null;
+    /** G3. One bullet per line, split in the page script. */
+    highlights?: string | null;
+    preparationNotes?: string | null;
     category: { id: string; name: string } | null;
     serviceLocations: { locationId: string }[];
+    /* Read by the page script to decide whether to ask for a card, and to
+       label the summary. The AMOUNT is never computed from them here — that
+       is what /quote is for. */
+    depositType?: string;
+    depositValue?: number;
+    cancellationTiers?:
+      | { hoursBefore: number; refundPercent: number; creditPercent?: number }[]
+      | null;
   }[];
   locations: {
     id: string;
@@ -104,6 +133,21 @@ type PageData = {
     locationType: string;
     address: string | null;
     requiresAddress: boolean;
+  }[];
+  /** Open cohorts. Sold once, covering every dated session in the series. */
+  courses?: {
+    id: string;
+    name: string;
+    cohortLabel: string | null;
+    description: string | null;
+    service: { id: string; name: string };
+    sessionCount: number;
+    priceCents: number;
+    startsAt: Date;
+    endsAt: Date;
+    seatsRemaining: number;
+    enrollable: boolean;
+    instructor: string | null;
   }[];
 };
 
@@ -164,6 +208,55 @@ padding:16px;margin:18px 0;text-align:left}
 .summary div{display:flex;justify-content:space-between;padding:6px 0;font-size:.9rem}
 .summary div span:first-child{color:var(--muted)}
 .hint{color:var(--muted);font-size:.85rem;margin:10px 0}
+/* G3 — what is included, where, and what to bring. Sits above the times, so
+   it is styled to read as reference material rather than as another control. */
+.detail{margin:0 0 22px}
+.detail h3{font-size:.9rem;margin:16px 0 6px;letter-spacing:-.01em}
+.detail h3:first-child{margin-top:0}
+.detail .hint{margin:0}
+.included{margin:0;padding-left:18px;color:var(--muted);font-size:.85rem}
+.included li{margin:4px 0}
+/* G4 — the month grid. Sits above the list, which stays: a grid answers
+   "which Saturday" and a list answers "the soonest thing". */
+.cal{margin:0 0 20px}
+.cal-head{display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:10px}
+.cal-nav{background:var(--card);border:1px solid var(--line);border-radius:8px;
+  width:32px;height:32px;cursor:pointer;color:inherit;font-size:.9rem}
+.cal-nav:disabled{opacity:.35;cursor:default}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-dow{text-align:center;font-size:.7rem;color:var(--muted);padding:4px 0}
+.cal-pad{aspect-ratio:1}
+.cal-day{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:1px;border:1px solid var(--line);border-radius:8px;
+  background:var(--card);color:inherit;font-size:.8rem;cursor:pointer;padding:0}
+.cal-day.empty{opacity:.3;border-color:transparent;background:none;cursor:default}
+.cal-day .c{font-size:.65rem;color:var(--ok,#3f8f5f);font-weight:600}
+.cal-day.on{border-color:var(--clay);background:var(--clay);color:#fff}
+.cal-day.on .c{color:#fff}
+.tiny-note{color:var(--muted);font-size:.75rem;margin:8px 0 0}
+.linkish{background:none;border:0;padding:0;color:var(--clay);cursor:pointer;
+  font-size:.75rem;text-decoration:underline}
+/* G5 — the confirmation extras. */
+.ref{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.06em}
+.row-actions{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}
+.btn-link{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--radius);padding:9px 14px;font-size:.85rem;color:inherit;
+  text-decoration:none;cursor:pointer;font-family:inherit}
+.btn-link:hover{border-color:var(--clay)}
+/*
+  A printed booking is somebody's paper copy: it wants the reference, the time
+  and the address, and nothing that only works on a screen. Buttons print as
+  empty rectangles, so they are removed rather than greyed.
+*/
+@media print{
+  :root{color-scheme:light}
+  body{background:#fff;color:#000}
+  .no-print{display:none!important}
+  .wrap{max-width:none;padding:0}
+  .summary,.detail{border-color:#bbb;background:#fff}
+  a[href]::after{content:''}
+}
 .empty{color:var(--muted);padding:22px 0;text-align:center}
 .hidden{display:none}
 noscript p{padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--card)}
@@ -179,6 +272,7 @@ font-size:.9rem;color:var(--muted);text-align:center}
 
 export function renderBookingPage(data: PageData): string {
   const { organization, services, locations } = data;
+  const courses = data.courses ?? [];
 
   /*
     Studio-authored copy wins over the generic fallback. The fallback is what
@@ -239,6 +333,48 @@ export function renderBookingPage(data: PageData): string {
     )
     .join('');
 
+  /*
+    Cohorts, in the same first response as the classes.
+
+    A course is not a class with more dates: it is one purchase covering every
+    week, so it gets its own section rather than being mixed into the service
+    list where "book" would mean a single session. A full or closed cohort is
+    still rendered — a student deciding whether to wait for the next one needs
+    to see that this one ran — but it is not clickable.
+  */
+  const courseCards = courses
+    .map((c) => {
+      const window = `${dateRange(c.startsAt, c.endsAt, organization.timezone)}`;
+      const places = c.enrollable
+        ? `${c.seatsRemaining} ${c.seatsRemaining === 1 ? 'place' : 'places'} left`
+        : 'Closed';
+
+      return `
+      <button class="card" data-course="${escapeHtml(c.id)}" type="button"${
+        c.enrollable ? '' : ' disabled'
+      }>
+        <span>
+          <h3>${escapeHtml(c.name)}${
+            c.cohortLabel ? ` &middot; ${escapeHtml(c.cohortLabel)}` : ''
+          }</h3>
+          ${c.description ? `<p>${escapeHtml(c.description)}</p>` : ''}
+          <span class="meta">${c.sessionCount} sessions &middot; ${window}${
+            c.instructor ? ` &middot; ${escapeHtml(c.instructor)}` : ''
+          } &middot; ${places}</span>
+        </span>
+        <span class="price">${money(c.priceCents, organization.currency)}</span>
+      </button>`;
+    })
+    .join('');
+
+  const courseSection = courseCards
+    ? `<section id="step-course">
+      <h2>Courses</h2>
+      <p class="hint">Booked once, covering every week.</p>
+      ${courseCards}
+    </section>`
+    : '';
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -265,8 +401,14 @@ export function renderBookingPage(data: PageData): string {
       data.acceptingBookings
         ? `<section id="step-service">
       <h2>What would you like to book?</h2>
-      ${serviceCards || '<p class="empty">No classes are open for booking right now.</p>'}
-    </section>`
+      ${
+        serviceCards ||
+        (courseCards
+          ? ''
+          : '<p class="empty">No classes are open for booking right now.</p>')
+      }
+    </section>
+    ${courseSection}`
         : /* Not a 404. The studio still exists, their classes are still worth
              showing, and their existing customers can still manage bookings
              through their own links. */
@@ -335,8 +477,10 @@ window.__BOOKING__ = ${jsonForScript({
     slug: organization.slug,
     currency: organization.currency,
     timezone: organization.timezone,
+    acceptsPayment: data.acceptsPayment,
     services,
     locations,
+    courses,
   })};
 </script>
 <script>${clientScript}</script>
@@ -348,13 +492,15 @@ window.__BOOKING__ = ${jsonForScript({
 type ManageData = {
   booking: {
     id: string;
+    /** Generated by Postgres. Safe to print; the token in the URL is not. */
+    reference?: string | null;
     startsAt: Date;
     endsAt: Date;
     status: string;
     seats: number;
     totalCents: number;
     timezone: string;
-    serviceType: { name: string };
+    serviceType: { name: string; preparationNotes?: string | null };
     staff: { name: string } | null;
     location: { name: string; address: string | null } | null;
     organization: {
@@ -406,6 +552,14 @@ export function renderManagePage(data: ManageData, token: string): string {
   </header>
 
   <div class="summary">
+    ${
+      /* First row on purpose. It is the line somebody reads out when they ring
+         the studio, and it is the only identifier here safe to say aloud —
+         the token in the URL is the credential. */
+      b.reference
+        ? `<div><span>Reference</span><span class="ref">${escapeHtml(b.reference)}</span></div>`
+        : ''
+    }
     <div><span>Class</span><span>${escapeHtml(b.serviceType.name)}</span></div>
     <div><span>When</span><span>${escapeHtml(when)}</span></div>
     ${b.staff ? `<div><span>With</span><span>${escapeHtml(b.staff.name)}</span></div>` : ''}
@@ -416,9 +570,26 @@ export function renderManagePage(data: ManageData, token: string): string {
   </div>
 
   ${
+    b.serviceType.preparationNotes && !cancelled
+      ? /* G5. This is the page a customer comes back to the night before, from
+           the link in their email — which makes it the place "what should I
+           bring" is actually read, more than the booking flow was. */
+        `<div class="detail">
+    <h3>Before you come</h3>
+    <p class="hint">${escapeHtml(b.serviceType.preparationNotes)}</p>
+  </div>`
+      : ''
+  }
+
+  ${
     cancelled
       ? '<p class="hint">Nothing more to do here. Book again any time.</p>'
       : `
+  <div class="row-actions no-print">
+    <a class="btn-link" href="/public/bookings/${encodeURIComponent(token)}/calendar.ics">Add to calendar</a>
+    <button type="button" class="btn-link" id="printBtn">Print</button>
+  </div>
+
   ${
     data.cancellationQuote
       ? `<p class="hint">Cancelling now would refund
@@ -430,13 +601,16 @@ export function renderManagePage(data: ManageData, token: string): string {
       : ''
   }
   <div id="err"></div>
-  <button class="primary" id="cancel" type="button"
+  <button class="primary no-print" id="cancel" type="button"
     style="background:#8b2c21">Cancel this booking</button>
   `
   }
 </div>
 <script>
 (function(){
+  var print = document.getElementById('printBtn');
+  if (print) print.addEventListener('click', function(){ window.print(); });
+
   var btn = document.getElementById('cancel');
   if (!btn) return;
   btn.addEventListener('click', function(){

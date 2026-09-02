@@ -8,6 +8,7 @@ import { config } from '../../config';
 import * as service from './public.service';
 import { startCheckout } from '../payments/payment.service';
 import { renderBookingPage, renderManagePage } from './booking-page';
+import { buildIcs } from './ics';
 
 /**
  * Unauthenticated. Everything here is reachable by anyone with the URL, so
@@ -193,6 +194,9 @@ publicRouter.post(
     res.status(201).json({
       booking: {
         id: booking!.id,
+        /* The quotable half of the pair below: safe to print, safe to read
+           down a phone, and useless to anybody who finds it. */
+        reference: booking!.reference,
         startsAt: booking!.startsAt,
         endsAt: booking!.endsAt,
         seats: booking!.seats,
@@ -314,6 +318,48 @@ publicRouter.post(
 );
 
 /**
+ * What will this cost, and how much of it now?
+ *
+ * G1. The summary panel needs a subtotal, a travel fee, a total and the
+ * deposit split, and `money.ts` opens with the rule that an amount charged to
+ * a customer is computed on the server. Working the deposit out again in the
+ * page script would be a second copy of that arithmetic, drifting from the
+ * first the moment either changes — so the page asks instead.
+ *
+ * A read, not a write: it reserves nothing, charges nothing, and takes the
+ * read budget. The authoritative amount is still the one `startCheckout`
+ * computes when the money actually moves; this is the same function run for
+ * display.
+ */
+publicRouter.post(
+  '/:slug/quote',
+  readLimit,
+  validateBody(
+    z.object({
+      serviceTypeId: z.string().uuid(),
+      /** Quoting a whole cohort. Its price wins over the service's. */
+      courseSeriesId: z.string().uuid().optional(),
+      seats: z.number().int().min(1).max(50).default(1),
+      /* Quoted, never trusted: the fee is re-derived from the studio's own
+         bands at checkout. It is here so the summary can show a total that
+         matches what the coverage check already told the customer. */
+      travelFeeCents: z.number().int().min(0).max(1_000_00).optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    res.json(
+      await service.quoteBooking({
+        slug: param(req, 'slug'),
+        serviceTypeId: req.body.serviceTypeId,
+        courseSeriesId: req.body.courseSeriesId,
+        seats: req.body.seats,
+        travelFeeCents: req.body.travelFeeCents,
+      }),
+    );
+  }),
+);
+
+/**
  * Buying a priced cohort.
  *
  * Same shape as class checkout and for the same reason: seats are held first,
@@ -422,6 +468,7 @@ publicRouter.get(
     res.json({
       booking: {
         id: data.booking.id,
+        reference: data.booking.reference,
         startsAt: data.booking.startsAt,
         endsAt: data.booking.endsAt,
         status: data.booking.status,
@@ -436,6 +483,58 @@ publicRouter.get(
       cancellationQuote: data.cancellationQuote,
       canReschedule: data.canReschedule,
     });
+  }),
+);
+
+/**
+ * The booking as a calendar file.
+ *
+ * G5. Served rather than built in the browser so the link works from the
+ * confirmation EMAIL too, where there is no page script to build a blob — and
+ * on a phone, where tapping a data: URI is unreliable and tapping a
+ * text/calendar URL opens the calendar app.
+ *
+ * The token is the same secret the manage page uses. Anyone holding it can
+ * already see and cancel the booking, so a calendar file tells them nothing
+ * new; anyone without it gets the same 404 every other token route gives.
+ */
+publicRouter.get(
+  '/bookings/:token/calendar.ics',
+  readLimit,
+  asyncHandler(async (req, res) => {
+    const { booking } = await service.getBookingByToken(param(req, 'token'));
+
+    const where =
+      booking.location?.locationType === 'FIXED'
+        ? [booking.location.name, booking.location.address]
+            .filter(Boolean)
+            .join(', ')
+        : (booking.location?.name ?? null);
+
+    const ics = buildIcs({
+      /* The booking id, not the token. A UID is written into the reader's
+         calendar and may be synced onward; the token is a credential and has
+         no business travelling with it. */
+      uid: `booking-${booking.id}@artweel`,
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+      title: `${booking.serviceType.name} — ${booking.organization.name}`,
+      location: where,
+      description: [
+        booking.reference ? `Booking reference ${booking.reference}` : null,
+        booking.serviceType.preparationNotes,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    });
+
+    res
+      .type('text/calendar; charset=utf-8')
+      .set(
+        'Content-Disposition',
+        `attachment; filename="${booking.reference ?? 'booking'}.ics"`,
+      )
+      .send(ics);
   }),
 );
 

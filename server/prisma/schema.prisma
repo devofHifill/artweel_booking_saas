@@ -605,6 +605,17 @@ model ServiceType {
   skillLevel               String? @map("skill_level")
   prerequisiteServiceTypeId String? @map("prerequisite_service_type_id") @db.Uuid
 
+  /// G3 — what a customer needs to know BEFORE they book.
+  ///
+  /// Both plain text, and `highlights` is one bullet per line rather than a
+  /// text[] or a Json array. There is no array column anywhere in this schema,
+  /// and `organizations.about` already establishes the idiom: owner-authored
+  /// prose stored as text and split in the renderer. A line is also the
+  /// easiest thing for an owner to type into a textarea, which is what decides
+  /// whether these ever get filled in.
+  highlights       String? @db.Text
+  preparationNotes String? @map("preparation_notes") @db.Text
+
   cancellationPolicyId String? @map("cancellation_policy_id") @db.Uuid
 
   color    String  @default("#A6522C")
@@ -1690,6 +1701,14 @@ model Booking {
   /// 32 random bytes. The plugin used md5(booking_id + email), which is
   /// guessable by anyone who knows the customer's email address.
   cancelToken Bytes  @unique @map("cancel_token")
+
+  /// G5 — the short handle a customer quotes on the phone.
+  ///
+  /// GENERATED ALWAYS in Postgres from this row's own id, so it is READ ONLY
+  /// here and writing it raises. Not to be confused with cancelToken, which is
+  /// the secret: this is the opposite, the part that is safe to print.
+  reference String? @db.Text
+
   source      String @default("web")
 
   notes String?

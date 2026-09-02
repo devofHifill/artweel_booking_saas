@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   api,
   dateIn,
@@ -10,6 +10,7 @@ import {
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import {
   DataTable,
+  Modal,
   PageHead,
   PaymentPill,
   StatusPill,
@@ -17,6 +18,7 @@ import {
   paymentState,
 } from '../components/layout';
 import { EmptyState } from '../components/states';
+import { CounterBookingForm } from '../components/CounterBookingForm';
 
 type ListResponse = {
   bookings: BookingListItem[];
@@ -55,6 +57,34 @@ export default function Bookings() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Taking a booking is counter work — the same three roles the server's
+   * `requireFrontDesk` allows. An instructor teaching a class has no reason to
+   * be selling a place in it, and showing them a button that 403s is worse
+   * than not showing it.
+   */
+  const canTakeBookings =
+    org?.role === 'OWNER' || org?.role === 'ADMIN' || org?.role === 'FRONT_DESK';
+
+  /*
+    `?new=1` opens the form on arrival, which is how the Dashboard's "New
+    booking" button reaches it. That button used to link to this page and stop
+    there, at a list with no form — the action it named did not exist anywhere
+    in the client.
+  */
+  const [params, setParams] = useSearchParams();
+  const [showForm, setShowForm] = useState(() => params.get('new') === '1');
+
+  const closeForm = useCallback(() => {
+    setShowForm(false);
+    if (params.get('new')) {
+      // Dropped from the URL so a refresh does not reopen a dialog the user
+      // has already dismissed.
+      params.delete('new');
+      setParams(params, { replace: true });
+    }
+  }, [params, setParams]);
 
   const load = useCallback(async () => {
     const params = new URLSearchParams({ limit: '100' });
@@ -161,13 +191,38 @@ export default function Bookings() {
         title="Bookings"
         lede="Every reservation across your booking page and the embedded widget."
         actions={
-          selected.size > 0 && (
-            <button className="danger" onClick={cancelSelected} disabled={busy}>
-              Cancel {selected.size} selected
-            </button>
-          )
+          <>
+            {selected.size > 0 && (
+              <button className="danger" onClick={cancelSelected} disabled={busy}>
+                Cancel {selected.size} selected
+              </button>
+            )}
+            {canTakeBookings && (
+              <button className="primary" onClick={() => setShowForm(true)}>
+                New booking
+              </button>
+            )}
+          </>
         }
       />
+
+      {showForm && (
+        <Modal
+          title="New booking"
+          subtitle="Taken over the phone or at the counter."
+          onClose={closeForm}
+        >
+          <CounterBookingForm
+            base={base}
+            timezone={timezone}
+            onBooked={() => {
+              closeForm();
+              void load();
+            }}
+            onCancel={closeForm}
+          />
+        </Modal>
+      )}
 
       {error && <div className="err">{error}</div>}
 

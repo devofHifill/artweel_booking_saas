@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, dateIn, money, timeIn } from '../lib/api';
+import { api, dateIn, money, plusDays, timeIn, todayIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import { PageHead, StatusPill } from '../components/layout';
 import { EmptyState } from '../components/states';
@@ -33,6 +33,8 @@ type ServiceOption = {
   maxHorizonDays?: number;
   depositType?: 'none' | 'percent' | 'fixed';
   depositValue?: number;
+  highlights?: string | null;
+  preparationNotes?: string | null;
 };
 
 type SessionRow = {
@@ -97,21 +99,6 @@ function orderedQueue(entries: WaitlistEntry[]): WaitlistEntry[] {
     if (aLive !== bLive) return aLive ? -1 : 1;
     return a.position - b.position;
   });
-}
-
-function todayIn(timezone: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
-
-function plusDays(localDate: string, days: number): string {
-  const d = new Date(`${localDate}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 export default function Classes() {
@@ -476,6 +463,8 @@ export default function Classes() {
                           maxHorizonDays: svc.maxHorizonDays,
                           depositType: svc.depositType,
                           depositValue: svc.depositValue,
+                          highlights: svc.highlights,
+                          preparationNotes: svc.preparationNotes,
                         });
                         setShowForm(true);
                       }}
