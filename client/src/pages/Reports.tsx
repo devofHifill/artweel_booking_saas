@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, money } from '../lib/api';
+import { downloadCsv } from '../lib/csv';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import {
   DataTable,
@@ -841,25 +842,7 @@ function exportCsv(tab: string, data: Report, currency: string) {
     }
   }
 
-  /*
-    Quoted and escaped. A class called `Wheel Throwing, Level 2` would otherwise
-    split into two columns, and a studio name containing a quote would break the
-    row after it — both silent, and both only discovered in somebody's
-    spreadsheet.
-  */
-  const csv = rows
-    .map((row) =>
-      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','),
-    )
-    .join('\n');
-
-  const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `artweel-${tab}-${data.range.days}d.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  downloadCsv(`artweel-${tab}-${data.range.days}d.csv`, rows);
 
   void currency;
 }

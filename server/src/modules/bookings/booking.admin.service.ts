@@ -24,16 +24,69 @@ export type BookingListFilters = {
   status?: string[];
   staffId?: string;
   serviceTypeId?: string;
-  /** Matches customer name, email or phone. */
+  /** Matches the booking reference, or the customer's name, email or phone. */
   search?: string;
+  /** web | embed | admin. Where the booking came from. */
+  source?: string;
+  /**
+   * Derived from what is owed, not stored — see `paymentIdFilter`, which is
+   * the one filter here that cannot be expressed in Prisma's query API.
+   */
+  payment?: 'paid' | 'part' | 'unpaid';
   limit: number;
   cursor?: string;
 };
+
+/**
+ * Bookings in a given payment state, as a set of ids.
+ *
+ * The other filters are columns and Prisma expresses them directly. This one
+ * is not: `paidCents` is the sum of money-in payments net of refunds, computed
+ * per booking, and no `where` clause can sum a relation. So it is one raw
+ * query returning ids, fed back in as `id: { in: … }`.
+ *
+ * The definition is copied from nowhere — `MONEY_IN_STATUSES` is imported so
+ * this cannot drift from `paidCentsOf`, which is what the rows themselves are
+ * rendered with. If those two disagreed, a studio would filter to "unpaid" and
+ * read "Paid" beside every row.
+ *
+ * Returns null when there is nothing to filter on, so the caller can leave the
+ * clause out entirely rather than passing an unbounded id list.
+ */
+async function paymentIdFilter(
+  organizationId: string,
+  state: 'paid' | 'part' | 'unpaid',
+): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT b.id
+    FROM bookings b
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(p.amount_cents - p.refunded_cents), 0) AS paid
+      FROM payments p
+      WHERE p.booking_id = b.id
+        AND p.status IN ('SUCCEEDED', 'PARTIALLY_REFUNDED')
+    ) paid ON TRUE
+    WHERE b.organization_id = ${organizationId}::uuid
+      AND CASE ${state}
+        WHEN 'paid'   THEN paid.paid >= b.total_cents AND b.total_cents > 0
+        WHEN 'unpaid' THEN paid.paid <= 0 AND b.total_cents > 0
+        ELSE paid.paid > 0 AND paid.paid < b.total_cents
+      END
+  `;
+
+  return rows.map((r) => r.id);
+}
 
 export async function listBookings(
   organizationId: string,
   filters: BookingListFilters,
 ) {
+  /* Resolved before the where clause is built, because it is an id set rather
+     than a column and has to be spread in like one. */
+  const paymentIds = filters.payment
+    ? await paymentIdFilter(organizationId, filters.payment)
+    : null;
+
   const where = {
     organizationId,
     ...(filters.from || filters.to
@@ -47,15 +100,36 @@ export async function listBookings(
     ...(filters.status?.length ? { status: { in: filters.status as never } } : {}),
     ...(filters.staffId ? { staffId: filters.staffId } : {}),
     ...(filters.serviceTypeId ? { serviceTypeId: filters.serviceTypeId } : {}),
+    ...(filters.source ? { source: filters.source } : {}),
+    ...(paymentIds ? { id: { in: paymentIds } } : {}),
     ...(filters.search
       ? {
-          customer: {
-            OR: [
-              { name: { contains: filters.search, mode: 'insensitive' as const } },
-              { email: { contains: filters.search, mode: 'insensitive' as const } },
-              { phone: { contains: filters.search } },
-            ],
-          },
+          /*
+            The reference sits beside the customer fields rather than replacing
+            them: somebody ringing the studio has either the code from their
+            confirmation or their own name, and the operator should not have to
+            know which box to type it into.
+
+            `startsWith`, not `contains` — a reference is eight characters, and
+            a substring match on it would pull in unrelated bookings whose code
+            merely contained the same run of hex.
+          */
+          OR: [
+            {
+              reference: {
+                startsWith: filters.search.toUpperCase(),
+              },
+            },
+            {
+              customer: {
+                OR: [
+                  { name: { contains: filters.search, mode: 'insensitive' as const } },
+                  { email: { contains: filters.search, mode: 'insensitive' as const } },
+                  { phone: { contains: filters.search } },
+                ],
+              },
+            },
+          ],
         }
       : {}),
   };
@@ -114,6 +188,10 @@ export async function listBookings(
 
 function toListItem(booking: {
   id: string;
+  /** G5's generated handle. The column an operator reads back on the phone. */
+  reference: string | null;
+  /** web | embed | admin — where the booking came from. */
+  source: string;
   startsAt: Date;
   endsAt: Date;
   timezone: string;
@@ -139,6 +217,8 @@ function toListItem(booking: {
 
   return {
     id: booking.id,
+    reference: booking.reference,
+    source: booking.source,
     startsAt: booking.startsAt,
     endsAt: booking.endsAt,
     timezone: booking.timezone,
@@ -291,8 +371,25 @@ export async function createManualBooking(
     staffId?: string;
     startsAt?: Date;
     seats: number;
-    customer: { name: string; email: string; phone?: string };
+    /** An existing customer. Wins over `customer` when both arrive. */
+    customerId?: string;
+    customer?: { name: string; email: string; phone?: string };
     notes?: string;
+    /** A held place that is not paid for yet is PENDING, not CONFIRMED. */
+    status?: 'CONFIRMED' | 'PENDING';
+    /**
+     * What the studio is actually charging, when that is not the list price.
+     *
+     * The public checkout refuses a client-supplied total, and that rule is
+     * not weakened here: this path is `requireFrontDesk`, so the person naming
+     * the figure is the person who would otherwise be writing it in a book
+     * under the till. A friend rate, a comped place and a made-up discount are
+     * ordinary counter transactions, and a booking product that cannot record
+     * them sends the studio back to the book.
+     */
+    totalCents?: number;
+    /** Money taken at the counter, recorded against the booking. */
+    payment?: { method: string; amountCents: number };
   },
 ) {
   const service = await prisma.serviceType.findFirst({
@@ -300,18 +397,11 @@ export async function createManualBooking(
   });
   if (!service) throw AppError.notFound('Service not found.');
 
-  const email = input.customer.email.trim().toLowerCase();
-
-  const customer =
-    (await prisma.customer.findFirst({ where: { organizationId, email } })) ??
-    (await prisma.customer.create({
-      data: {
-        organizationId,
-        email,
-        name: input.customer.name.trim(),
-        phone: input.customer.phone,
-      },
-    }));
+  const customer = input.customerId
+    ? await prisma.customer.findFirstOrThrow({
+        where: { id: input.customerId, organizationId },
+      })
+    : await upsertCounterCustomer(organizationId, input.customer);
 
   let booking;
 
@@ -352,13 +442,90 @@ export async function createManualBooking(
     });
   }
 
+  /* The list price unless the counter said otherwise. Bounded at zero so a
+     negative total cannot be talked into the ledger. */
+  const totalCents =
+    input.totalCents !== undefined
+      ? Math.max(0, Math.round(input.totalCents))
+      : service.priceCents * input.seats;
+
   const updated = await prisma.booking.update({
     where: { id: booking!.id },
-    data: { totalCents: service.priceCents * input.seats, notes: input.notes },
+    data: {
+      totalCents,
+      notes: input.notes,
+      ...(input.status ? { status: input.status } : {}),
+    },
   });
+
+  /**
+   * Money handed over at the counter.
+   *
+   * A real row in the payments ledger, not a status field on the booking —
+   * which is what makes the Paid pill, the payments screen, the reports and
+   * the outstanding figure all agree without any of them being told
+   * separately. `provider` records that this did not come through Stripe, so a
+   * later refund cannot be attempted against a processor that never saw it.
+   */
+  if (input.payment && input.payment.amountCents > 0) {
+    const amountCents = Math.min(
+      Math.max(0, Math.round(input.payment.amountCents)),
+      totalCents,
+    );
+
+    if (amountCents > 0) {
+      await prisma.payment.create({
+        data: {
+          organizationId,
+          bookingId: updated.id,
+          amountCents,
+          currency: (
+            await prisma.organization.findUniqueOrThrow({
+              where: { id: organizationId },
+              select: { currency: true },
+            })
+          ).currency,
+          kind: amountCents >= totalCents ? 'FULL' : 'DEPOSIT',
+          status: 'SUCCEEDED',
+          provider: input.payment.method,
+          succeededAt: new Date(),
+        },
+      });
+    }
+  }
 
   await afterBookingChange(updated.id, 'UPSERT');
   return updated;
+}
+
+/**
+ * The customer a counter booking is for.
+ *
+ * Matched on a lowercased email so somebody who has booked before does not
+ * become a second record with a split history — the commonest way a studio
+ * ends up with two of the same person.
+ */
+async function upsertCounterCustomer(
+  organizationId: string,
+  customer?: { name: string; email: string; phone?: string },
+) {
+  if (!customer) {
+    throw AppError.badRequest('Pick a customer, or enter a new one.');
+  }
+
+  const email = customer.email.trim().toLowerCase();
+
+  return (
+    (await prisma.customer.findFirst({ where: { organizationId, email } })) ??
+    (await prisma.customer.create({
+      data: {
+        organizationId,
+        email,
+        name: customer.name.trim(),
+        phone: customer.phone,
+      },
+    }))
+  );
 }
 
 export async function cancelBookingAsStudio(

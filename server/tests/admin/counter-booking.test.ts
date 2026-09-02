@@ -107,8 +107,10 @@ describe('a booking taken at the counter', () => {
 
     expect(res.body.booking.seats).toBe(2);
     /*
-      Priced from the SERVICE record, not from anything the request carried —
-      the counter form deliberately has no amount field. Two places at £95.
+      Priced from the SERVICE record when the request names no total. Two
+      places at $95. The counter MAY override it — see "lets the counter set a
+      price that is not the list price" below — but silence means list price,
+      never zero and never whatever the client felt like.
     */
     expect(res.body.booking.totalCents).toBe(19_000);
     expect(res.body.booking.source).toBe('admin');
@@ -233,5 +235,142 @@ describe('a booking taken at the counter', () => {
       seats: 1,
       customer: { name: 'No Date', email: 'nodate@example.test' },
     }).expect(400);
+  });
+});
+
+describe('the fuller counter form', () => {
+  it('books an existing customer without making a second record', async () => {
+    const existing = await prisma.customer.create({
+      data: {
+        organizationId: studio.organizationId,
+        name: 'Ada Almeida',
+        email: 'ada@example.test',
+      },
+    });
+
+    const res = await counterBooking({
+      serviceTypeId: serviceId,
+      sessionId,
+      seats: 1,
+      customerId: existing.id,
+    }).expect(201);
+
+    expect(res.body.booking.customerId).toBe(existing.id);
+    expect(
+      await prisma.customer.count({ where: { organizationId: studio.organizationId } }),
+    ).toBe(1);
+  });
+
+  it('refuses both a customer id and new details at once', async () => {
+    // Ambiguous: one of them would silently win, and which one is not
+    // something the operator could predict from the form.
+    await counterBooking({
+      serviceTypeId: serviceId,
+      sessionId,
+      seats: 1,
+      customerId: '11111111-1111-4111-8111-111111111111',
+      customer: { name: 'Both', email: 'both@example.test' },
+    }).expect(422);
+  });
+
+  it('records money taken at the counter as a real payment', async () => {
+    const res = await counterBooking({
+      serviceTypeId: serviceId,
+      sessionId,
+      seats: 2,
+      customer: { name: 'Cash Buyer', email: 'cash@example.test' },
+      payment: { method: 'cash', amountCents: 19_000 },
+    }).expect(201);
+
+    const payment = await prisma.payment.findFirstOrThrow({
+      where: { bookingId: res.body.booking.id },
+    });
+
+    /*
+      A row in the ledger, not a flag on the booking. That is what makes the
+      Paid pill, the payments screen, the reports and the outstanding figure
+      agree without any of them being told separately.
+    */
+    expect(payment.amountCents).toBe(19_000);
+    expect(payment.status).toBe('SUCCEEDED');
+    expect(payment.kind).toBe('FULL');
+    // Never 'stripe': a refund must not be attempted against a processor that
+    // never saw this money.
+    expect(payment.provider).toBe('cash');
+
+    const list = await request(app)
+      .get(`${studio.base}/bookings?limit=100`)
+      .set(studio.headers)
+      .expect(200);
+
+    const row = list.body.bookings.find(
+      (b: { id: string }) => b.id === res.body.booking.id,
+    );
+    expect(row.paidCents).toBe(19_000);
+    expect(row.outstandingCents).toBe(0);
+  });
+
+  it('records a part payment as a deposit, leaving a balance owing', async () => {
+    const res = await counterBooking({
+      serviceTypeId: serviceId,
+      sessionId,
+      seats: 1,
+      customer: { name: 'Part Payer', email: 'part@example.test' },
+      payment: { method: 'card', amountCents: 4_000 },
+    }).expect(201);
+
+    const payment = await prisma.payment.findFirstOrThrow({
+      where: { bookingId: res.body.booking.id },
+    });
+
+    expect(payment.kind).toBe('DEPOSIT');
+    expect(res.body.booking.totalCents - payment.amountCents).toBe(5_500);
+  });
+
+  it('never records more than the booking is worth', async () => {
+    // A fat-fingered amount must not create a credit nobody can account for.
+    const res = await counterBooking({
+      serviceTypeId: serviceId,
+      sessionId,
+      seats: 1,
+      customer: { name: 'Fat Finger', email: 'fat@example.test' },
+      payment: { method: 'cash', amountCents: 950_000 },
+    }).expect(201);
+
+    const payment = await prisma.payment.findFirstOrThrow({
+      where: { bookingId: res.body.booking.id },
+    });
+
+    expect(payment.amountCents).toBe(9_500);
+  });
+
+  it('lets the counter set a price that is not the list price', async () => {
+    /*
+      The public checkout refuses a client-supplied total and that rule stands.
+      This path is front-desk only, and a friend rate or a comped place is an
+      ordinary counter transaction — one a booking product that cannot record
+      it sends back to a paper book.
+    */
+    const res = await counterBooking({
+      serviceTypeId: serviceId,
+      sessionId,
+      seats: 1,
+      customer: { name: 'Friend Rate', email: 'friend@example.test' },
+      totalCents: 5_000,
+    }).expect(201);
+
+    expect(res.body.booking.totalCents).toBe(5_000);
+  });
+
+  it('can hold a place as pending rather than confirmed', async () => {
+    const res = await counterBooking({
+      serviceTypeId: serviceId,
+      sessionId,
+      seats: 1,
+      customer: { name: 'On Hold', email: 'hold@example.test' },
+      status: 'PENDING',
+    }).expect(201);
+
+    expect(res.body.booking.status).toBe('PENDING');
   });
 });

@@ -22,7 +22,7 @@ export type IconName =
   | 'overview' | 'studios' | 'health' | 'audit'
   | 'menu' | 'close' | 'search' | 'chevron' | 'external' | 'sun' | 'moon'
   | 'eye' | 'eye-off' | 'signin' | 'settings' | 'bell' | 'staff' | 'plug' | 'site'
-  | 'money' | 'refund';
+  | 'money' | 'refund' | 'download' | 'plus';
 
 const PATHS: Record<IconName, string> = {
   today: 'M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
@@ -89,6 +89,10 @@ const PATHS: Record<IconName, string> = {
   */
   money: 'M9.5 14.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11M14.5 20.5a5.5 5.5 0 0 0 0-11',
   refund: 'M3 9h13a5 5 0 0 1 0 10h-2M3 9l4-4M3 9l4 4',
+  /* A tray with an arrow coming down into it. The arrow alone reads as
+     "scroll down" at this size; the tray is what makes it a download. */
+  download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
+  plus: 'M12 5v14M5 12h14',
 };
 
 export function Icon({
