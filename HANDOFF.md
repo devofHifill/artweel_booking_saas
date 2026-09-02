@@ -26,16 +26,23 @@ have no concept of equipment.
 superadmin Stages 1 and 2, the thirteen-item TourFlow parity pass, and — on
 2026-09-02 — the booking-page pass, G0 to G5.** Both typechecks clean.
 
-**990 tests, 983 green.** The seven are known and neither is a defect:
+**990 tests. One known failure, and it is not a defect:**
+`tests/gate/seat-concurrency.test.ts` reports the raw
+`PrismaClientKnownRequestError` symptom described under ENVIRONMENT GOTCHAS
+when the full suite is under load. It passes when the file is run alone.
 
-- six in `tests/gate/course-enrollment.test.ts`, whose cohort fixture is pinned
-  to `startLocalDate: '2026-09-01'` and so has "already started" since
-  2026-09-02. The sister file in `tests/public/` had the same bug and was
-  fixed; this one also asserts the generated dates, so start and expectations
-  must move together.
-- one in `tests/gate/seat-concurrency.test.ts` — the raw
-  `PrismaClientKnownRequestError` symptom described under ENVIRONMENT GOTCHAS.
-  Passes when the file is run alone.
+**Both date time-bombs are fixed.** `tests/public/course-enrollment.test.ts`
+and `tests/gate/course-enrollment.test.ts` each pinned a cohort to
+`startLocalDate: '2026-09-01'`, which stopped being in the future on 2026-09-02
+and failed nine tests between them on a date rather than a defect. Both now
+compute a Tuesday a fortnight out at module load, and the gate file derives its
+expected dates from the same value instead of listing them.
+
+**One date in that file stays literal on purpose** — the daylight-saving case
+asserts that particular weeks straddle the 2026-11-01 transition, and a
+floating start would drift off it and prove nothing. It is commented as such.
+Generating sessions in the past is allowed; only enrolling in a started cohort
+is refused, which is why that case never rotted.
 
 **The perf gate is marginal, not regressed.** Five consecutive runs on an idle
 machine: 200.9, 218.6, 186.5, 168.9, 198.4ms against a 200ms threshold. It

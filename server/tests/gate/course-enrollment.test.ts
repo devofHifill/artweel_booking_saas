@@ -48,14 +48,57 @@ beforeEach(async () => {
   studio = await createStudio();
 });
 
-/** Six Tuesdays at 19:00 New York, starting 2026-09-01 (a Tuesday). */
+/**
+ * The Tuesday a fortnight out, computed once when this file loads.
+ *
+ * This used to be the literal '2026-09-01', which stopped being in the future
+ * on 2026-09-02 and took six tests with it: a cohort that has already begun
+ * answers COURSE_ALREADY_STARTED, so every enrolment case below failed on a
+ * date rather than on a defect. The sister file in tests/public had the same
+ * bug on the same day.
+ *
+ * Computed ONCE at module load rather than per test, so a suite running across
+ * midnight cannot have two tests disagree about which Tuesday they meant.
+ *
+ * Date-only arithmetic, so UTC is safe here — no daylight saving applies to
+ * counting calendar days, and the generator resolves the wall-clock time
+ * against the studio's zone from this local date.
+ */
+const COURSE_START = (() => {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() + 14);
+  while (d.getUTCDay() !== 2) d.setUTCDate(d.getUTCDate() + 1); // 2 = Tuesday
+  return d.toISOString().slice(0, 10);
+})();
+
+/** The local dates a weekly course starting on `from` actually lands on. */
+function weeklyFrom(from: string, count: number): string[] {
+  const out: string[] = [];
+  const d = new Date(`${from}T00:00:00Z`);
+  for (let i = 0; i < count; i++) {
+    out.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 7);
+  }
+  return out;
+}
+
+/** 19:00 in the studio's zone on a given local date, as a real instant. */
+async function sevenPmOn(localDate: string): Promise<Date> {
+  const { DateTime } = await import('luxon');
+  return DateTime.fromISO(`${localDate}T19:00`, {
+    zone: 'America/New_York',
+  }).toJSDate();
+}
+
+/** Six Tuesdays at 19:00 New York, starting a fortnight from today. */
 async function sixTuesdays(opts?: Parameters<typeof createCohort>[1]) {
   const { series, serviceType } = await createCohort(studio, opts);
   const sessions = await generateSeriesSessions({
     organizationId: studio.organization.id,
     courseSeriesId: series.id,
     rrule: 'FREQ=WEEKLY;BYDAY=TU',
-    startLocalDate: '2026-09-01',
+    startLocalDate: COURSE_START,
     localStartTime: '19:00',
   });
   return { series, serviceType, sessions };
@@ -67,14 +110,9 @@ describe('course session generation', () => {
 
     expect(sessions).toHaveLength(6);
     expect(sessions.map((s) => s.seriesIndex)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(sessions.map((s) => s.localDate)).toEqual([
-      '2026-09-01',
-      '2026-09-08',
-      '2026-09-15',
-      '2026-09-22',
-      '2026-09-29',
-      '2026-10-06',
-    ]);
+    // Derived from the same start the generator was given, so the assertion
+    // moves with it instead of being a second place to update.
+    expect(sessions.map((s) => s.localDate)).toEqual(weeklyFrom(COURSE_START, 6));
 
     const stored = await prisma.session.findMany({
       where: { courseSeriesId: series.id },
@@ -115,6 +153,16 @@ describe('course session generation', () => {
    * The DST case, and the reason recurrence expands to DATES rather than
    * instants. 2026-11-01 is when the US falls back, so a Tuesday course
    * running late October into November straddles it.
+   *
+   * THESE DATES STAY LITERAL. Everything else in this file was moved to a
+   * relative start after 2026-09-01 expired and broke six tests — do not do
+   * the same here. The whole assertion is that these particular weeks sit
+   * either side of a real transition; a floating start would drift off it and
+   * leave a test that passes while proving nothing.
+   *
+   * It does not rot the way the others did, because generating sessions in the
+   * past is allowed — only ENROLLING in a started cohort is refused, and this
+   * case never enrols.
    */
   it('keeps a 19:00 class at 19:00 across a daylight-saving transition', async () => {
     const { series } = await createCohort(studio, { sessionCount: 4 });
@@ -158,7 +206,7 @@ describe('course session generation', () => {
         organizationId: studio.organization.id,
         courseSeriesId: series.id,
         rrule: 'FREQ=WEEKLY;BYDAY=TU;COUNT=3',
-        startLocalDate: '2026-09-01',
+        startLocalDate: COURSE_START,
         localStartTime: '19:00',
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
@@ -170,13 +218,23 @@ describe('course session generation', () => {
     const { bookAppointment } = await import(
       '../../src/scheduling/booking.service'
     );
+
+    /*
+      Resolved through luxon rather than written as a UTC literal. 19:00 in New
+      York is 23:00Z in summer and 00:00Z the next day once the clocks go back,
+      so a hardcoded instant only collides with week three for part of the year
+      — and this test would then pass while asserting nothing.
+    */
+    const weekThree = weeklyFrom(COURSE_START, 3)[2]!;
+    const startsAt = await sevenPmOn(weekThree);
+
     await bookAppointment({
       organizationId: studio.organization.id,
       staffId: studio.staff.id,
       serviceTypeId: studio.serviceType.id,
       customerId: customer.id,
-      startsAt: new Date('2026-09-15T23:00:00Z'), // 19:00 New York
-      endsAt: new Date('2026-09-16T00:00:00Z'),
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 60 * 60_000),
       timezone: studio.timezone,
     });
 
@@ -187,7 +245,7 @@ describe('course session generation', () => {
         organizationId: studio.organization.id,
         courseSeriesId: series.id,
         rrule: 'FREQ=WEEKLY;BYDAY=TU',
-        startLocalDate: '2026-09-01',
+        startLocalDate: COURSE_START,
         localStartTime: '19:00',
       }),
     ).rejects.toMatchObject({ code: BookingErrorCode.STAFF_UNAVAILABLE });
