@@ -10,12 +10,31 @@ deliberately not built — see its section). **The thirteen are done.** What is
 left of this phase is D3's remainder, which is feature work needing a design
 pass rather than a parity item.
 
-**D12 and D13 have not been looked at in a browser**, and that is the one debt
-this phase is carrying. Client typecheck and a production build are clean for
-both and neither changed server code, so the 922 stands — but unverified is
-unverified. D13 in particular wants walking: open an activity, set a percentage
-deposit, save, then REOPEN it and confirm the value came back. That last step
-is what catches the draft bug described in its section if it ever returns.
+**Everything is now walked in a browser.** D12 and D13 carried that debt for a
+while; it is paid. The deposit round-trip was exercised — set a percentage,
+save, reopen, value came back — as were all four schedule write paths, the
+"cannot be booked" empty state, and both new topbar menus.
+
+**Since the thirteen, on 2026-09-01:**
+
+- **The whole `/schedules` surface**, which had endpoints since W1 and no
+  caller. Working hours and per-date exceptions on Staff, and `/my-schedule`
+  for an instructor's own — the "or self" half of a `requireAdminOrSelf` rule
+  that had reached nobody. Anyone hired after signup had been permanently
+  unbookable, silently.
+- **Light + indigo by default**, the topbar matched to the prototype (labelled
+  booking link, help, account menu, filled avatar, 60px bar, 380px search), and
+  the sidebar pinned so its foot is reachable.
+- **Theme packs** — `THEME_PACK` / `VITE_THEME_PACK`, product-wide shape and
+  density. Deliberately NOT per studio: the four-token studio boundary that
+  `brand.test.ts` calls load-bearing is untouched, and a pack can reach no
+  colour at all, so no contrast guarantee can regress by choosing one.
+
+**Staging is behind again.** It sits at `e8824d4`; everything above is only in
+git. No migrations are owed — `git diff --name-only e8824d4..HEAD --
+server/prisma/migrations/` is empty — so it is a code-only deploy. If you set
+`THEME_PACK`, rebuild rather than restart: Vite bakes the client's half in at
+build time, and the compose file now passes it as a build arg.
 
 **Suite: 922 tests, 59 files, green**, plus the timing gate at p95 174ms. Run
 it with `npm test` from `server/`; it takes about 40 minutes, so start it

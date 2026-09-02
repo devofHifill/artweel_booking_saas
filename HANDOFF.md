@@ -20,25 +20,61 @@ have no concept of equipment.
 - Spec: `D:\Projects\2026\booking-saas-spec.md`
 - Phase plan: `D:\Projects\2026\booking-saas-phases.pdf`
 
-## Status — 2026-09-01
+## Status — 2026-09-02
 
 **Phases 0, 1 and 2 are code-complete. Since then: a design-system port,
-superadmin Stages 1 and 2, and the thirteen-item TourFlow parity pass, which is
-now finished.** 922 tests green in the default suite, plus the isolated timing
-gate at p95 174ms. Both typechecks clean.
+superadmin Stages 1 and 2, the thirteen-item TourFlow parity pass, and — on
+2026-09-02 — the booking-page pass, G0 to G5.** Both typechecks clean.
 
-Read `TOURFLOW-PARITY-PLAN.md` first — its RESUMING HERE block is the current
-one. `PHASE-2-CLOSEOUT.md` is history now; everything in it landed.
+**990 tests, 983 green.** The seven are known and neither is a defect:
+
+- six in `tests/gate/course-enrollment.test.ts`, whose cohort fixture is pinned
+  to `startLocalDate: '2026-09-01'` and so has "already started" since
+  2026-09-02. The sister file in `tests/public/` had the same bug and was
+  fixed; this one also asserts the generated dates, so start and expectations
+  must move together.
+- one in `tests/gate/seat-concurrency.test.ts` — the raw
+  `PrismaClientKnownRequestError` symptom described under ENVIRONMENT GOTCHAS.
+  Passes when the file is run alone.
+
+**The perf gate is marginal, not regressed.** Five consecutive runs on an idle
+machine: 200.9, 218.6, 186.5, 168.9, 198.4ms against a 200ms threshold. It
+straddles its own line. Availability reads `sessions`, `busy_blocks` and one
+`service_types` row — it never touches `bookings`, so the new `reference`
+column and index cannot reach it. Worth either more headroom or a less noisy
+measurement before it is trusted as a gate.
+
+Read `BOOKING-PAGE-PLAN.md` for the most recent work and
+`TOURFLOW-PARITY-PLAN.md` for the pass before it. `PHASE-2-CLOSEOUT.md` is
+history; everything in it landed.
 
 **What is actually left:**
 
-- **Four client changes have never been walked in a browser** — D12 Website &
-  widget, D13's booking terms on the service form, and the working-hours and
-  exceptions panels on Staff. They typecheck and build, and a static pass fixed
-  three defects in them, but nobody has looked at the screens. This is the one
-  real debt.
-- **Staging is five commits behind**, at `7798ea9`. Everything from D12 onward
-  exists only in git.
+- **Staging is well behind**, at `e8824d4`. Everything from D12 onward exists
+  only in git, and since 2026-09-02 that includes the whole booking-page pass
+  (G0–G5, see `BOOKING-PAGE-PLAN.md`).
+
+  **TWO MIGRATIONS ARE OWED. This is no longer a code-only deploy.**
+
+  - `20260902120000_service_detail_fields` — `highlights` and
+    `preparation_notes` on `service_types`
+  - `20260902140000_booking_reference` — `reference` on `bookings`, a
+    GENERATED column, plus its index
+
+  Both are additive and nullable, so the order is forgiving, but shipping the
+  code without them gives an app querying three columns that do not exist.
+  Run `prisma migrate deploy` before the code goes out, not after.
+
+  If `THEME_PACK` is set, rebuild rather than restart, because Vite bakes the
+  client's half in at build time.
+- **The browser debt is paid.** D12, D13, the schedule surface and the new
+  topbar were all walked on 2026-09-01 — deposit round-trip, all four schedule
+  write paths, the "cannot be booked" empty state, both new menus.
+- **Since the thirteen:** the whole `/schedules` surface got a UI (working
+  hours, per-date exceptions, and `/my-schedule` for an instructor's own),
+  light + indigo became the default, the topbar was matched to the prototype,
+  and theme packs landed — `THEME_PACK` / `VITE_THEME_PACK`, product-wide shape
+  only, deliberately not a studio setting.
 - **D3 Calendar is partial** by decision — month and week shipped; day view and
   the side panel were declined with reasons, and add-slot belongs to Classes,
   which already has it.
@@ -160,8 +196,8 @@ under "Being built next — not available yet". A test enforces this.
 ## COMMANDS
 
 ```
-cd server && npm test              # 922 tests, ~40 min — see the warning below
-cd server && npm run test:perf     # isolated timing gate — run alone (p95 174ms)
+cd server && npm test              # 990 tests, ~42 min — see the warning below
+cd server && npm run test:perf     # isolated timing gate — run alone (marginal, see Status)
 cd server && npm run typecheck
 cd server && npm run db:seed       # prints booking URL + login
 cd server && npm run dev           # API on 4000
@@ -191,8 +227,11 @@ DIFFERENT machine and does not answer.
 cost nothing is that the missing commit touched test files, which never enter
 the image.
 
-Staging is currently at `7798ea9` — five commits behind `main`'s branch head.
-Nothing since adds a migration, so only code is ever owed.
+Staging is currently at `e8824d4`, well behind the branch head.
+
+**That is no longer a code-only deploy.** Two migrations are owed — see the
+Status section at the top for their names. Run `prisma migrate deploy` before
+the code goes out.
 
 The VPS is **shared** — n8n and FDGSMS run there too, and **Traefik owns 80/443**.
 There is no host nginx and no certbot. Routing is container labels on the
@@ -623,16 +662,32 @@ Every Phase 2 workstream is built. What remains is unfinished edges, not
 missing features. These are sequenced, with reasoning, in
 `PHASE-2-CLOSEOUT.md`; the list below is the raw inventory:
 
-- **Dashboard pages** for courses, credits, pieces, firings, waitlists and
-  packs. Only Classes and Register have screens; the rest is API-only. This is
-  now the largest gap in the product — a studio cannot use most of Phase 2
-  without curl.
+- ~~**Dashboard pages** for courses, credits, pieces, firings, waitlists and
+  packs.~~ **Done, and this was the largest gap.** Courses, Pieces, Firings and
+  Packs all have screens and routes. Credits and waitlists deliberately do not:
+  a credit belongs to a person and lives on `CustomerDetail`, and a waitlist
+  belongs to a class and lives on `Classes`. Nothing here needs curl any more.
 - **Refunds for a cancelled course enrolment.** `refundForCancellation` is
   booking-shaped and course money sits on the enrolment.
+- **Credits and class packs cannot be spent on the booking page.** They appear
+  nowhere in the public flow — grep finds zero references. This was harmless
+  while every public booking was free; since G1 the page takes card payment, so
+  "I already have a pack" now has nowhere to go.
+- **A studio cannot sell a course until Stripe onboarding completes.**
+  `enrollPublic` refuses any priced cohort, so unlike a class there is no
+  unpaid fallback. A decision made earlier; G2 is what made it visible to
+  customers. Waiting on OPEN DECISIONS item 3.
+- **The operator screens have not been swept** for the "capability with no
+  caller" fault. Seven instances turned up this week without looking
+  systematically — the Dashboard's dead button, checkout, deposits, courses,
+  manual booking, and the activity and instructor filters. Seven is unlikely to
+  be the total.
 - **The WordPress plugin has never been run.** No PHP on the Windows box, so
   it has not even been syntax-checked. It wants a real WordPress install
   before anyone trusts it.
-- **Deploying everything after W2.2c** — five workstreams, three migrations.
+- **Deploying everything since `e8824d4`** — the parity pass, the schedule
+  surface, theme packs and the whole booking-page pass. See the migrations
+  named at the top: this is not a code-only deploy.
 - **Phase 3**, which the spec scopes as public API + webhooks, Outlook/Apple
   calendar, reporting, gift cards, memberships and a second vertical.
 

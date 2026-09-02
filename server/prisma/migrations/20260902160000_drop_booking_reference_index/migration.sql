@@ -1,0 +1,37 @@
+-- Corrects 20260902140000_booking_reference, which added an index nobody asked
+-- for.
+--
+-- WHY IT GOES, and the reason is not the lock:
+--
+-- The index was added speculatively, on the assumption that searching by
+-- reference would want one. Nothing measured said so. Every query against this
+-- table is organization-scoped and `bookings_organization_id_starts_at_idx`
+-- already exists; a reference search runs inside one studio's rows, narrowed
+-- further by the list's own filters and capped at 200. That is a small scan,
+-- and a studio has to reach a size no ceramics studio reaches before it is not.
+--
+-- Against that, the index costs write throughput on every booking, forever —
+-- and `bookings` is the table this product writes to most. A reference is a
+-- convenience for reading a code down a phone, which is the wrong trade.
+--
+-- THE LOCK, honestly stated. DEPLOY.md warns that a plain CREATE INDEX on
+-- bookings blocks writes while it builds, and that warning is right. It is not
+-- why this migration exists: 20260902140000 has never been applied to any
+-- deployed environment — staging is still behind it, and there is no
+-- production — so it would have built against a small table either way.
+-- Dropping the index means the question never arises again.
+--
+-- WHAT STAYS, and why. The `reference` column is GENERATED ALWAYS ... STORED,
+-- which rewrites the table when first added. That cost is one-time and lands
+-- on a small or empty table in every environment that exists or is planned. It
+-- earns it: derived in the database, it cannot be forgotten by any of the four
+-- code paths that create a booking, cannot drift, and cannot be written by
+-- mistake. Replacing it with a plain column plus a trigger and a batched
+-- backfill would trade a one-time cost for permanent machinery.
+--
+-- If a future index on bookings, sessions or payments IS justified, note that
+-- CREATE INDEX CONCURRENTLY cannot run inside a transaction and Prisma wraps
+-- migration files in one. No migration here has ever done it. That needs
+-- solving before it is needed, not during an incident.
+
+DROP INDEX IF EXISTS "bookings_organization_id_reference_idx";
