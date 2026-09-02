@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, dateIn, money } from '../lib/api';
+import { downloadCsv } from '../lib/csv';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import {
   DataTable,
@@ -736,25 +737,7 @@ function exportCsv(rows: PaymentRow[], timezone: string, range: string) {
     ]);
   }
 
-  /*
-    Quoted and escaped. A class called `Wheel Throwing, Level 2` would otherwise
-    split into two columns, and a customer name containing a quote would break
-    the row after it — both silent, and both only discovered in somebody's
-    spreadsheet.
-  */
-  const csv = out
-    .map((row) =>
-      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','),
-    )
-    .join('\n');
-
-  /* The BOM is what makes Excel read it as UTF-8. Without it a studio called
-     Café Ceramics exports as Cafï¿½ Ceramics. */
-  const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `artweel-payments-${range}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  // Quoting, the BOM and the download all live in lib/csv now — this was one
+  // of the two copies that made a third one worth refusing to write.
+  downloadCsv(`artweel-payments-${range}.csv`, out);
 }

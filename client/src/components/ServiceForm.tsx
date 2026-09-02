@@ -57,6 +57,9 @@ export type ServiceDraft = {
   depositType?: 'none' | 'percent' | 'fixed';
   /** A percentage when depositType is "percent", otherwise cents. */
   depositValue?: number;
+  /** G3 — booking-page copy. One highlight per line. */
+  highlights?: string | null;
+  preparationNotes?: string | null;
 };
 
 const MODES = [
@@ -112,6 +115,11 @@ export function ServiceForm({
       : String(existing.depositValue);
   });
 
+  const [highlights, setHighlights] = useState(existing?.highlights ?? '');
+  const [preparationNotes, setPreparationNotes] = useState(
+    existing?.preparationNotes ?? '',
+  );
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -156,6 +164,11 @@ export function ServiceForm({
                 : depositType === 'fixed'
                   ? Math.round(Number(depositValue || 0) * 100)
                   : Number(depositValue || 0),
+            /* Empty means "nothing to say", which is null rather than an empty
+               string — the renderer omits the whole heading on null, and would
+               otherwise print a bare "What is included" over nothing. */
+            highlights: highlights.trim() || null,
+            preparationNotes: preparationNotes.trim() || null,
           }
         : {}),
     };
@@ -363,6 +376,51 @@ export function ServiceForm({
             A deposit takes part of the price at checkout and leaves the balance
             owing, which then shows on the customer and on the daily sheet.
           </p>
+
+          <hr />
+
+          {/*
+            G3. Written here rather than on the create form for the same reason
+            the booking terms are: six questions stand between a new studio and
+            its first class, and these are not among them.
+
+            But they ARE the two questions a first-time customer asks, and
+            answering them here is the difference between a booking page that
+            replaces a phone call and one that causes it.
+          */}
+          <h3>On your booking page</h3>
+
+          <div className="setting setting-stack">
+            <label htmlFor="svcHighlights">What is included</label>
+            <textarea
+              id="svcHighlights"
+              rows={4}
+              maxLength={1200}
+              value={highlights ?? ''}
+              placeholder={'Clay, tools and glazes\nFiring for two pieces\nAn apron, if you forget yours'}
+              onChange={(e) => setHighlights(e.target.value)}
+            />
+            <p className="tiny muted">
+              One per line, up to twelve. Shown as a list when somebody is
+              choosing a time.
+            </p>
+          </div>
+
+          <div className="setting setting-stack">
+            <label htmlFor="svcPrep">Before you come</label>
+            <textarea
+              id="svcPrep"
+              rows={3}
+              maxLength={2000}
+              value={preparationNotes ?? ''}
+              placeholder="Short nails, closed shoes, and clothes you do not mind losing to clay."
+              onChange={(e) => setPreparationNotes(e.target.value)}
+            />
+            <p className="tiny muted">
+              What to wear or bring. The question that otherwise arrives as a
+              phone call the morning of the class.
+            </p>
+          </div>
         </>
       )}
 

@@ -3379,3 +3379,55 @@ td.strong { font-weight: 600; }
   --space-5: 16px;
   --space-6: 20px;
 }
+
+/* --- The counter booking form -------------------------------------------- */
+/*
+  Sectioned after the prototype's manual-booking dialog: GUEST, EXPERIENCE,
+  PAYMENT. The grouping is not decoration — an operator on the phone works down
+  it in that order, and a flat column of fourteen fields never signals when the
+  questions stop and the money starts.
+
+  NOTE: `.row` is used in ServiceForm for the same two-column intent and has no
+  rule anywhere, so those pairs silently stack. Left alone rather than fixed in
+  passing, but this is why a new class exists instead of reusing that one.
+*/
+.form-section {
+  margin: var(--space-6) 0 var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.form-section:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* Two controls abreast, dropping to one when there is no room for both. */
+/* align-items so columns keep their natural height. Stretched, the taller
+   column's hint text drags its neighbour's control to the bottom of the row,
+   because .setting spaces its label and control apart. */
+.form-row { display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: flex-start; }
+.form-row > * { flex: 1 1 220px; min-width: 0; }
+
+/*
+  The summary and the actions, on one line at the bottom.
+
+  The three figures are the ones that decide whether the operator has
+  understood the booking they are about to take — places, total, and what is
+  left on the departure.
+*/
+.counter-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+/* The dialog's two buttons, side by side. NOT .form-row: that rule gives every
+   child a 220px basis, which is right for a pair of inputs and wraps a pair of
+   buttons onto two lines. */
+.counter-actions { display: flex; gap: var(--space-3); flex: 0 0 auto; }

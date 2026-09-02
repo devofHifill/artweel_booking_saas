@@ -34,6 +34,8 @@ bookingAdminRouter.get(
       staffId: z.string().uuid().optional(),
       serviceTypeId: z.string().uuid().optional(),
       search: z.string().max(120).optional(),
+      source: z.enum(['web', 'embed', 'admin']).optional(),
+      payment: z.enum(['paid', 'part', 'unpaid']).optional(),
       limit: z.coerce.number().int().min(1).max(200).default(50),
       cursor: z.string().uuid().optional(),
     }),
@@ -125,19 +127,39 @@ bookingAdminRouter.post(
   // has no reason to be selling a place in it.
   requireFrontDesk,
   validateBody(
-    z.object({
-      serviceTypeId: z.string().uuid(),
-      sessionId: z.string().uuid().optional(),
-      staffId: z.string().uuid().optional(),
-      startsAt: z.coerce.date().optional(),
-      seats: z.number().int().min(1).max(50).default(1),
-      customer: z.object({
-        name: z.string().min(1).max(120),
-        email: z.string().email().max(255),
-        phone: z.string().max(32).optional(),
-      }),
-      notes: z.string().max(2000).optional(),
-    }),
+    z
+      .object({
+        serviceTypeId: z.string().uuid(),
+        sessionId: z.string().uuid().optional(),
+        staffId: z.string().uuid().optional(),
+        startsAt: z.coerce.date().optional(),
+        seats: z.number().int().min(1).max(50).default(1),
+        /** An existing customer, or the details for a new one. */
+        customerId: z.string().uuid().optional(),
+        customer: z
+          .object({
+            name: z.string().min(1).max(120),
+            email: z.string().email().max(255),
+            phone: z.string().max(32).optional(),
+          })
+          .optional(),
+        notes: z.string().max(2000).optional(),
+        status: z.enum(['CONFIRMED', 'PENDING']).optional(),
+        /* Front desk only, and bounded. See the note on the service. */
+        totalCents: z.number().int().min(0).max(100_000_000).optional(),
+        payment: z
+          .object({
+            /* Recorded as the payment's provider, so the ledger says how the
+               money arrived rather than implying Stripe saw it. */
+            method: z.enum(['cash', 'card', 'transfer', 'other']),
+            amountCents: z.number().int().min(0).max(100_000_000),
+          })
+          .optional(),
+      })
+      .refine(
+        (b) => Boolean(b.customerId) !== Boolean(b.customer),
+        'Give either an existing customer or the details for a new one.',
+      ),
   ),
   asyncHandler(async (req, res) => {
     res.status(201).json({
