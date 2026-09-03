@@ -36,19 +36,37 @@ beforeEach(async () => {
 });
 
 describe('reading the theme', () => {
-  it('starts on clay, and ships the menu of choices with it', async () => {
+  it('starts on indigo, and ships the menu of choices with it', async () => {
+    /*
+      Indigo since D0 (2026-08-24), not clay.
+
+      This asserted clay until 2026-09-03 and had been failing since the
+      default changed — `20260824190000_default_brand_indigo` set the column
+      default to `indigo` and moved the existing clay rows across, and this
+      test was not updated with it. The token below moved for the same reason:
+      `--clay` is the NAME of the accent variable, not a claim about its
+      colour, so on the indigo preset it holds `#4f46e5` — the TourFlow
+      prototype's `--brand-600`, which is the whole point of the change.
+    */
     const res = await request(app)
       .get(`${studio.base}/theme`)
       .set(studio.headers)
       .expect(200);
 
-    expect(res.body.preset).toBe('clay');
+    expect(res.body.preset).toBe('indigo');
+    // Still null: a default preset is not a custom accent, and an accent WINS
+    // over the preset when one is set. Unchanged by D0.
     expect(res.body.accent).toBeNull();
-    expect(res.body.tokens.light['--clay']).toBe('#a6522c');
+    expect(res.body.tokens.light['--clay']).toBe('#4f46e5');
 
     // The picker is server-driven, so adding a preset is one edit, not two.
     expect(res.body.presets.length).toBeGreaterThan(1);
+    /* Clay is still FIRST in the menu and still offered — the migration
+       changed which preset is the default and nothing about how presets work,
+       and a studio that wants clay is one click away. Asserting it here is
+       what would catch it being dropped from the list rather than demoted. */
     expect(res.body.presets[0]).toMatchObject({ id: 'clay', name: 'Clay' });
+    expect(res.body.presets.map((p: { id: string }) => p.id)).toContain('indigo');
     for (const preset of res.body.presets) {
       expect(preset.swatch).toMatch(/^#[0-9a-f]{6}$/);
     }
