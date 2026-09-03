@@ -577,6 +577,10 @@ model ServiceType {
   name           String
   slug           String
   description    String?
+
+  /// The one line that sells it on a card. `description` is the long form.
+  shortDescription String? @map("short_description")
+
   bookingMode    BookingMode  @default(APPOINTMENT) @map("booking_mode")
 
   durationMinutes Int @map("duration_minutes")
@@ -590,6 +594,10 @@ model ServiceType {
   capacityMax Int @default(1) @map("capacity_max")
 
   priceCents   Int    @default(0) @map("price_cents")
+
+  /// Per child seat. 0 means adults only — see the migration note.
+  childPriceCents Int @default(0) @map("child_price_cents")
+
   depositType  String @default("none") @map("deposit_type") // none | percent | fixed
   depositValue Int    @default(0) @map("deposit_value")
 
@@ -618,7 +626,21 @@ model ServiceType {
 
   cancellationPolicyId String? @map("cancellation_policy_id") @db.Uuid
 
-  color    String  @default("#A6522C")
+  /// Not the location's address — "Dock B, blue canopy" is the bit a map
+  /// cannot give you, and the bit that stops a phone call from the car park.
+  meetingPoint String? @map("meeting_point")
+
+  /// Sent WITH the confirmation, where `preparationNotes` is shown BEFORE
+  /// booking. Same medium, opposite moment.
+  bookingInstructions String? @map("booking_instructions") @db.Text
+
+  /// A picked glyph, not an upload. There is no asset pipeline here.
+  emoji String?
+
+  color String @default("#A6522C")
+  /// Second stop of the card gradient. Null falls back to a shade of `color`.
+  colorAccent String? @map("color_accent")
+
   isActive Boolean @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -1692,6 +1714,10 @@ model Booking {
   timezone String
 
   seats Int @default(1)
+
+  /// How many of `seats` are children. Adults are seats - children, so the
+  /// two can never disagree the way separate counts would. See the migration.
+  children Int @default(0)
 
   status BookingStatus @default(PENDING)
 

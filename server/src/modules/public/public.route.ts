@@ -156,6 +156,13 @@ publicRouter.post(
       locationId: z.string().uuid().optional(),
       startsAt: z.string().datetime().optional(),
       seats: z.number().int().min(1).max(50).default(1),
+      /*
+        How many of `seats` are children, priced at the service's child rate.
+        A count within the party rather than a second party size — `seats`
+        stays the total everywhere, so capacity, holds and the manifest are
+        never handed a different number than the price was computed from.
+      */
+      children: z.number().int().min(0).max(50).default(0),
       customer: z.object({
         name: z.string().min(1).max(120),
         email: z.string().email().max(255),
@@ -340,6 +347,13 @@ publicRouter.post(
       /** Quoting a whole cohort. Its price wins over the service's. */
       courseSeriesId: z.string().uuid().optional(),
       seats: z.number().int().min(1).max(50).default(1),
+      /*
+        How many of `seats` are children, priced at the service's child rate.
+        A count within the party rather than a second party size — `seats`
+        stays the total everywhere, so capacity, holds and the manifest are
+        never handed a different number than the price was computed from.
+      */
+      children: z.number().int().min(0).max(50).default(0),
       /* Quoted, never trusted: the fee is re-derived from the studio's own
          bands at checkout. It is here so the summary can show a total that
          matches what the coverage check already told the customer. */
@@ -353,6 +367,7 @@ publicRouter.post(
         serviceTypeId: req.body.serviceTypeId,
         courseSeriesId: req.body.courseSeriesId,
         seats: req.body.seats,
+        children: req.body.children,
         travelFeeCents: req.body.travelFeeCents,
       }),
     );
@@ -424,6 +439,13 @@ publicRouter.post(
       serviceTypeId: z.string().uuid(),
       sessionId: z.string().uuid(),
       seats: z.number().int().min(1).max(50).default(1),
+      /*
+        How many of `seats` are children, priced at the service's child rate.
+        A count within the party rather than a second party size — `seats`
+        stays the total everywhere, so capacity, holds and the manifest are
+        never handed a different number than the price was computed from.
+      */
+      children: z.number().int().min(0).max(50).default(0),
       customer: z.object({
         name: z.string().min(1).max(120),
         email: z.string().email().max(255),
@@ -443,6 +465,7 @@ publicRouter.post(
       serviceTypeId: req.body.serviceTypeId,
       sessionId: req.body.sessionId,
       seats: req.body.seats,
+      children: req.body.children,
       customerEmail: req.body.customer.email,
       customerName: req.body.customer.name,
       successUrl: `${base}?paid=1`,

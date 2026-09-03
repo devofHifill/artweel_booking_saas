@@ -500,7 +500,12 @@ type ManageData = {
     seats: number;
     totalCents: number;
     timezone: string;
-    serviceType: { name: string; preparationNotes?: string | null };
+    serviceType: {
+      name: string;
+      preparationNotes?: string | null;
+      bookingInstructions?: string | null;
+      meetingPoint?: string | null;
+    };
     staff: { name: string } | null;
     location: { name: string; address: string | null } | null;
     organization: {
@@ -564,6 +569,14 @@ export function renderManagePage(data: ManageData, token: string): string {
     <div><span>When</span><span>${escapeHtml(when)}</span></div>
     ${b.staff ? `<div><span>With</span><span>${escapeHtml(b.staff.name)}</span></div>` : ''}
     ${b.location ? `<div><span>Where</span><span>${escapeHtml(b.location.name)}</span></div>` : ''}
+    ${
+      /* Directly under Where, because it finishes that answer rather than
+         starting a new one. "Gowanus Studio" gets somebody to the building;
+         "second door, ring the bell" gets them through it. */
+      b.serviceType.meetingPoint
+        ? `<div><span>Meeting point</span><span>${escapeHtml(b.serviceType.meetingPoint)}</span></div>`
+        : ''
+    }
     ${b.seats > 1 ? `<div><span>Places</span><span>${b.seats}</span></div>` : ''}
     <div><span>Total</span><span>${money(b.totalCents, currency)}</span></div>
     <div><span>Status</span><span>${escapeHtml(b.status)}</span></div>
@@ -577,6 +590,18 @@ export function renderManagePage(data: ManageData, token: string): string {
         `<div class="detail">
     <h3>Before you come</h3>
     <p class="hint">${escapeHtml(b.serviceType.preparationNotes)}</p>
+  </div>`
+      : ''
+  }
+
+  ${
+    /* Written for somebody who has already booked, so this page is the only
+       place it belongs — it never appears on the booking page, where it would
+       be answering a question the reader has not asked yet. */
+    b.serviceType.bookingInstructions && !cancelled
+      ? `<div class="detail">
+    <h3>What happens next</h3>
+    <p class="hint">${escapeHtml(b.serviceType.bookingInstructions)}</p>
   </div>`
       : ''
   }

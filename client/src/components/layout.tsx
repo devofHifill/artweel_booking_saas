@@ -346,12 +346,20 @@ export function Modal({
   onClose,
   children,
   footer,
+  size = 'default',
 }: {
   title: string;
   subtitle?: ReactNode;
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  /**
+   * 'wide' is for a dialog holding a FORM with side-by-side fields. At the
+   * default width `.form-row` wraps to one column and a twenty-field form
+   * becomes a single scrolling ribbon, which is how the inline version read
+   * before it was a dialog at all.
+   */
+  size?: 'default' | 'wide';
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -382,7 +390,7 @@ export function Modal({
       }}
     >
       <div
-        className="modal"
+        className={size === 'wide' ? 'modal wide' : 'modal'}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

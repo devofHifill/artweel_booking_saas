@@ -14,6 +14,14 @@ export const bookingModeSchema = z.enum([
 const baseService = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(4000).optional(),
+
+  /**
+   * The card line. Bounded well below `description` on purpose: this one has
+   * to survive next to nine others in a grid, and a studio given four
+   * thousand characters will use them.
+   */
+  shortDescription: z.string().max(200).optional().nullable(),
+
   categoryId: z.string().uuid().optional().nullable(),
   bookingMode: bookingModeSchema.default('APPOINTMENT'),
 
@@ -31,6 +39,18 @@ const baseService = z.object({
   capacityMax: z.number().int().min(1).max(500).default(1),
 
   priceCents: z.number().int().min(0).max(100_000_000).default(0),
+
+  /**
+   * Per child seat. 0 is "adults only" and is the default, so a studio that
+   * has not thought about children never accidentally offers them a free
+   * place.
+   *
+   * NOT refused when above the adult price. It looks like a typo and almost
+   * always is, but a studio running a kids' workshop with a discounted
+   * accompanying adult is a real thing, and the form warns rather than the
+   * API refusing.
+   */
+  childPriceCents: z.number().int().min(0).max(100_000_000).default(0),
 
   paddingBeforeMinutes: z.number().int().min(0).max(480).default(0),
   paddingAfterMinutes: z.number().int().min(0).max(480).default(0),
@@ -56,10 +76,31 @@ const baseService = z.object({
   highlights: z.string().max(1200).optional().nullable(),
   preparationNotes: z.string().max(2000).optional().nullable(),
 
+  /** Where it runs. Writes the service_locations join, replacing what is there. */
+  locationId: z.string().uuid().optional().nullable(),
+
+  meetingPoint: z.string().max(300).optional().nullable(),
+
+  /** Sent with the confirmation, not shown before booking. */
+  bookingInstructions: z.string().max(2000).optional().nullable(),
+
+  /**
+   * One glyph. Bounded by characters rather than code points so a flag or a
+   * skin-tone modifier fits, and a caption does not.
+   */
+  emoji: z.string().max(8).optional().nullable(),
+
   color: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #A6522C.')
     .default('#A6522C'),
+
+  /** Second stop of the card gradient. Null falls back to a shade of `color`. */
+  colorAccent: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #A6522C.')
+    .optional()
+    .nullable(),
 
   isActive: z.boolean().default(true),
 

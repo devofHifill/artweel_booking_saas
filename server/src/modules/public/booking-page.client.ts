@@ -30,7 +30,7 @@ export const clientScript = String.raw`
 
   var state = {
     service: null, location: null, staff: null,
-    slot: null, session: null, address: null, coverage: null, seats: 1
+    slot: null, session: null, address: null, coverage: null, seats: 1, children: 0
   };
 
   /** The last /quote answer. Drives the summary AND which endpoint submits. */
@@ -179,7 +179,7 @@ export const clientScript = String.raw`
        not a drop-in anybody can buy a single seat in. The cohort carries the
        service id it needs. */
     state = { service: null, location: null, staff: null, slot: null,
-              session: null, address: null, coverage: null, seats: 1 };
+              session: null, address: null, coverage: null, seats: 1, children: 0 };
 
     showCourseDetails();
   }
@@ -773,10 +773,33 @@ export const clientScript = String.raw`
   */
   function renderSummary(q) {
     var label = course ? course.name : state.service.name;
-    var rows =
-      '<div><span>' + esc(label) + (state.seats > 1
-        ? ' &times; ' + state.seats : '') + '</span><span>' +
-        money(q.subtotalCents) + '</span></div>';
+
+    /*
+      Two lines when children are in the party, one when they are not. A
+      single "Wheel throwing x 3 -- $240" against an advertised $95 reads as
+      an arithmetic mistake to the person paying, and they are right to stop
+      and check. Both numbers come off the quote; nothing is multiplied here.
+    */
+    var rows;
+    if (q.children > 0) {
+      /* Each half only when there is one. A party of children alone would
+         otherwise open with "x 0 adults -- $0", which is a line about
+         nothing and makes the reader check the total twice. */
+      rows = '';
+      if (q.adults > 0) {
+        rows += '<div><span>' + esc(label) + ' &times; ' + q.adults + ' adult' +
+          (q.adults === 1 ? '' : 's') + '</span><span>' +
+          money(q.adultSubtotalCents) + '</span></div>';
+      }
+      rows += '<div><span>' + esc(label) + ' &times; ' + q.children + ' child' +
+        (q.children === 1 ? '' : 'ren') + '</span><span>' +
+        money(q.childSubtotalCents) + '</span></div>';
+    } else {
+      rows =
+        '<div><span>' + esc(label) + (state.seats > 1
+          ? ' &times; ' + state.seats : '') + '</span><span>' +
+          money(q.subtotalCents) + '</span></div>';
+    }
 
     if (course) {
       rows += '<div><span>Sessions</span><span>' + course.sessionCount +
@@ -813,7 +836,11 @@ export const clientScript = String.raw`
   function fetchQuote() {
     var body = {
       serviceTypeId: course ? course.service.id : state.service.id,
-      seats: state.seats
+      seats: state.seats,
+      /* Zero on a cohort. A course is sold at one price for the whole run and
+         the server ignores it there; sending the party's real split would
+         make this line disagree with the total beside it. */
+      children: course ? 0 : (state.children || 0)
     };
     /* The cohort's price wins over the service's drop-in rate. Sending the id
        rather than a price keeps that decision on the server, where checkout
@@ -859,6 +886,7 @@ export const clientScript = String.raw`
   function showDetails() {
     drawSteps('Details');
     var maxSeats = state.session ? state.session.seatsAvailable : 1;
+    var childRate = state.service.childPriceCents || 0;
 
     app.innerHTML = back() +
       '<h2>Your details</h2>' +
@@ -869,6 +897,17 @@ export const clientScript = String.raw`
       (maxSeats > 1
         ? '<label for="seats">How many places?</label>' +
           '<input id="seats" type="number" min="1" max="' + maxSeats + '" value="1">'
+        : '') +
+      /*
+        Only when the studio has actually set a child rate. Asking "how many
+        children" on an adult wheel class is a question with one answer, and
+        every field that can only be answered one way is another reason to
+        put the booking off until later.
+      */
+      (childRate > 0 && maxSeats > 1
+        ? '<label for="children">How many of those are children?</label>' +
+          '<input id="children" type="number" min="0" max="' + maxSeats + '" value="0">' +
+          '<p class="hint">Children are ' + money(childRate) + ' each.</p>'
         : '') +
       '<label for="notes">Anything else? (optional)</label><textarea id="notes" rows="3"></textarea>' +
       // TCPA: unbundled, opt-in, never pre-ticked.
@@ -885,12 +924,30 @@ export const clientScript = String.raw`
        always a straight proportion of the total, so two places cannot be
        assumed to cost twice one. */
     var seatsInput = document.getElementById('seats');
-    if (seatsInput) {
-      seatsInput.addEventListener('change', function () {
-        state.seats = parseInt(seatsInput.value, 10) || 1;
-        paintSummary();
-      });
+    var childrenInput = document.getElementById('children');
+
+    /*
+      Both inputs run through one handler, and children are clamped to the
+      party every time either moves. Dropping from four places to two with
+      three children chosen would otherwise send children > seats: the server
+      clamps it and the CHECK constraint refuses it, which is correct and
+      reads to the customer as the booking simply not working.
+    */
+    function syncParty() {
+      state.seats = seatsInput ? parseInt(seatsInput.value, 10) || 1 : 1;
+
+      if (childrenInput) {
+        childrenInput.max = String(state.seats);
+        var kids = parseInt(childrenInput.value, 10) || 0;
+        if (kids > state.seats) { kids = state.seats; childrenInput.value = String(kids); }
+        state.children = kids;
+      }
+
+      paintSummary();
     }
+
+    if (seatsInput) seatsInput.addEventListener('change', syncParty);
+    if (childrenInput) childrenInput.addEventListener('change', syncParty);
 
     document.getElementById('confirm').addEventListener('click', function () {
       var btn = this;
@@ -906,6 +963,7 @@ export const clientScript = String.raw`
       var body = {
         serviceTypeId: state.service.id,
         seats: seatsEl ? parseInt(seatsEl.value, 10) || 1 : 1,
+        children: state.children || 0,
         customer: {
           name: name, email: email,
           phone: document.getElementById('phone').value.trim() || undefined
@@ -947,6 +1005,7 @@ export const clientScript = String.raw`
           serviceTypeId: body.serviceTypeId,
           sessionId: body.sessionId,
           seats: body.seats,
+          children: body.children,
           customer: body.customer
         };
 
@@ -1010,7 +1069,7 @@ export const clientScript = String.raw`
 
   function start() {
     state = { service: null, location: null, staff: null, slot: null,
-              session: null, address: null, coverage: null, seats: 1 };
+              session: null, address: null, coverage: null, seats: 1, children: 0 };
     drawSteps('Class');
     location.reload();
   }

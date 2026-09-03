@@ -20,16 +20,49 @@ have no concept of equipment.
 - Spec: `D:\Projects\2026\booking-saas-spec.md`
 - Phase plan: `D:\Projects\2026\booking-saas-phases.pdf`
 
-## Status — 2026-09-02
+## Status — 2026-09-03
 
 **Phases 0, 1 and 2 are code-complete. Since then: a design-system port,
-superadmin Stages 1 and 2, the thirteen-item TourFlow parity pass, and — on
-2026-09-02 — the booking-page pass, G0 to G5.** Both typechecks clean.
+superadmin Stages 1 and 2, the thirteen-item TourFlow parity pass, the
+booking-page pass G0 to G5 on 2026-09-02, and on 2026-09-03 the
+Create-activity dialog with adult/child pricing.** Both typechecks clean.
 
-**990 tests. One known failure, and it is not a defect:**
-`tests/gate/seat-concurrency.test.ts` reports the raw
-`PrismaClientKnownRequestError` symptom described under ENVIRONMENT GOTCHAS
-when the full suite is under load. It passes when the file is run alone.
+**2026-09-03 — the Create-activity form matched to the prototype's.** It is
+now a DIALOG rather than an inline card, in the prototype's six sections, and
+it writes six new columns plus the `service_locations` join. Two things in it
+are worth knowing before touching that area:
+
+- **`seats` is the whole party; `children` is how many of those are
+  children.** Adults are `seats - children`, derived, never stored. Two
+  independent counts would drift the first time any path touched seats
+  without knowing about the split, and then the manifest and the payment
+  would disagree with no way to tell which lied.
+- **A zero child price means ADULTS ONLY, and `priceBooking` ignores
+  `children` entirely when it is zero.** Without that guard every seat of
+  every service in the catalogue was free to anyone who sent `children`,
+  because zero is the default every service carries. It was written that way
+  first and caught by its own unit test.
+
+The day/time chips in that dialog GENERATE SESSIONS rather than storing a
+pattern — one source of truth for when a class runs. They also default the
+location when a studio has exactly one, because public availability filters
+sessions by location: a class scheduled with no location is scheduled
+invisibly, sitting on the calendar and countable on the dashboard while no
+customer can ever see it.
+
+**1023 tests, all passing.**
+
+`tests/admin/theme.test.ts` had been failing since D0 and was fixed on
+2026-09-03: it still asserted the default preset was `clay` after
+`20260824190000_default_brand_indigo` made it `indigo` and moved the existing
+clay rows across. The token assertion beside it was stale for the same reason
+— `--clay` is the NAME of the accent variable, not a claim about its colour,
+so on the indigo preset it holds `#4f46e5`.
+
+`tests/gate/seat-concurrency.test.ts` — the previously known failure — passed
+in the 2026-09-03 full run. It is load-dependent, not fixed; expect it to come
+and go with what else the machine is doing. The full suite takes about 46
+minutes, so run targeted files while working and the whole thing once.
 
 **Both date time-bombs are fixed.** `tests/public/course-enrollment.test.ts`
 and `tests/gate/course-enrollment.test.ts` each pinned a cohort to
@@ -61,15 +94,22 @@ history; everything in it landed.
   only in git, and since 2026-09-02 that includes the whole booking-page pass
   (G0–G5, see `BOOKING-PAGE-PLAN.md`).
 
-  **TWO MIGRATIONS ARE OWED. This is no longer a code-only deploy.**
+  **FOUR MIGRATIONS ARE OWED. This is no longer a code-only deploy.**
 
   - `20260902120000_service_detail_fields` — `highlights` and
     `preparation_notes` on `service_types`
   - `20260902140000_booking_reference` — `reference` on `bookings`, a
     GENERATED column, plus its index
+  - `20260902160000_drop_booking_reference_index` — drops the speculative
+    index the one above added
+  - `20260903120000_activity_detail_and_child_pricing` — six columns on
+    `service_types` (`short_description`, `child_price_cents`,
+    `meeting_point`, `emoji`, `color_accent`, `booking_instructions`) and
+    `children` on `bookings`
 
-  Both are additive and nullable, so the order is forgiving, but shipping the
-  code without them gives an app querying three columns that do not exist.
+  All additive and either nullable or defaulted, so the order is forgiving,
+  but shipping the code without them gives an app querying columns that do
+  not exist.
   Run `prisma migrate deploy` before the code goes out, not after.
 
   If `THEME_PACK` is set, rebuild rather than restart, because Vite bakes the

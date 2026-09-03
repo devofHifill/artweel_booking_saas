@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, dateIn, money, plusDays, timeIn, todayIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
-import { PageHead, StatusPill } from '../components/layout';
+import {
+  DataTable,
+  initials,
+  Kpi,
+  PageHead,
+  SegRange,
+  StatGrid,
+  StatusPill,
+} from '../components/layout';
+import { Icon } from '../components/Icon';
 import { EmptyState } from '../components/states';
 import { ServiceForm, type ServiceDraft } from '../components/ServiceForm';
 
@@ -35,6 +44,26 @@ type ServiceOption = {
   depositValue?: number;
   highlights?: string | null;
   preparationNotes?: string | null;
+  shortDescription?: string | null;
+  childPriceCents?: number;
+  colorAccent?: string | null;
+  emoji?: string | null;
+  meetingPoint?: string | null;
+  bookingInstructions?: string | null;
+  capacityMin?: number;
+  cancellationPolicyId?: string | null;
+  /**
+   * Both already come back from `/services` and were being discarded.
+   *
+   * `_count.staffServices` is the useful one: a class with no instructor
+   * assigned cannot be booked by anybody, silently — the same shape as the
+   * fault the parity pass found, where anyone hired after signup was
+   * permanently unbookable. The card says so rather than leaving it to be
+   * discovered by a customer.
+   */
+  category?: { id: string; name: string } | null;
+  serviceLocations?: { locationId: string }[];
+  _count?: { staffServices: number; serviceLocations: number };
 };
 
 type SessionRow = {
@@ -108,6 +137,55 @@ export default function Classes() {
   const currency = org?.organization.currency ?? 'USD';
   const isAdmin = org?.role === 'OWNER' || org?.role === 'ADMIN';
 
+  /** Cards or table over the same catalogue. See the toggle for why both. */
+  const [view, setView] = useState<'cards' | 'table'>('cards');
+
+
+  /**
+   * Opens the editor on one service.
+   *
+   * A function rather than the object literal it replaced, because two views
+   * now offer Edit and this draft is where G3 already caught a foot-gun: the
+   * form sends whatever it holds, so a field this builder forgets is a field
+   * the next save silently resets to its default. One copy can be wrong; two
+   * copies drift, and only one of them gets fixed.
+   */
+  function edit(svc: ServiceOption) {
+    setEditing({
+      id: svc.id,
+      name: svc.name,
+      description: svc.description,
+      bookingMode: svc.bookingMode as never,
+      durationMinutes: svc.durationMinutes,
+      capacityMax: svc.capacityMax,
+      priceCents: svc.priceCents ?? 0,
+      color: svc.color ?? '#4f46e5',
+      minNoticeMinutes: svc.minNoticeMinutes,
+      maxHorizonDays: svc.maxHorizonDays,
+      depositType: svc.depositType,
+      depositValue: svc.depositValue,
+      highlights: svc.highlights,
+      preparationNotes: svc.preparationNotes,
+      /* Every field the form can send has to be READ back here. One this
+         object forgets is one the next save silently resets to its default,
+         which is the quietest way to lose a studio's copy. */
+      shortDescription: svc.shortDescription,
+      childPriceCents: svc.childPriceCents ?? 0,
+      colorAccent: svc.colorAccent,
+      emoji: svc.emoji,
+      meetingPoint: svc.meetingPoint,
+      bookingInstructions: svc.bookingInstructions,
+      capacityMin: svc.capacityMin ?? 1,
+      categoryId: svc.category?.id ?? null,
+      cancellationPolicyId: svc.cancellationPolicyId,
+      /* The join is many-to-many and the form offers one, so the first is the
+         one it edits. Without this the form opens blank and the next save
+         sends null, clearing a location the studio never touched. */
+      locationId: svc.serviceLocations?.[0]?.locationId ?? null,
+    });
+    setShowForm(true);
+  }
+
   /** The catalogue editor. Null `editing` means creating a new one. */
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<ServiceDraft | null>(null);
@@ -118,6 +196,34 @@ export default function Classes() {
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [staff, setStaff] = useState<{ id: string; name: string }[]>([]);
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+
+  /** What a studio can actually schedule today. */
+  const bookable = services.filter((s) => s.isActive !== false);
+  const inactive = services.length - bookable.length;
+
+  /**
+   * The average of what a studio charges, over its LIVE classes only.
+   *
+   * Including switched-off ones would let a class nobody can book drag the
+   * figure an owner reads as "what I charge". Free classes count — a taster at
+   * zero is a real price and pretending otherwise flatters the average.
+   */
+  const averageCents = bookable.length
+    ? Math.round(
+        bookable.reduce((sum, s) => sum + (s.priceCents ?? 0), 0) / bookable.length,
+      )
+    : 0;
+
+  /**
+   * Seats put on sale in the range below, and how many have gone.
+   *
+   * Computed from the sessions already loaded rather than fetched: the demo
+   * fixes this at 30 days, but ours is whatever range the picker holds, so the
+   * figure follows it and the foot says so instead of naming a window that
+   * might not be the one on screen.
+   */
+  const seatsScheduled = sessions.reduce((sum, s) => sum + s.capacity, 0);
+  const seatsTaken = sessions.reduce((sum, s) => sum + s.seatsTaken, 0);
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -161,7 +267,18 @@ export default function Classes() {
    */
   const loadServices = useCallback(async () => {
     try {
-      const s = await api.get<{ services: ServiceOption[] }>(`${base}/services`);
+      /*
+        `includeInactive` because this is the CATALOGUE, and an owner who
+        switched a class off still needs to find it to switch it back on.
+
+        Without it the endpoint returns only active services, which meant the
+        status pill on every card could say nothing but "Active" and an
+        inactive count would always have been zero. The scheduling form below
+        filters them back out — see `bookable`.
+      */
+      const s = await api.get<{ services: ServiceOption[] }>(
+        `${base}/services?includeInactive=true`,
+      );
       // A course service cannot take a loose class, so it is not offered.
       setServices(s.services.filter((x) => x.bookingMode !== 'COURSE_SERIES'));
     } catch {
@@ -359,17 +476,22 @@ export default function Classes() {
         lede="What you offer, and when it runs."
         actions={
           <>
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              aria-label="From"
-            />
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              aria-label="To"
+            {/*
+              The view toggle belongs to the whole page, so it sits in the page
+              head beside the primary action — the prototype's arrangement.
+
+              The two date inputs used to live here and have moved down to the
+              schedule, which is the only thing they filter. In the header they
+              read as page-wide controls and crowded out the two that are.
+            */}
+            <SegRange
+              label="How to show the catalogue"
+              options={[
+                { value: 'cards', label: 'Cards' },
+                { value: 'table', label: 'Table' },
+              ]}
+              value={view}
+              onChange={setView}
             />
             {isAdmin && (
               <button
@@ -379,7 +501,8 @@ export default function Classes() {
                   setShowForm(true);
                 }}
               >
-                New activity
+                <Icon name="plus" size={16} />
+                Create activity
               </button>
             )}
           </>
@@ -387,6 +510,52 @@ export default function Classes() {
       />
 
       {error && <div className="err">{error}</div>}
+
+      {/*
+        The four figures, matching the prototype's row.
+
+        "Drafts" is "Switched off" here: a service has an isActive flag and no
+        draft state, and calling a deactivated class a draft would invent a
+        workflow the product does not have.
+
+        There is no "seats sold" equivalent to the prototype's revenue figures
+        on this screen — those live behind Reports, and a second request on a
+        page that needs none is a poor trade for a number Reports already
+        answers better.
+      */}
+      <StatGrid>
+        <Kpi
+          label="Live activities"
+          value={String(bookable.length)}
+          icon="classes"
+          foot={
+            services.length === 0 ? 'Nothing set up yet' : 'Bookable right now'
+          }
+        />
+        <Kpi
+          label="Switched off"
+          value={String(inactive)}
+          icon="classes"
+          tone={inactive > 0 ? 'amber' : undefined}
+          foot={inactive > 0 ? 'Not on your booking page' : 'All of them are live'}
+        />
+        <Kpi
+          label="Average price"
+          value={money(averageCents, currency)}
+          icon="money"
+          foot="Across your live classes"
+        />
+        <Kpi
+          label="Seats scheduled"
+          value={String(seatsScheduled)}
+          icon="today"
+          foot={
+            seatsScheduled > 0
+              ? `${seatsTaken} taken · in the range below`
+              : 'Nothing scheduled in the range below'
+          }
+        />
+      </StatGrid>
 
       {/*
         THE CATALOGUE.
@@ -412,7 +581,11 @@ export default function Classes() {
         />
       )}
 
-      {!showForm && (
+      {/* No longer gated on `!showForm`. The editor was an inline card that
+          replaced this section; as a dialog it floats over it, and blanking
+          the page behind a dialog loses the very list the studio is editing
+          against. */}
+      {(
         <section className="card" style={{ marginBottom: 'var(--space-5)' }}>
           <div className="panel-head" style={{ margin: '-14px -16px 16px' }}>
             <h2>What you offer</h2>
@@ -425,56 +598,167 @@ export default function Classes() {
             <EmptyState hint={isAdmin ? 'Create one to start taking bookings.' : undefined}>
               Nothing set up yet.
             </EmptyState>
-          ) : (
+          ) : view === 'cards' ? (
             <div className="catalogue">
-              {services.map((svc) => (
-                <div className="cat-card" key={svc.id}>
-                  <span
-                    className="cat-swatch"
-                    style={{ background: svc.color ?? 'var(--clay)' }}
-                    aria-hidden="true"
-                  />
-                  <div className="cat-main">
-                    <strong>{svc.name}</strong>
-                    <div className="tiny muted">
-                      {svc.bookingMode === 'APPOINTMENT'
-                        ? 'One to one'
-                        : `Up to ${svc.capacityMax}`}
-                      {' · '}
-                      {svc.durationMinutes} min
-                      {svc.priceCents !== undefined &&
-                        ` · ${money(svc.priceCents, currency)}`}
-                    </div>
-                  </div>
-                  {isAdmin && (
-                    <button
-                      className="sm"
-                      onClick={() => {
-                        setEditing({
-                          id: svc.id,
-                          name: svc.name,
-                          description: svc.description,
-                          bookingMode: svc.bookingMode as never,
-                          durationMinutes: svc.durationMinutes,
-                          capacityMax: svc.capacityMax,
-                          priceCents: svc.priceCents ?? 0,
-                          color: svc.color ?? '#4f46e5',
-                          minNoticeMinutes: svc.minNoticeMinutes,
-                          maxHorizonDays: svc.maxHorizonDays,
-                          depositType: svc.depositType,
-                          depositValue: svc.depositValue,
-                          highlights: svc.highlights,
-                          preparationNotes: svc.preparationNotes,
-                        });
-                        setShowForm(true);
+              {services.map((svc) => {
+                const colour = svc.color ?? 'var(--clay)';
+                /* The chosen second stop when there is one, and a darker shade
+                   of the first when there is not — so a service created before
+                   the gradient picker existed still gets a coherent card
+                   rather than a flat block. */
+                const accent =
+                  svc.colorAccent ?? `color-mix(in srgb, ${colour} 65%, #000)`;
+                const unstaffed = svc._count?.staffServices === 0;
+
+                return (
+                  <article className="cat-card" key={svc.id}>
+                    {/*
+                      The icon the studio picked, over the gradient it picked.
+
+                      This used to read "there is no emoji anywhere in this
+                      schema and inventing a field for one is a poor trade, so
+                      the initials carry it" — true when it was written, and no
+                      longer: the Create-activity form asks for both. The
+                      initials stay as the fallback, because every service
+                      created before that form existed has neither.
+                    */}
+                    <div
+                      className="cat-head"
+                      style={{
+                        background: `linear-gradient(135deg, ${colour}, ${accent})`,
                       }}
                     >
-                      Edit
-                    </button>
-                  )}
-                </div>
-              ))}
+                      <span className="cat-initials" aria-hidden="true">
+                        {svc.emoji || initials(svc.name)}
+                      </span>
+                      <span className="cat-pins">
+                        <StatusPill
+                          status={svc.isActive === false ? 'INACTIVE' : 'ACTIVE'}
+                        />
+                        {svc.category && (
+                          <span className="cat-tag">{svc.category.name}</span>
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="cat-body">
+                      <div className="cat-title">
+                        <strong>{svc.name}</strong>
+                        {svc.priceCents !== undefined && (
+                          <span className="strong">
+                            {money(svc.priceCents, currency)}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* The short line is written FOR this spot; the long one
+                          is the detail panel's and gets truncated to nonsense
+                          here. Falls back to it only when there is no short. */}
+                      {(svc.shortDescription || svc.description) && (
+                        <p className="tiny muted cat-desc">
+                          {svc.shortDescription || svc.description}
+                        </p>
+                      )}
+
+                      <div className="cat-meta tiny muted">
+                        <span>{svc.durationMinutes} min</span>
+                        <span>
+                          {svc.bookingMode === 'APPOINTMENT'
+                            ? 'One to one'
+                            : `Up to ${svc.capacityMax}`}
+                        </span>
+                        {svc._count && (
+                          <span>
+                            {svc._count.serviceLocations || 'no'}{' '}
+                            {svc._count.serviceLocations === 1
+                              ? 'location'
+                              : 'locations'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="cat-foot">
+                        {/*
+                          Not a decoration. A class nobody can teach takes no
+                          bookings and says nothing about it — the exact
+                          silent fault the parity pass found with instructor
+                          hours.
+                        */}
+                        <span className={`tiny ${unstaffed ? 'warn' : 'muted'}`}>
+                          {unstaffed
+                            ? 'No instructor assigned'
+                            : `${svc._count?.staffServices ?? 0} ${
+                                svc._count?.staffServices === 1
+                                  ? 'instructor'
+                                  : 'instructors'
+                              }`}
+                        </span>
+                        {isAdmin && (
+                          <button className="sm" onClick={() => edit(svc)}>
+                            Edit
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
+          ) : (
+            <DataTable
+              caption="What you offer, with type, duration, capacity and price"
+              head={
+                <tr>
+                  <th>Activity</th>
+                  <th>Type</th>
+                  <th className="num">Duration</th>
+                  <th className="num">Capacity</th>
+                  <th className="num">Price</th>
+                  <th>Status</th>
+                  {isAdmin && <th style={{ width: 80 }} />}
+                </tr>
+              }
+            >
+              {services.map((svc) => (
+                <tr key={svc.id}>
+                  <td>
+                    <span
+                      className="swatch"
+                      style={{ background: svc.color ?? 'var(--clay)' }}
+                    />
+                    {svc.name}
+                    {svc.description && (
+                      <div className="tiny muted">{svc.description}</div>
+                    )}
+                  </td>
+                  <td>
+                    {svc.bookingMode === 'APPOINTMENT' ? 'One to one' : 'Group class'}
+                  </td>
+                  <td className="num nowrap">{svc.durationMinutes} min</td>
+                  {/* An appointment is one-to-one by a schema rule, so a
+                      capacity column would read "1" down every such row and
+                      invite somebody to change it. */}
+                  <td className="num">
+                    {svc.bookingMode === 'APPOINTMENT' ? '—' : svc.capacityMax}
+                  </td>
+                  <td className="num">
+                    {svc.priceCents === undefined
+                      ? '—'
+                      : money(svc.priceCents, currency)}
+                  </td>
+                  <td>
+                    <StatusPill status={svc.isActive === false ? 'INACTIVE' : 'ACTIVE'} />
+                  </td>
+                  {isAdmin && (
+                    <td>
+                      <button className="link" onClick={() => edit(svc)}>
+                        Edit
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </DataTable>
           )}
         </section>
       )}
@@ -496,7 +780,10 @@ export default function Classes() {
                 required
               >
                 <option value="">Choose…</option>
-                {services.map((s) => (
+                {/* Active only. Scheduling a class a studio has switched off
+                    would put a session on the calendar that its own booking
+                    page will not sell. */}
+                {bookable.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
@@ -630,6 +917,31 @@ export default function Classes() {
           )}
         </form>
       )}
+
+      {/*
+        The date range sits with the list it filters, not in the page head.
+
+        It reads as a page-wide control up there, which it is not — it touches
+        nothing in the catalogue above. "In this range" in the empty state now
+        has the range it refers to next to it.
+      */}
+      <div className="panel-head" style={{ marginBottom: 'var(--space-3)' }}>
+        <h2>Scheduled classes</h2>
+        <div className="right row" style={{ gap: 'var(--space-2)' }}>
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            aria-label="From"
+          />
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            aria-label="To"
+          />
+        </div>
+      </div>
 
       {sessions.length === 0 && !error && (
         <EmptyState icon="◷">No classes in this range.</EmptyState>

@@ -45,6 +45,15 @@ export async function listServices(
     include: {
       category: { select: { id: true, name: true } },
       cancellationPolicy: { select: { id: true, name: true } },
+      /*
+        The ids themselves, not just the count.
+
+        The edit form sends `locationId: null` for "nowhere in particular", so
+        a form that could not READ the current location would clear it on every
+        save — the studio edits a price and the class quietly stops being
+        anywhere. The count alone cannot prefill that field.
+      */
+      serviceLocations: { select: { locationId: true } },
       _count: { select: { staffServices: true, serviceLocations: true } },
     },
     orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
@@ -71,25 +80,60 @@ export async function getService(organizationId: string, id: string) {
   return service;
 }
 
+/**
+ * `locationId` is a field on the form and a JOIN ROW in the database.
+ *
+ * It has to come out of the payload before the row is written or Prisma
+ * rejects the whole create for an unknown column, and the studio is told
+ * their class could not be saved because of a field they can see on screen.
+ *
+ * One id in, a list out: `service_locations` is many-to-many and stays that
+ * way — a service running at two sites is a real thing this schema already
+ * supports. The form offers one because a form that offers a multi-select for
+ * a studio with one address is asking a question with a single answer.
+ */
+function peelLocationId(input: Record<string, unknown>): {
+  rest: Record<string, unknown>;
+  locationIds: string[] | null;
+} {
+  if (!('locationId' in input)) return { rest: input, locationIds: null };
+
+  const { locationId, ...rest } = input;
+  return {
+    rest,
+    // Explicit null means "nowhere in particular", which is an empty list and
+    // NOT the same as the key being absent — that one means "leave it alone".
+    locationIds: typeof locationId === 'string' && locationId ? [locationId] : [],
+  };
+}
+
 export async function createService(
   organizationId: string,
   input: Record<string, unknown>,
 ) {
   await assertReferencesBelong(organizationId, input);
 
+  const { rest, locationIds } = peelLocationId(input);
+
   const slug = await uniqueSlug(
-    String(input.name),
+    String(rest.name),
     (c) => slugTaken(organizationId, c),
     'service',
   );
 
-  return prisma.serviceType.create({
+  const service = await prisma.serviceType.create({
     data: {
-      ...(input as Prisma.ServiceTypeUncheckedCreateInput),
+      ...(rest as Prisma.ServiceTypeUncheckedCreateInput),
       organizationId,
       slug,
     },
   });
+
+  if (locationIds?.length) {
+    await setServiceLocations(organizationId, service.id, locationIds);
+  }
+
+  return service;
 }
 
 export async function updateService(
@@ -132,7 +176,13 @@ export async function updateService(
     }
   }
 
-  const data: Prisma.ServiceTypeUncheckedUpdateInput = { ...input };
+  const { rest, locationIds } = peelLocationId(input);
+
+  if (locationIds) {
+    await setServiceLocations(organizationId, id, locationIds);
+  }
+
+  const data: Prisma.ServiceTypeUncheckedUpdateInput = { ...rest };
 
   if (typeof input.name === 'string' && input.name !== existing.name) {
     data.slug = await uniqueSlug(
@@ -289,6 +339,20 @@ async function assertReferencesBelong(
       select: { id: true },
     });
     if (!policy) throw AppError.badRequest('Cancellation policy not found.');
+  }
+
+  /*
+    Checked HERE and not left to setServiceLocations, which validates the same
+    thing. On create the service row is written first, so a bad location id
+    caught downstream would leave a saved-but-locationless class behind and
+    report a failure — the studio then creates it again and has two.
+  */
+  if (input.locationId) {
+    const location = await prisma.location.findFirst({
+      where: { id: String(input.locationId), organizationId },
+      select: { id: true },
+    });
+    if (!location) throw AppError.badRequest('Location not found.');
   }
 
   if (input.prerequisiteServiceTypeId) {

@@ -120,13 +120,18 @@ export async function getStudioPage(slug: string) {
         name: true,
         slug: true,
         description: true,
+        shortDescription: true,
         bookingMode: true,
         durationMinutes: true,
         capacityMax: true,
         priceCents: true,
+        childPriceCents: true,
         depositType: true,
         depositValue: true,
         color: true,
+        colorAccent: true,
+        emoji: true,
+        meetingPoint: true,
         skillLevel: true,
         highlights: true,
         preparationNotes: true,
@@ -222,6 +227,8 @@ export async function quoteBooking(params: {
   /** Set when quoting a whole cohort rather than a single class. */
   courseSeriesId?: string;
   seats: number;
+  /** How many of `seats` are children. See the note on the column. */
+  children?: number;
   travelFeeCents?: number;
 }) {
   const organization = await getStudio(params.slug);
@@ -232,7 +239,12 @@ export async function quoteBooking(params: {
       organizationId: organization.id,
       isActive: true,
     },
-    select: { priceCents: true, depositType: true, depositValue: true },
+    select: {
+      priceCents: true,
+      childPriceCents: true,
+      depositType: true,
+      depositValue: true,
+    },
   });
   if (!service) throw AppError.notFound('Service not found.');
 
@@ -272,6 +284,14 @@ export async function quoteBooking(params: {
   const price = priceBooking({
     unitPriceCents: series ? series.priceCents : service.priceCents,
     seats: params.seats,
+    /*
+      A cohort is sold at one price for the whole run and carries no child
+      rate of its own, so a course prices every seat the same. Passing the
+      service's child rate here would apply a per-class discount to a
+      six-week course.
+    */
+    children: series ? 0 : params.children,
+    childPriceCents: service.childPriceCents,
     travelFeeCents: params.travelFeeCents,
     depositType: service.depositType as DepositType,
     depositValue: service.depositValue,
@@ -399,6 +419,11 @@ export type PublicBookingInput = {
   locationId?: string;
   startsAt?: string;
   seats?: number;
+  /**
+   * How many of `seats` are children. Meaningless on an appointment, which is
+   * one-to-one by definition, so only the seat-based branch reads it.
+   */
+  children?: number;
   customer: { name: string; email: string; phone?: string };
   serviceAddress?: {
     line1: string;
@@ -519,9 +544,26 @@ export async function createPublicBooking(input: PublicBookingInput) {
   });
 
   if (booking) {
+    /*
+      Through priceBooking rather than `priceCents * seats`, which is what
+      this line used to be.
+
+      That multiplication was a second implementation of the price, and the
+      moment a child rate existed it became a WRONG one — an unpaid booking
+      for two adults and a child would have recorded three adult fares while
+      the quote beside it said otherwise. One function computes what a party
+      costs; every path that needs a number asks it.
+    */
+    const price = priceBooking({
+      unitPriceCents: service.priceCents,
+      seats,
+      children: input.children,
+      childPriceCents: service.childPriceCents,
+    });
+
     const updated = await prisma.booking.update({
       where: { id: booking.id },
-      data: { totalCents: service.priceCents * seats },
+      data: { totalCents: price.subtotalCents, children: price.children },
     });
 
     await queueNotifications(updated.id);
@@ -1032,6 +1074,12 @@ export async function getBookingByToken(token: string) {
              the way in. This is the page a customer actually returns to the
              night before, from the link in their email. */
           preparationNotes: true,
+          /* And these two only make sense here. Booking instructions are
+             written for somebody who has already booked, and a meeting point
+             is no use to anyone still deciding — putting either on the
+             booking page would be answering a question nobody has asked yet. */
+          bookingInstructions: true,
+          meetingPoint: true,
         },
       },
       staff: { select: { id: true, name: true } },

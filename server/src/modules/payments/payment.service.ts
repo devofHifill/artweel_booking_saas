@@ -120,6 +120,8 @@ export type StartCheckoutInput = {
   customerEmail: string;
   customerName: string;
   seats: number;
+  /** How many of `seats` are children, priced at the service's child rate. */
+  children?: number;
   travelFeeCents?: number;
   successUrl: string;
   cancelUrl: string;
@@ -185,6 +187,10 @@ export async function startCheckout(input: StartCheckoutInput) {
   const price = priceBooking({
     unitPriceCents: series ? series.priceCents : service.priceCents,
     seats: input.seats,
+    // Zero on a course, matching quoteBooking exactly. If these two ever
+    // disagree the customer is charged something other than what they read.
+    children: series ? 0 : input.children,
+    childPriceCents: service.childPriceCents,
     travelFeeCents: input.travelFeeCents,
     depositType: service.depositType as 'none' | 'percent' | 'fixed',
     depositValue: service.depositValue,
@@ -240,6 +246,7 @@ export async function startCheckout(input: StartCheckoutInput) {
         customerEmail: input.customerEmail,
         customerName: input.customerName,
         seats: String(input.seats),
+        children: String(price.children),
         totalCents: String(price.totalCents),
         travelFeeCents: String(price.travelFeeCents),
       },
@@ -540,9 +547,25 @@ async function onCheckoutCompleted(event: WebhookEvent) {
     source: 'web',
   });
 
+  /*
+    `children` comes off the metadata rather than being recomputed, because
+    the metadata is what the charged amount was derived from. Recomputing it
+    from the service's current rates would disagree with the receipt the
+    moment a studio edits its prices between checkout and webhook — a window
+    of seconds, but one that lands on a customer who has already paid.
+
+    Clamped to the seats the hold actually converted: the CHECK constraint
+    refuses children > seats, and a rejected write here would strand a paid
+    booking as PENDING.
+  */
+  const children = Math.min(
+    booking.seats,
+    Math.max(0, Number(metadata.children ?? 0) || 0),
+  );
+
   await prisma.booking.update({
     where: { id: booking.id },
-    data: { totalCents, travelFeeCents, status: 'CONFIRMED' },
+    data: { totalCents, travelFeeCents, children, status: 'CONFIRMED' },
   });
 
   await prisma.payment.updateMany({

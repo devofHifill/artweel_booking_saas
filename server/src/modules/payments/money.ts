@@ -14,9 +14,25 @@
 export type DepositType = 'none' | 'percent' | 'fixed';
 
 export type PriceInput = {
-  /** Per seat, before anything else. */
+  /** Per ADULT seat, before anything else. */
   unitPriceCents: number;
+  /**
+   * The TOTAL party, adults and children together — the same number the
+   * booking's `seats` column holds and the same number the session's capacity
+   * is checked against.
+   */
   seats: number;
+  /**
+   * How many of `seats` are children. Adults are seats - children.
+   *
+   * A count rather than a separate adult count, for the reason the column is
+   * shaped that way: two independent numbers can disagree with each other and
+   * one derived from the total cannot. Omitted means an all-adult party,
+   * which is what every caller meant before child pricing existed.
+   */
+  children?: number;
+  /** Per child seat. Ignored when `children` is 0. */
+  childPriceCents?: number;
   travelFeeCents?: number;
   depositType?: DepositType;
   /** A percentage when depositType is "percent", otherwise cents. */
@@ -33,11 +49,43 @@ export type PriceBreakdown = {
   balanceCents: number;
   requiresPayment: boolean;
   kind: 'DEPOSIT' | 'FULL';
+  /** The party as it was actually priced, for the confirmation to print. */
+  adults: number;
+  children: number;
+  adultSubtotalCents: number;
+  childSubtotalCents: number;
 };
 
 export function priceBooking(input: PriceInput): PriceBreakdown {
   const seats = Math.max(1, Math.floor(input.seats));
-  const subtotalCents = Math.max(0, Math.round(input.unitPriceCents)) * seats;
+
+  const adultUnit = Math.max(0, Math.round(input.unitPriceCents));
+  const childUnit = Math.max(0, Math.round(input.childPriceCents ?? 0));
+
+  /**
+   * Clamped to the party, and ignored entirely when there is no child rate.
+   *
+   * Two separate ways to be handed a number that must not be believed:
+   *
+   * 1. MORE CHILDREN THAN SEATS. Unclamped, adults = 2 - 9 = -7 and the
+   *    subtotal lands BELOW the child rate — a discount for misreporting your
+   *    family, available to anyone who can edit a request body.
+   *
+   * 2. CHILDREN ON A SERVICE WITH NO CHILD RATE. A zero child price means
+   *    "adults only" — it is the DEFAULT every service carries, and the
+   *    migration deliberately gave up telling it apart from "children go
+   *    free". So a party claiming children here must pay the adult rate for
+   *    them, not multiply by zero. Without this line every seat on every
+   *    service in the product is free to anyone who sends `children`, which
+   *    is the whole catalogue by default.
+   */
+  const claimed = Math.min(seats, Math.max(0, Math.floor(input.children ?? 0)));
+  const children = childUnit > 0 ? claimed : 0;
+  const adults = seats - children;
+
+  const adultSubtotalCents = adultUnit * adults;
+  const childSubtotalCents = childUnit * children;
+  const subtotalCents = adultSubtotalCents + childSubtotalCents;
 
   /**
    * Travel is charged once per visit, not per seat. A six-person mobile party
@@ -57,6 +105,10 @@ export function priceBooking(input: PriceInput): PriceBreakdown {
     balanceCents: totalCents - dueNowCents,
     requiresPayment: dueNowCents > 0,
     kind: dueNowCents === totalCents ? 'FULL' : 'DEPOSIT',
+    adults,
+    children,
+    adultSubtotalCents,
+    childSubtotalCents,
   };
 }
 
