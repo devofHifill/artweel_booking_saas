@@ -32,9 +32,13 @@ async function slugTaken(organizationId: string, candidate: string, excludeId?: 
 
 export async function listServices(
   organizationId: string,
-  opts: { includeInactive?: boolean; bookingMode?: string } = {},
+  opts: {
+    includeInactive?: boolean;
+    bookingMode?: string;
+    withStats?: boolean;
+  } = {},
 ) {
-  return prisma.serviceType.findMany({
+  const services = await prisma.serviceType.findMany({
     where: {
       organizationId,
       ...(opts.includeInactive ? {} : { isActive: true }),
@@ -58,6 +62,30 @@ export async function listServices(
     },
     orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
   });
+
+  if (!opts.withStats) return services;
+
+  /*
+    Merged here rather than joined in the query above. Revenue is payments net
+    of refunds and only in two of the six payment statuses — a rule that lives
+    in the analytics module and must not be re-expressed as a Prisma
+    aggregate, or the catalogue and Reports would disagree about the same
+    class and both look right.
+  */
+  const { serviceStats } = await import('../analytics/analytics.service');
+  const stats = await serviceStats(organizationId);
+
+  return services.map((service) => ({
+    ...service,
+    // Zero rather than absent for a class nobody has booked: the card prints
+    // this, and a missing figure renders as "undefined bookings".
+    stats: stats.get(service.id) ?? {
+      serviceTypeId: service.id,
+      bookings: 0,
+      seats: 0,
+      revenueCents: 0,
+    },
+  }));
 }
 
 export async function getService(organizationId: string, id: string) {

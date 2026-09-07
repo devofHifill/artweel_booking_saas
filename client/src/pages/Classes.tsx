@@ -63,6 +63,8 @@ type ServiceOption = {
    */
   category?: { id: string; name: string } | null;
   serviceLocations?: { locationId: string }[];
+  /** Lifetime, and only present when the list was asked for `withStats`. */
+  stats?: { bookings: number; seats: number; revenueCents: number };
   _count?: { staffServices: number; serviceLocations: number };
 };
 
@@ -140,6 +142,10 @@ export default function Classes() {
   /** Cards or table over the same catalogue. See the toggle for why both. */
   const [view, setView] = useState<'cards' | 'table'>('cards');
 
+  /** The catalogue filter bar. Both are held here so the two views share them. */
+  const [query, setQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+
 
   /**
    * Opens the editor on one service.
@@ -186,6 +192,52 @@ export default function Classes() {
     setShowForm(true);
   }
 
+  /**
+   * The calendar icon on a card.
+   *
+   * Preselects the class in the schedule form below and takes you to it. The
+   * prototype's equivalent navigates to its Calendar page instead, and this
+   * will too once scheduling lives there — at which point this becomes a
+   * route change and the form it scrolls to is gone.
+   */
+  function scheduleFor(svc: ServiceOption) {
+    setServiceTypeId(svc.id);
+    /* Capacity follows the class, because that is the answer the owner would
+       have typed. They can still overrule it before submitting. */
+    setCapacity(svc.capacityMax);
+    document
+      .getElementById('scheduleForm')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /**
+   * Deleting a class, which usually means deactivating it.
+   *
+   * The server refuses to delete anything with a booking or a session against
+   * it and says to deactivate instead — a booking references the service that
+   * produced it, and removing the row would orphan a customer's receipt. That
+   * refusal is the common case, so it is shown as guidance rather than an
+   * error the owner has to decode.
+   */
+  async function remove(svc: ServiceOption) {
+    if (
+      !window.confirm(
+        `Delete "${svc.name}"? This cannot be undone. If it has ever been ` +
+          'booked, switch it off instead — its history has to stay.',
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await api.del(`${base}/services/${svc.id}`);
+      await loadServices();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete.');
+    }
+  }
+
   /** The catalogue editor. Null `editing` means creating a new one. */
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<ServiceDraft | null>(null);
@@ -200,6 +252,48 @@ export default function Classes() {
   /** What a studio can actually schedule today. */
   const bookable = services.filter((s) => s.isActive !== false);
   const inactive = services.length - bookable.length;
+
+  /**
+   * The categories actually in use, for the filter's dropdown.
+   *
+   * Derived from the catalogue rather than fetched from /services/categories.
+   * A studio that has defined "Kids" and used it on nothing would otherwise
+   * get an option that always returns an empty list, which reads as a broken
+   * filter rather than an empty category.
+   */
+  const usedCategories = [
+    ...new Map(
+      services
+        .filter((svc) => svc.category)
+        .map((svc) => [svc.category!.id, svc.category!]),
+    ).values(),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+
+  /**
+   * What the catalogue shows after the filter bar.
+   *
+   * Matches name, category and the short line — the same fields the prototype
+   * searches, minus its `location`, which is a join here rather than a string
+   * on the row. An owner hunting "wheel" is looking at names anyway.
+   */
+  const needle = query.trim().toLowerCase();
+  const visible = services.filter((svc) => {
+    if (categoryFilter && svc.category?.id !== categoryFilter) return false;
+    if (!needle) return true;
+    /*
+      Only what the card actually SHOWS.
+
+      The long description was in here and matched "wheel" against "we bring
+      the wheels to you" on a class with no wheel in its name — a correct hit
+      the owner cannot see the reason for, which reads as the filter being
+      broken. Searching the visible text means every result explains itself.
+    */
+    return [svc.name, svc.category?.name, svc.shortDescription]
+      .filter(Boolean)
+      .some((field) => field!.toLowerCase().includes(needle));
+  });
+
+  const filtering = needle !== '' || categoryFilter !== '';
 
   /**
    * The average of what a studio charges, over its LIVE classes only.
@@ -276,8 +370,11 @@ export default function Classes() {
         inactive count would always have been zero. The scheduling form below
         filters them back out — see `bookable`.
       */
+      /* `withStats` is opt-in and this is the one screen that prints the
+         numbers. Every other caller of /services — the booking form's class
+         picker, onboarding — leaves it off and does not pay for the read. */
       const s = await api.get<{ services: ServiceOption[] }>(
-        `${base}/services?includeInactive=true`,
+        `${base}/services?includeInactive=true&withStats=true`,
       );
       // A course service cannot take a loose class, so it is not offered.
       setServices(s.services.filter((x) => x.bookingMode !== 'COURSE_SERIES'));
@@ -590,17 +687,56 @@ export default function Classes() {
           <div className="panel-head" style={{ margin: '-14px -16px 16px' }}>
             <h2>What you offer</h2>
             <div className="right tiny muted">
-              {services.length} {services.length === 1 ? 'activity' : 'activities'}
+              {/* The count follows the filter, and says so when one is on.
+                  "3 activities" under a search box that is hiding nine is a
+                  number the owner will misread as their whole catalogue. */}
+              {filtering
+                ? `${visible.length} of ${services.length}`
+                : `${services.length} ${services.length === 1 ? 'activity' : 'activities'}`}
             </div>
           </div>
+
+          {/* The filter bar. Hidden below three activities, where a search box
+              costs a row of screen and saves nobody a scroll. */}
+          {services.length > 3 && (
+            <div className="filter-bar">
+              <input
+                type="search"
+                className="grow"
+                value={query}
+                placeholder="Search activities…"
+                aria-label="Search activities"
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <select
+                value={categoryFilter}
+                aria-label="Filter by category"
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <option value="">All categories</option>
+                {usedCategories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {services.length === 0 ? (
             <EmptyState hint={isAdmin ? 'Create one to start taking bookings.' : undefined}>
               Nothing set up yet.
             </EmptyState>
+          ) : visible.length === 0 ? (
+            /* Distinct from the empty catalogue above. "Nothing set up yet" in
+               front of a studio with nine classes and a stray search term is a
+               small heart attack. */
+            <EmptyState hint="Try a different search, or clear the category.">
+              No activities match.
+            </EmptyState>
           ) : view === 'cards' ? (
             <div className="catalogue">
-              {services.map((svc) => {
+              {visible.map((svc) => {
                 const colour = svc.color ?? 'var(--clay)';
                 /* The chosen second stop when there is one, and a darker shade
                    of the first when there is not — so a service created before
@@ -679,24 +815,57 @@ export default function Classes() {
 
                       <div className="cat-foot">
                         {/*
-                          Not a decoration. A class nobody can teach takes no
-                          bookings and says nothing about it — the exact
-                          silent fault the parity pass found with instructor
-                          hours.
+                          The unstaffed warning WINS over the sales figures.
+
+                          Not a decoration: a class nobody can teach takes no
+                          bookings and says nothing about it — the silent fault
+                          the parity pass found with instructor hours. "0
+                          bookings" beside it would look like a marketing
+                          problem, which is the wrong thing to go and fix.
                         */}
-                        <span className={`tiny ${unstaffed ? 'warn' : 'muted'}`}>
-                          {unstaffed
-                            ? 'No instructor assigned'
-                            : `${svc._count?.staffServices ?? 0} ${
-                                svc._count?.staffServices === 1
-                                  ? 'instructor'
-                                  : 'instructors'
-                              }`}
-                        </span>
+                        {unstaffed ? (
+                          <span className="tiny warn">No instructor assigned</span>
+                        ) : (
+                          <span className="tiny muted">
+                            {svc.stats
+                              ? `${svc.stats.bookings} ${
+                                  svc.stats.bookings === 1 ? 'booking' : 'bookings'
+                                } · ${money(svc.stats.revenueCents, currency)}`
+                              : `${svc._count?.staffServices ?? 0} ${
+                                  svc._count?.staffServices === 1
+                                    ? 'instructor'
+                                    : 'instructors'
+                                }`}
+                          </span>
+                        )}
+
                         {isAdmin && (
-                          <button className="sm" onClick={() => edit(svc)}>
-                            Edit
-                          </button>
+                          <span className="cat-actions">
+                            <button
+                              className="icon-btn"
+                              title={`Schedule ${svc.name}`}
+                              aria-label={`Schedule ${svc.name}`}
+                              onClick={() => scheduleFor(svc)}
+                            >
+                              <Icon name="calendar" size={15} />
+                            </button>
+                            <button
+                              className="icon-btn"
+                              title={`Edit ${svc.name}`}
+                              aria-label={`Edit ${svc.name}`}
+                              onClick={() => edit(svc)}
+                            >
+                              <Icon name="edit" size={15} />
+                            </button>
+                            <button
+                              className="icon-btn danger"
+                              title={`Delete ${svc.name}`}
+                              aria-label={`Delete ${svc.name}`}
+                              onClick={() => void remove(svc)}
+                            >
+                              <Icon name="trash" size={15} />
+                            </button>
+                          </span>
                         )}
                       </div>
                     </div>
@@ -719,7 +888,7 @@ export default function Classes() {
                 </tr>
               }
             >
-              {services.map((svc) => (
+              {visible.map((svc) => (
                 <tr key={svc.id}>
                   <td>
                     <span
@@ -764,7 +933,11 @@ export default function Classes() {
       )}
 
       {isAdmin && (
-        <form className="card schedule" onSubmit={(e) => void schedule(e)}>
+        <form
+          id="scheduleForm"
+          className="card schedule"
+          onSubmit={(e) => void schedule(e)}
+        >
           <h2>Schedule a class</h2>
 
           <div className="fields">

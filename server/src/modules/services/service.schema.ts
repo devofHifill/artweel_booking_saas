@@ -162,4 +162,17 @@ export const listServicesQuerySchema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
   bookingMode: bookingModeSchema.optional(),
+
+  /**
+   * Lifetime bookings and revenue per service.
+   *
+   * OPT IN, because it reads every live booking in the studio and this route
+   * is on the path of half the dashboard — the booking form's class picker,
+   * the schedule form, onboarding. Only the catalogue actually prints the
+   * numbers, so only the catalogue should pay for them.
+   */
+  withStats: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });

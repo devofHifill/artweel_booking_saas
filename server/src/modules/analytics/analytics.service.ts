@@ -370,6 +370,61 @@ export async function popularServices(
 
 // --- where they come from -------------------------------------------------
 
+/**
+ * Lifetime bookings and money taken, per service, for the WHOLE catalogue.
+ *
+ * Deliberately not `popularServices`, which is next door and looks like it
+ * would do. That one answers "what sold best lately": it is ranked, capped at
+ * a handful, windowed to a few weeks, and counts only classes that have
+ * already run. Every one of those is right for a leaderboard and wrong for a
+ * figure printed on a catalogue card — a class with two hundred bookings would
+ * read "3", or fall outside the cap and read nothing at all.
+ *
+ * Same two rules as the rest of this module, though, and that is the point of
+ * putting it here rather than in the services module: a cancelled seat is not
+ * demand, and revenue is money RECEIVED net of refunds rather than money owed.
+ * A second definition of revenue living next to the catalogue would drift from
+ * this one and no screen would agree with Reports.
+ */
+export type ServiceStats = {
+  serviceTypeId: string;
+  bookings: number;
+  seats: number;
+  revenueCents: number;
+};
+
+export async function serviceStats(
+  organizationId: string,
+): Promise<Map<string, ServiceStats>> {
+  const bookings = await prisma.booking.findMany({
+    where: { organizationId, ...LIVE_BOOKING },
+    select: {
+      seats: true,
+      serviceTypeId: true,
+      payments: { select: { amountCents: true, refundedCents: true, status: true } },
+    },
+  });
+
+  const byService = new Map<string, ServiceStats>();
+
+  for (const booking of bookings) {
+    const row = byService.get(booking.serviceTypeId) ?? {
+      serviceTypeId: booking.serviceTypeId,
+      bookings: 0,
+      seats: 0,
+      revenueCents: 0,
+    };
+
+    row.bookings += 1;
+    row.seats += booking.seats;
+    row.revenueCents += paidCentsOf(booking.payments);
+
+    byService.set(booking.serviceTypeId, row);
+  }
+
+  return byService;
+}
+
 export type SourceShare = { source: string; bookings: number };
 
 /**

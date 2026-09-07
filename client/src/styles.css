@@ -3585,3 +3585,58 @@ td.strong { font-weight: 600; }
 .modal { display: flex; flex-direction: column; overflow: hidden; }
 .modal-head, .modal-foot { flex: 0 0 auto; }
 .modal-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+
+/* --- Catalogue filter bar and card actions -------------------------------- */
+
+/*
+  Search and category, above the catalogue.
+
+  The prototype welds this to the top of the list with a negative margin and
+  squared-off lower corners. Ours sits inside the same card as the list it
+  filters, so it needs a rule under it and nothing else — a second bordered
+  box inside a bordered card reads as two panels that happen to touch.
+*/
+.filter-bar {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0 0 var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+/*
+  The search box takes the room; the category select stays its natural size.
+
+  `width: auto` on both is load-bearing. Form controls in this stylesheet are
+  `width: 100%` globally, and a flex item's base size comes from its width —
+  so both children asked for the full bar and the select wrapped onto its own
+  line under a full-width search box. The flex values alone did nothing.
+*/
+.filter-bar > input,
+.filter-bar > select { width: auto; }
+.filter-bar .grow { flex: 1 1 200px; min-width: 0; }
+.filter-bar > select { flex: 0 0 auto; min-width: 160px; }
+
+/*
+  The three actions on a card.
+
+  34px targets, which is under the 44px a finger wants — acceptable here and
+  only here, because every one of them has a full-size equivalent elsewhere
+  (Edit opens from the card body, Delete from the editor). Nothing is
+  reachable ONLY through these.
+*/
+.cat-actions { display: inline-flex; gap: 2px; flex: 0 0 auto; }
+.cat-actions .icon-btn { width: 30px; height: 30px; }
+
+/*
+  Destructive, and coloured only on hover.
+
+  A permanently red trash icon on every card turns the catalogue into a row of
+  warnings and stops meaning anything. It earns its colour at the moment the
+  pointer is on it, which is the moment before the click.
+*/
+.icon-btn.danger:hover {
+  background: var(--danger-lt, #fbe9e5);
+  color: var(--danger, #b4442f);
+}

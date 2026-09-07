@@ -65,7 +65,11 @@ serviceRouter.get(
     res.json({
       services: await service.listServices(
         req.tenant!.organizationId,
-        req.query as { includeInactive?: boolean; bookingMode?: string },
+        req.query as {
+          includeInactive?: boolean;
+          bookingMode?: string;
+          withStats?: boolean;
+        },
       ),
     });
   }),

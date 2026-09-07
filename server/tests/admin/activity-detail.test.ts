@@ -271,3 +271,194 @@ describe('where an activity runs', () => {
     expect(services).toBe(0);
   });
 });
+
+/**
+ * The figures printed on a catalogue card.
+ *
+ * `withStats` is opt-in and carries the money rule, which is the part worth
+ * pinning down: revenue is what was RECEIVED, not what was owed. A card that
+ * counted `booking.totalCents` would show a studio thousands it has not been
+ * paid, and it would disagree with Reports about the same class.
+ */
+describe('catalogue statistics', () => {
+  /** A confirmed booking on a dated session, optionally paid. */
+  async function bookOnce(
+    serviceTypeId: string,
+    opts: { seats?: number; paidCents?: number; status?: 'CONFIRMED' | 'CANCELLED' } = {},
+  ) {
+    const starts = new Date(Date.now() + 7 * 86_400_000);
+    const session = await prisma.session.create({
+      data: {
+        organizationId: studio.organizationId,
+        serviceTypeId,
+        startsAt: starts,
+        endsAt: new Date(starts.getTime() + 120 * 60_000),
+        timezone: 'America/New_York',
+        localStartTime: '18:00',
+        capacity: 10,
+        seatsTaken: 0,
+        status: 'SCHEDULED',
+      },
+    });
+
+    const customer = await prisma.customer.create({
+      data: {
+        organizationId: studio.organizationId,
+        name: 'Ana Vidal',
+        email: `ana-${Math.random().toString(36).slice(2)}@family.test`,
+      },
+    });
+
+    const booking = await prisma.booking.create({
+      data: {
+        organizationId: studio.organizationId,
+        customerId: customer.id,
+        serviceTypeId,
+        sessionId: session.id,
+        startsAt: starts,
+        endsAt: new Date(starts.getTime() + 120 * 60_000),
+        timezone: 'America/New_York',
+        seats: opts.seats ?? 1,
+        status: opts.status ?? 'CONFIRMED',
+        totalCents: 9500,
+        cancelToken: Buffer.from(
+          Math.random().toString(36).padEnd(32, 'x').slice(0, 32),
+        ),
+      },
+    });
+
+    if (opts.paidCents) {
+      await prisma.payment.create({
+        data: {
+          organizationId: studio.organizationId,
+          bookingId: booking.id,
+          kind: 'FULL',
+          amountCents: opts.paidCents,
+          status: 'SUCCEEDED',
+          succeededAt: new Date(),
+        },
+      });
+    }
+
+    return booking;
+  }
+
+  async function statsFor(serviceTypeId: string) {
+    const res = await request(app)
+      .get(`${studio.base}/services?includeInactive=true&withStats=true`)
+      .set(studio.headers);
+
+    expect(res.status).toBe(200);
+    return res.body.services.find((s: { id: string }) => s.id === serviceTypeId)
+      ?.stats;
+  }
+
+  it('is left out unless it is asked for', async () => {
+    // Every other caller of this route — the booking form's class picker,
+    // onboarding — should not pay for a read of every booking in the studio.
+    const created = await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send(activity());
+
+    const res = await request(app)
+      .get(`${studio.base}/services?includeInactive=true`)
+      .set(studio.headers);
+
+    const row = res.body.services.find(
+      (s: { id: string }) => s.id === created.body.service.id,
+    );
+    expect(row.stats).toBeUndefined();
+  });
+
+  it('reports zero for a class nobody has booked', async () => {
+    // Zero rather than absent: the card prints this, and a missing figure
+    // renders as "undefined bookings".
+    const created = await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send(activity());
+
+    expect(await statsFor(created.body.service.id)).toEqual({
+      serviceTypeId: created.body.service.id,
+      bookings: 0,
+      seats: 0,
+      revenueCents: 0,
+    });
+  });
+
+  it('counts bookings and seats separately', async () => {
+    const created = await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send(activity());
+
+    await bookOnce(created.body.service.id, { seats: 3 });
+    await bookOnce(created.body.service.id, { seats: 2 });
+
+    const stats = await statsFor(created.body.service.id);
+    expect(stats.bookings).toBe(2);
+    expect(stats.seats).toBe(5);
+  });
+
+  it('counts money received, not money owed', async () => {
+    /*
+      THE rule. This booking owes $95 and has paid nothing — a studio taking
+      cash at the door has a catalogue full of these. Reporting the total
+      would show revenue that has not arrived.
+    */
+    const created = await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send(activity());
+
+    await bookOnce(created.body.service.id);
+
+    const stats = await statsFor(created.body.service.id);
+    expect(stats.bookings).toBe(1);
+    expect(stats.revenueCents).toBe(0);
+  });
+
+  it('adds up what was actually paid', async () => {
+    const created = await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send(activity());
+
+    await bookOnce(created.body.service.id, { paidCents: 9500 });
+    await bookOnce(created.body.service.id, { paidCents: 5000 });
+
+    const stats = await statsFor(created.body.service.id);
+    expect(stats.revenueCents).toBe(14_500);
+  });
+
+  it('ignores a cancelled booking', async () => {
+    // A cancelled seat is not demand, and a card ranking classes by it would
+    // flatter one that everybody books and nobody keeps.
+    const created = await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send(activity());
+
+    await bookOnce(created.body.service.id, { status: 'CANCELLED', seats: 4 });
+
+    const stats = await statsFor(created.body.service.id);
+    expect(stats.bookings).toBe(0);
+    expect(stats.seats).toBe(0);
+  });
+
+  it('does not leak another studio\'s figures', async () => {
+    const created = await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send(activity());
+    await bookOnce(created.body.service.id, { seats: 2, paidCents: 9500 });
+
+    const stranger = await signUpStudio(app);
+    const theirs = await request(app)
+      .get(`${stranger.base}/services?includeInactive=true&withStats=true`)
+      .set(stranger.headers);
+
+    expect(theirs.body.services).toHaveLength(0);
+  });
+});
