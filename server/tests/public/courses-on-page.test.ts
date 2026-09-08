@@ -116,7 +116,7 @@ describe('the booking page', () => {
   it('lists an open cohort in its first response', async () => {
     await publishCourse();
 
-    const res = await request(app).get(`/public/${slug}`).expect(200);
+    const res = await request(app).get(`/public/${slug}/book`).expect(200);
 
     // Server-rendered, not left for a script to fill — a crawler and a reader
     // with no JavaScript both see it.
@@ -135,7 +135,7 @@ describe('the booking page', () => {
     */
     const { serviceTypeId } = await publishCourse({ servicePriceCents: 9_500 });
 
-    const res = await request(app).get(`/public/${slug}`).expect(200);
+    const res = await request(app).get(`/public/${slug}/book`).expect(200);
 
     /*
       The id, not the name. The name legitimately appears inside the cohort's

@@ -22,7 +22,7 @@ export type IconName =
   | 'overview' | 'studios' | 'health' | 'audit'
   | 'menu' | 'close' | 'search' | 'chevron' | 'external' | 'sun' | 'moon'
   | 'eye' | 'eye-off' | 'signin' | 'settings' | 'bell' | 'staff' | 'plug' | 'site'
-  | 'money' | 'refund' | 'download' | 'plus' | 'edit' | 'trash';
+  | 'money' | 'refund' | 'download' | 'plus' | 'edit' | 'trash' | 'send';
 
 const PATHS: Record<IconName, string> = {
   today: 'M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
@@ -97,6 +97,9 @@ const PATHS: Record<IconName, string> = {
   // different weight is how an icon set starts looking borrowed.
   edit: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z',
   trash: 'M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6',
+  // A paper plane, drawn as the outline with the fold — the fold is what stops
+  // it reading as a plain triangle at 14px.
+  send: 'M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z',
 };
 
 export function Icon({

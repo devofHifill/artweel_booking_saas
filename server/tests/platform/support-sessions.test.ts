@@ -340,12 +340,23 @@ describe('what the session records', () => {
         .expect(200);
     }
 
-    // The counter is updated fire-and-forget, so allow it to land.
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    /*
+      The counter is updated fire-and-forget, so allow it to land. Polled
+      rather than slept: a fixed wait passes on a quiet machine and fails in a
+      full run, where the three updates take longer to commit than any
+      constant anybody picks. This waits for the value instead of guessing how
+      long it should take, and still fails if the counter never gets there.
+    */
+    const read = () =>
+      prisma.supportSession.findUniqueOrThrow({
+        where: { id: body.session.id },
+      });
 
-    const row = await prisma.supportSession.findUniqueOrThrow({
-      where: { id: body.session.id },
-    });
+    let row = await read();
+    for (let i = 0; i < 100 && row.readCount < 3; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      row = await read();
+    }
 
     expect(row.readCount).toBeGreaterThanOrEqual(3);
     expect(row.endpoints).toBeTruthy();

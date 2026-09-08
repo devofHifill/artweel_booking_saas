@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../lib/async-handler';
 import { validateQuery } from '../../middleware/validate';
-import { requireAdmin } from '../../middleware/authenticate';
+import { requirePermission } from '../../middleware/authenticate';
 import { prisma } from '../../lib/prisma';
 import * as analytics from '../analytics/analytics.service';
 
@@ -27,7 +27,7 @@ export const reportRouter = Router({ mergeParams: true });
 
 reportRouter.get(
   '/',
-  requireAdmin,
+  requirePermission('report.view'),
   validateQuery(
     z.object({
       /*

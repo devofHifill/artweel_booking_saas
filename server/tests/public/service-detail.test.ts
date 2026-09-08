@@ -125,7 +125,7 @@ describe('reading it on the booking page', () => {
   it('publishes both to the page', async () => {
     await makeClass({ highlights: HIGHLIGHTS, preparationNotes: PREP });
 
-    const res = await request(app).get(`/public/${slug}`).expect(200);
+    const res = await request(app).get(`/public/${slug}/book`).expect(200);
 
     expect(res.text).toContain('Clay, tools and glazes');
     expect(res.text).toContain('Short nails, closed shoes');
@@ -138,7 +138,7 @@ describe('reading it on the booking page', () => {
       preparationNotes: '<img src=x onerror=alert(1)>',
     });
 
-    const res = await request(app).get(`/public/${slug}`).expect(200);
+    const res = await request(app).get(`/public/${slug}/book`).expect(200);
 
     expect(res.text).not.toContain('<script>alert(1)</script>');
     expect(res.text).not.toContain('<img src=x onerror');
@@ -147,7 +147,7 @@ describe('reading it on the booking page', () => {
   it('says nothing at all when a studio has written nothing', async () => {
     await makeClass();
 
-    const res = await request(app).get(`/public/${slug}`).expect(200);
+    const res = await request(app).get(`/public/${slug}/book`).expect(200);
 
     /*
       The headings live in the page script and are emitted only when there is

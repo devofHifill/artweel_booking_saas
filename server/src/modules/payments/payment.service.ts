@@ -203,25 +203,29 @@ export async function startCheckout(input: StartCheckoutInput) {
     );
   }
 
+  /* The studio's own hold window, off the `org` already loaded above.
+     `createHold` has always taken a per-call override and never had a caller
+     that used one — until now every studio shared the environment default. */
+  const seatHoldMinutes = org.seatHoldMinutes;
+
   const hold = series
     ? await createSeriesHold({
         organizationId: input.organizationId,
         courseSeriesId: series.id,
         seats: input.seats,
+        ttlMinutes: seatHoldMinutes,
       })
     : await createHold({
         organizationId: input.organizationId,
         sessionId: input.sessionId!,
         seats: input.seats,
+        ttlMinutes: seatHoldMinutes,
       });
 
   // The Stripe session must die no later than the hold, or somebody could pay
   // for seats that had already been released back to the pool.
   const expiresAt = new Date(
-    Math.min(
-      hold!.expiresAt.getTime(),
-      Date.now() + config.BOOKING_HOLD_TTL_MINUTES * 60_000,
-    ),
+    Math.min(hold!.expiresAt.getTime(), Date.now() + seatHoldMinutes * 60_000),
   );
 
   try {
@@ -563,9 +567,27 @@ async function onCheckoutCompleted(event: WebhookEvent) {
     Math.max(0, Number(metadata.children ?? 0) || 0),
   );
 
+  /*
+    Whether paying confirms the place, or only pays for it.
+
+    A studio that switches this off wants to look at each booking before
+    committing — a mobile party it has to check the van for, say. The money is
+    still taken and the seat is still held; only the status differs, so
+    nothing here can lose a payment if the setting is misread.
+  */
+  const { autoConfirmOnPayment } = await prisma.organization.findUniqueOrThrow({
+    where: { id: booking.organizationId },
+    select: { autoConfirmOnPayment: true },
+  });
+
   await prisma.booking.update({
     where: { id: booking.id },
-    data: { totalCents, travelFeeCents, children, status: 'CONFIRMED' },
+    data: {
+      totalCents,
+      travelFeeCents,
+      children,
+      ...(autoConfirmOnPayment ? { status: 'CONFIRMED' as const } : {}),
+    },
   });
 
   await prisma.payment.updateMany({

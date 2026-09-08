@@ -11,6 +11,15 @@ import {
   resolveBrand,
 } from '../../lib/brand';
 import { embedSnippet } from '../public/embed';
+import {
+  CONFIGURABLE_ROLES,
+  PERMISSIONS,
+  ROLE_LABELS,
+  buildMatrix,
+  defaultAllows,
+  type ConfigurableRole,
+  type Permission,
+} from '../../lib/permissions';
 
 function slugify(input: string): string {
   return input
@@ -81,9 +90,78 @@ export async function updateOrganization(
     makeUpNoticeHours?: number;
     makeUpCrossCohort?: boolean;
     pieceHoldDays?: number;
+
+    /* Business identity and email preferences — see
+       `20260907200000_organization_settings`. Listed rather than left to the
+       spread below, so a misspelled key is a compile error instead of a field
+       that silently never saves. */
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    legalName?: string | null;
+    address?: string | null;
+    website?: string | null;
+    businessType?: string | null;
+    emailFromName?: string | null;
+    emailFromAddress?: string | null;
+    emailReplyTo?: string | null;
+    emailBcc?: string | null;
+    emailFooter?: string | null;
+    smsEnabled?: boolean;
+    smsSenderId?: string | null;
+    smsQuietFromHour?: number;
+    smsQuietToHour?: number;
+    dateFormat?: string;
+    timeFormat?: string;
+    defaultMinNoticeMinutes?: number;
+    defaultMaxHorizonDays?: number;
+    seatHoldMinutes?: number;
+    overbookingBuffer?: number;
+    allowSameDayBookings?: boolean;
+    autoConfirmOnPayment?: boolean;
+    requireWaiver?: boolean;
+    requirePhoneAtCheckout?: boolean;
+    allowChildTickets?: boolean;
+    depositsEnabled?: boolean;
+    defaultDepositPercent?: number;
+    allowPayOnArrival?: boolean;
+    acceptCash?: boolean;
   },
 ) {
-  return prisma.organization.update({ where: { id: organizationId }, data });
+  /*
+    A cleared field is NULL, not "".
+
+    The zod schema accepts an empty string so the form can clear a value, but
+    storing it that way makes "never set" and "deliberately blank" two
+    different values that every reader then has to treat alike — and one of
+    them would slip through a `?? fallback` as a real, empty answer.
+  */
+  const TEXT_FIELDS = [
+    'contactEmail',
+    'contactPhone',
+    'legalName',
+    'address',
+    'website',
+    'businessType',
+    'emailFromName',
+    'emailFromAddress',
+    'emailReplyTo',
+    'emailBcc',
+    'emailFooter',
+    'smsSenderId',
+  ] as const;
+
+  const normalised: Record<string, unknown> = { ...data };
+  for (const field of TEXT_FIELDS) {
+    const value = normalised[field];
+    if (typeof value === 'string' && value.trim() === '') {
+      normalised[field] = null;
+    }
+  }
+
+  return prisma.organization.update({
+    where: { id: organizationId },
+    data: normalised,
+  });
 }
 
 export async function listMembers(organizationId: string) {
@@ -91,16 +169,48 @@ export async function listMembers(organizationId: string) {
     where: { organizationId },
     include: {
       user: {
-        select: { id: true, name: true, email: true, emailVerifiedAt: true },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          emailVerifiedAt: true,
+          disabledAt: true,
+        },
       },
     },
     orderBy: { createdAt: 'asc' },
   });
 
+  /**
+   * "Last active", derived from refresh tokens.
+   *
+   * There is no `lastSeenAt` column and this is deliberately not one: a write
+   * on every request to record a timestamp nobody reads in real time is a lot
+   * of writes for a column that is only ever glanced at. Refresh tokens are
+   * minted at login and rotated as a session continues, so the newest one is
+   * the last time this person was genuinely using the product.
+   *
+   * It is therefore a floor, not a stopwatch — somebody mid-session shows as
+   * of their last rotation, not this second. Good enough for "is this account
+   * still in use", which is the only question the column answers.
+   */
+  const lastTokens = await prisma.refreshToken.groupBy({
+    by: ['userId'],
+    where: { userId: { in: members.map((m) => m.userId) } },
+    _max: { createdAt: true },
+  });
+  const lastActive = new Map(
+    lastTokens.map((t) => [t.userId, t._max.createdAt]),
+  );
+
   return members.map((m) => ({
     membershipId: m.id,
     role: m.role,
     joinedAt: m.createdAt,
+    lastActiveAt: lastActive.get(m.userId) ?? null,
+    /* Suspended is an account-level fact, not a membership one — a disabled
+       user cannot sign in to any studio they belong to. */
+    suspended: m.user.disabledAt !== null,
     user: {
       id: m.user.id,
       name: m.user.name,
@@ -108,6 +218,78 @@ export async function listMembers(organizationId: string) {
       emailVerified: m.user.emailVerifiedAt !== null,
     },
   }));
+}
+
+/** The studio's permission matrix, defaults filled in. */
+export async function getPermissions(organizationId: string) {
+  const rows = await prisma.rolePermission.findMany({
+    where: { organizationId },
+    select: { role: true, permission: true, allowed: true },
+  });
+
+  const overrides = new Map(
+    rows.map((r) => [`${r.role}:${r.permission}`, r.allowed]),
+  );
+
+  return {
+    roles: CONFIGURABLE_ROLES.map((role) => ({
+      role,
+      label: ROLE_LABELS[role],
+    })),
+    matrix: buildMatrix(overrides),
+  };
+}
+
+/**
+ * Sets one cell.
+ *
+ * Writes a row only when the choice DIFFERS from the default, and deletes it
+ * when it matches again — so the table holds exceptions and nothing else, and
+ * "no row" keeps meaning exactly one thing.
+ */
+export async function setPermission(
+  organizationId: string,
+  role: string,
+  permission: string,
+  allowed: boolean,
+) {
+  if (!PERMISSIONS.includes(permission as Permission)) {
+    throw AppError.badRequest('No such permission.');
+  }
+  if (!CONFIGURABLE_ROLES.includes(role as ConfigurableRole)) {
+    /* OWNER lands here too, and that is the point: an owner can always do
+       everything, and a studio that could untick one of their permissions
+       would be one support ticket from nobody being able to fix it. */
+    throw AppError.badRequest('That role cannot be changed.');
+  }
+
+  const typedRole = role as ConfigurableRole;
+  const typedPermission = permission as Permission;
+
+  if (defaultAllows(typedRole, typedPermission) === allowed) {
+    await prisma.rolePermission.deleteMany({
+      where: { organizationId, role: typedRole, permission: typedPermission },
+    });
+  } else {
+    await prisma.rolePermission.upsert({
+      where: {
+        organizationId_role_permission: {
+          organizationId,
+          role: typedRole,
+          permission: typedPermission,
+        },
+      },
+      create: {
+        organizationId,
+        role: typedRole,
+        permission: typedPermission,
+        allowed,
+      },
+      update: { allowed },
+    });
+  }
+
+  return getPermissions(organizationId);
 }
 
 /**

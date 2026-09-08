@@ -72,14 +72,61 @@ export async function claimBatch(limit = 20): Promise<ClaimedRow[]> {
   `;
 }
 
-async function deliver(row: ClaimedRow) {
+/**
+ * The studio's email preferences, as they are at SEND time.
+ *
+ * Resolved here rather than snapshotted into the payload at enqueue, and the
+ * distinction matters for reminders: one queued a fortnight ago should carry
+ * the footer and reply-to the studio has TODAY, not the ones they had when the
+ * booking was made. The message content is snapshotted — that is a record of
+ * what was promised — but who it comes from is a live setting.
+ */
+type EmailSettings = {
+  emailFromName: string | null;
+  emailReplyTo: string | null;
+  emailBcc: string | null;
+  emailFooter: string | null;
+  emailFromAddress: string | null;
+  emailDomainStatus: 'NOT_SET' | 'PENDING' | 'ACTIVE';
+  smsEnabled: boolean;
+  name: string;
+};
+
+async function deliver(row: ClaimedRow, settings?: EmailSettings) {
   if (row.channel === 'EMAIL') {
     const provider = getEmailProvider();
+
+    const body = String(row.payload.body ?? '');
+    const footer = settings?.emailFooter?.trim();
+
     return provider.send({
       to: row.destination,
       subject: String(row.payload.subject ?? ''),
-      text: String(row.payload.body ?? ''),
-      fromName: String(row.payload.fromName ?? 'Bookings'),
+      /* Two blank lines, so the footer reads as a footer rather than as the
+         last sentence of the message. */
+      text: footer ? `${body}\n\n---\n${footer}` : body,
+      /*
+        Falls back to the payload's name and then to the studio's. The payload
+        still carries it because SMS and the older rows have no settings row to
+        consult, and a message from "Bookings" is worse than one from the
+        studio but far better than one that fails to send.
+      */
+      fromName:
+        settings?.emailFromName?.trim() ||
+        String(row.payload.fromName ?? settings?.name ?? 'Bookings'),
+      ...(settings?.emailReplyTo?.trim()
+        ? { replyTo: settings.emailReplyTo.trim() }
+        : {}),
+      ...(settings?.emailBcc?.trim() ? { bcc: settings.emailBcc.trim() } : {}),
+      /*
+        THE GATE. A studio's own address is used only once its domain is
+        verified; anything else is refused by the provider with a 403 and
+        would fail every message they send rather than falling back.
+      */
+      ...(settings?.emailDomainStatus === 'ACTIVE' &&
+      settings.emailFromAddress?.trim()
+        ? { fromAddress: settings.emailFromAddress.trim() }
+        : {}),
     });
   }
 
@@ -99,10 +146,101 @@ export async function processBatch(limit = 20) {
   let sent = 0;
   let failed = 0;
   let retrying = 0;
+  let skipped = 0;
+
+  /*
+    Which automations this batch's studios have switched off.
+
+    Read HERE rather than at enqueue, and that is deliberate on both counts:
+
+    - Enqueue happens in half a dozen places. A check at each is a check
+      somebody forgets to add to the seventh, and the failure is silent.
+    - The switch is meant to describe what goes out NOW. A reminder queued
+      yesterday against a rule that has since been turned back on should send;
+      one queued before the studio turned it off should not.
+
+    One query per batch, not per row: a batch is twenty messages and typically
+    one studio, so this is a single small read either way.
+  */
+  const disabled = new Set<string>();
+  /* Email preferences per studio, fetched in the same pass as the rules —
+     one small read for the whole batch rather than one per message. */
+  const settingsFor = new Map<string, EmailSettings>();
+
+  if (rows.length > 0) {
+    const orgIds = [...new Set(rows.map((r) => r.organization_id))];
+    const orgs = await prisma.organization.findMany({
+      where: { id: { in: orgIds } },
+      select: {
+        id: true,
+        name: true,
+        emailFromName: true,
+        emailReplyTo: true,
+        emailBcc: true,
+        emailFooter: true,
+        emailFromAddress: true,
+        emailDomainStatus: true,
+        smsEnabled: true,
+      },
+    });
+    for (const org of orgs) settingsFor.set(org.id, org);
+
+    const offRules = await prisma.notificationRule.findMany({
+      where: {
+        enabled: false,
+        organizationId: { in: orgIds },
+      },
+      select: { organizationId: true, templateKey: true },
+    });
+    for (const rule of offRules) {
+      disabled.add(`${rule.organizationId}:${rule.templateKey}`);
+    }
+  }
 
   for (const row of rows) {
+    /*
+      SKIPPED, not deleted. The studio has to be able to see what did not go
+      out — "why did my customer not get a reminder" is unanswerable against a
+      message that silently never existed, and SKIPPED is already a status the
+      delivery log has a tab for.
+    */
+    /*
+      Texts, when the studio has switched them off.
+
+      SKIPPED rather than deleted, exactly like a switched-off automation, and
+      for the same reason: "why did my customer not get a text" has to be
+      answerable from the delivery log. Checked alongside the rule so one pass
+      covers both.
+    */
+    if (
+      row.channel === 'SMS' &&
+      settingsFor.get(row.organization_id)?.smsEnabled === false
+    ) {
+      await prisma.notification.update({
+        where: { id: row.id },
+        data: {
+          status: 'SKIPPED',
+          lastError: 'Text messages are switched off for this studio.',
+        },
+      });
+      skipped++;
+      continue;
+    }
+
+    if (disabled.has(`${row.organization_id}:${row.template_key}`)) {
+      await prisma.notification.update({
+        where: { id: row.id },
+        data: {
+          status: 'SKIPPED',
+          lastError: 'This automation is switched off.',
+        },
+      });
+      skipped++;
+      continue;
+    }
+
     try {
-      const result = await deliver(row);
+      const result = await deliver(row, settingsFor.get(row.organization_id));
 
       await prisma.notification.update({
         where: { id: row.id },
@@ -146,7 +284,7 @@ export async function processBatch(limit = 20) {
     }
   }
 
-  return { claimed: rows.length, sent, failed, retrying };
+  return { claimed: rows.length, sent, failed, retrying, skipped };
 }
 
 /**

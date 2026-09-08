@@ -36,6 +36,62 @@ export const TemplateKey = {
 
 export type TemplateKey = (typeof TemplateKey)[keyof typeof TemplateKey];
 
+/**
+ * What each message is called, and what makes it fire.
+ *
+ * The trigger text is written from the STUDIO's point of view, not the code's.
+ * "reminder.24h" fires off a scheduled row created at booking time and pushed
+ * through quiet hours; what the owner needs to read is "24 hours before the
+ * class". Anything more precise here would be describing the implementation to
+ * somebody who cannot act on it.
+ *
+ * `essential` marks the messages a customer is entitled to expect, and it does
+ * NOT prevent switching them off — a studio may have its own reasons and this
+ * is their product. It puts a warning in front of the switch, because turning
+ * off a booking confirmation means somebody pays and hears nothing back, which
+ * is a support call the owner will not connect to a toggle they flipped weeks
+ * earlier.
+ */
+export const TEMPLATE_META: Record<
+  string,
+  { name: string; trigger: string; essential?: boolean }
+> = {
+  [TemplateKey.BOOKING_CONFIRMED]: {
+    name: 'Booking confirmation',
+    trigger: 'Immediately after booking',
+    essential: true,
+  },
+  [TemplateKey.BOOKING_CANCELLED]: {
+    name: 'Booking cancelled',
+    trigger: 'When a booking is cancelled',
+    essential: true,
+  },
+  [TemplateKey.BOOKING_RESCHEDULED]: {
+    name: 'Booking moved',
+    trigger: 'When a booking moves to a new time',
+    essential: true,
+  },
+  [TemplateKey.REMINDER_24H]: {
+    name: 'Day-before reminder',
+    trigger: '24 hours before the class',
+  },
+  [TemplateKey.REMINDER_2H]: {
+    name: 'Same-day reminder',
+    trigger: '2 hours before the class',
+  },
+  [TemplateKey.PIECE_READY]: {
+    name: 'Work ready to collect',
+    trigger: 'When a piece is marked ready',
+  },
+  [TemplateKey.WAITLIST_OFFER]: {
+    name: 'Waitlist offer',
+    trigger: 'When a place opens up',
+    /* Time-limited: the offer holds a seat that expires. A customer who is
+       never told has a place quietly given away. */
+    essential: true,
+  },
+};
+
 type Template = { subject?: string; body: string };
 
 export const DEFAULT_TEMPLATES: Record<

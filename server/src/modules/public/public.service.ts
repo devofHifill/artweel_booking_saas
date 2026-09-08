@@ -68,6 +68,13 @@ export async function getStudio(slug: string) {
       about: true,
       contactEmail: true,
       contactPhone: true,
+      /* The studio's booking rules. Same round-trip reasoning: the public
+         paths that need them already have this row in hand, and a second
+         query on the path to buy something is a poor trade for three
+         booleans. */
+      allowSameDayBookings: true,
+      requirePhoneAtCheckout: true,
+      allowChildTickets: true,
       seoTitle: true,
       seoDescription: true,
     },
@@ -278,7 +285,12 @@ export async function quoteBooking(params: {
 
   const stripe = await prisma.organization.findUniqueOrThrow({
     where: { id: organization.id },
-    select: { stripeAccountId: true, stripeChargesEnabled: true },
+    select: {
+      stripeAccountId: true,
+      stripeChargesEnabled: true,
+      depositsEnabled: true,
+      allowPayOnArrival: true,
+    },
   });
 
   const price = priceBooking({
@@ -293,12 +305,28 @@ export async function quoteBooking(params: {
     children: series ? 0 : params.children,
     childPriceCents: service.childPriceCents,
     travelFeeCents: params.travelFeeCents,
-    depositType: service.depositType as DepositType,
+    /*
+      The studio-wide gate over the activity's own deposit terms. Off means
+      the full amount, whatever the activity says — collapsed to 'none' HERE
+      rather than inside priceBooking, which must stay a pure function of the
+      numbers it is handed.
+    */
+    depositType: (stripe.depositsEnabled
+      ? service.depositType
+      : 'none') as DepositType,
     depositValue: service.depositValue,
   });
 
   return {
     ...price,
+    /**
+     * Whether the studio will take payment at the door instead.
+     *
+     * Reported so the booking page can offer it; enforced in
+     * `createPublicBooking`, because a flag the client is trusted to respect
+     * is not a rule.
+     */
+    payOnArrivalAllowed: stripe.allowPayOnArrival,
     /**
      * Whether this booking will actually go through Stripe.
      *
@@ -354,11 +382,42 @@ export async function getPublicAvailability(params: {
     customerLocation: params.customerLocation,
   });
 
+  /*
+    "Allow same-day bookings", applied HERE rather than inside the engine.
+
+    `getAvailability` is the perf-gated core and takes no knowledge of studio
+    policy; adding a settings lookup to it would put a query inside the one
+    path with a 200ms budget. This is a filter on its output, so the engine is
+    untouched and the rule still applies to every public caller.
+
+    Today is the STUDIO's today. A studio in Los Angeles at 23:00 UTC is still
+    on yesterday's date, and cutting on the server's date would hide a whole
+    day of classes from them.
+  */
+  const hideToday = !organization.allowSameDayBookings;
+  const today = hideToday
+    ? new Intl.DateTimeFormat('en-CA', {
+        timeZone: organization.timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date())
+    : null;
+
+  const notToday = (at: Date | string) =>
+    !today ||
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: organization.timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(at)) !== today;
+
   // diagnostics carries query counts and timings — internal detail.
   return {
     mode: result.mode,
-    slots: result.slots,
-    sessions: result.sessions,
+    slots: result.slots.filter((s) => notToday(s.startsAt)),
+    sessions: result.sessions.filter((s) => notToday(s.startsAt)),
   };
 }
 
@@ -459,6 +518,21 @@ export async function createPublicBooking(input: PublicBookingInput) {
     );
   }
 
+  /*
+    The studio's booking rules, checked BEFORE anything is written.
+
+    Both of these are refusals rather than corrections: silently dropping a
+    child seat, or booking somebody without the phone number their studio
+    asked for, leaves a customer holding a place that is not what they thought
+    they bought.
+  */
+  if (organization.requirePhoneAtCheckout && !input.customer.phone?.trim()) {
+    throw AppError.badRequest(
+      'This studio needs a phone number to take your booking.',
+      'PHONE_REQUIRED',
+    );
+  }
+
   const service = await prisma.serviceType.findFirst({
     where: {
       id: input.serviceTypeId,
@@ -467,6 +541,48 @@ export async function createPublicBooking(input: PublicBookingInput) {
     },
   });
   if (!service) throw AppError.notFound('Service not found.');
+
+  if (!organization.allowChildTickets && (input.children ?? 0) > 0) {
+    throw AppError.badRequest(
+      'This studio is not taking child places online at the moment.',
+      'CHILD_TICKETS_OFF',
+    );
+  }
+
+  /**
+   * Booking a chargeable class WITHOUT paying.
+   *
+   * This function is the unpaid path — the paid one goes through checkout and
+   * converts a hold. So reaching here for a class that costs money, at a
+   * studio that can take money, means somebody is booking without paying.
+   *
+   * That is legitimate when the studio has said so ("pay on arrival") and is
+   * otherwise a way to take a seat for free by calling the API directly. The
+   * condition is deliberately narrow: a studio with no Stripe connection has
+   * always been able to take unpaid bookings and still can, which is most
+   * studios on their first day.
+   */
+  if (service.priceCents > 0) {
+    const payment = await prisma.organization.findUniqueOrThrow({
+      where: { id: organization.id },
+      select: {
+        stripeAccountId: true,
+        stripeChargesEnabled: true,
+        allowPayOnArrival: true,
+      },
+    });
+
+    const canCharge = Boolean(
+      payment.stripeAccountId && payment.stripeChargesEnabled,
+    );
+
+    if (canCharge && !payment.allowPayOnArrival) {
+      throw AppError.badRequest(
+        'This class has to be paid for when you book it.',
+        'PAYMENT_REQUIRED',
+      );
+    }
+  }
 
   const customer = await upsertCustomer(organization.id, input);
 

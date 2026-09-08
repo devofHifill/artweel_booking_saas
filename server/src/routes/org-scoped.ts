@@ -16,6 +16,7 @@ import { policyRouter } from '../modules/policies/policy.route';
 import { paymentRouter } from '../modules/payments/payment.route';
 import { notificationRouter } from '../modules/notifications/notification.route';
 import { calendarRouter } from '../modules/calendar/calendar.route';
+import { siteRouter } from '../modules/site/site.route';
 import {
   bookingAdminRouter,
   customerRouter,
@@ -96,6 +97,9 @@ orgScopedRouter.use('/notifications', notificationRouter);
 orgScopedRouter.use('/calendar', calendarRouter);
 orgScopedRouter.use('/bookings', bookingAdminRouter);
 orgScopedRouter.use('/customers', customerRouter);
+
+/** The studio's own pages and the navigation across them. */
+orgScopedRouter.use('/site', siteRouter);
 
 /**
  * The app chrome — badge counts, alerts, global search.

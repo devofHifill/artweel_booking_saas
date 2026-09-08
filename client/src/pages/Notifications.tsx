@@ -10,6 +10,8 @@ import {
   Tabs,
 } from '../components/layout';
 import { EmptyState, LoadingRegion, SkeletonTable } from '../components/states';
+import { Icon } from '../components/Icon';
+import { Automations } from '../components/Automations';
 
 /**
  * Notifications.
@@ -107,13 +109,99 @@ function humanKey(key: string): string {
 
 export default function Notifications() {
   const [tab, setTab] = useState('log');
+  const base = useOrgBase();
+  const org = useActiveOrg();
+  const isAdmin = org?.role === 'OWNER' || org?.role === 'ADMIN';
+
+  const [testing, setTesting] = useState(false);
+  const [headNote, setHeadNote] = useState<string | null>(null);
+
+  /**
+   * Send a test.
+   *
+   * Sends the BOOKING CONFIRMATION by email, and says so rather than implying
+   * it tested "notifications" in general — every message goes out through the
+   * same provider and outbox, so one is a real proof of the pipe, but which
+   * one was sent is the first thing you need to know when it arrives.
+   *
+   * It goes to the signed-in user's own address. There is no recipient field
+   * anywhere in this feature on purpose: an endpoint that sends studio-authored
+   * text to a typed-in address is a spam relay with a login page.
+   */
+  async function sendHeaderTest() {
+    setTesting(true);
+    setHeadNote(null);
+
+    try {
+      const { defaults, overrides } = await api.get<{
+        defaults: Template[];
+        overrides: Template[];
+      }>(`${base}/notifications/templates`);
+
+      const key = 'booking.confirmed';
+      const effective =
+        overrides.find((t) => t.templateKey === key && t.channel === 'EMAIL') ??
+        defaults.find((t) => t.templateKey === key && t.channel === 'EMAIL');
+
+      if (!effective) throw new Error('No booking confirmation template.');
+
+      const res = await api.post<{ destination: string }>(
+        `${base}/notifications/templates/test`,
+        {
+          templateKey: key,
+          channel: 'EMAIL',
+          subject: effective.subject ?? undefined,
+          body: effective.body,
+        },
+      );
+
+      setHeadNote(`Booking confirmation sent to ${res.destination}.`);
+    } catch (err) {
+      setHeadNote(err instanceof Error ? err.message : 'Could not send a test.');
+    } finally {
+      setTesting(false);
+    }
+  }
 
   return (
     <>
       <PageHead
         title="Notifications"
-        lede="What your customers were sent, and what they will be sent next time."
+        lede="Automated messages your guests receive, and when."
+        actions={
+          isAdmin && (
+            <>
+              <button
+                type="button"
+                disabled={testing}
+                onClick={() => void sendHeaderTest()}
+              >
+                <Icon name="send" /> {testing ? 'Sending…' : 'Send a test'}
+              </button>
+              {/*
+                "Customise", not "Create". The seven notifications are defined
+                in code and fired by specific server logic — a studio cannot
+                add an eighth, and a button promising otherwise would be a
+                dead end dressed as a feature. What they CAN do is rewrite any
+                of them, which is what this goes to.
+              */}
+              <button
+                type="button"
+                className="primary"
+                onClick={() => setTab('templates')}
+              >
+                <Icon name="plus" /> Customise notification
+              </button>
+            </>
+          )
+        }
       />
+
+      {headNote && (
+        <div className="alert" role="status">
+          {headNote}
+        </div>
+      )}
 
       <Tabs items={TABS} active={tab} onChange={setTab} label="Notification sections" />
 
@@ -587,13 +675,45 @@ function Templates() {
   }
 
   return (
-    <div className="template-list">
-      {defaults.map((template) => {
+    <>
+      <Automations
+        base={base}
+        isAdmin={isAdmin}
+        timezone={org?.organization.timezone ?? 'UTC'}
+        onEdit={(templateKey) => {
+          /*
+            Opens the EMAIL editor for that message. Email is the channel every
+            template has — SMS is optional — so it is the one that always
+            exists to open, and the SMS card sits directly beneath it for the
+            messages that have one.
+          */
+          const target = defaults.find(
+            (t) => t.templateKey === templateKey && t.channel === 'EMAIL',
+          );
+          if (target) {
+            startEdit(target);
+            /* The editor is below the table; opening one off-screen looks like
+               nothing happened. */
+            requestAnimationFrame(() => {
+              document
+                .getElementById(`tpl-${templateKey}-EMAIL`)
+                ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+          }
+        }}
+      />
+
+      <div className="template-list">
+        {defaults.map((template) => {
         const override = overrideFor(template);
         const open = editing === keyOf(template);
 
         return (
-          <section className="card template" key={keyOf(template)}>
+          <section
+            className="card template"
+            key={keyOf(template)}
+            id={`tpl-${template.templateKey}-${template.channel}`}
+          >
             <header className="template-head">
               <div>
                 <h3>
@@ -715,6 +835,7 @@ function Templates() {
           </section>
         );
       })}
-    </div>
+      </div>
+    </>
   );
 }

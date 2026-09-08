@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
-import { DataTable, Kpi, PageHead, StatusPill, Toolbar } from '../components/layout';
+import {
+  DataTable,
+  Kpi,
+  Modal,
+  PageHead,
+  SegRange,
+  StatusPill,
+} from '../components/layout';
 import { EmptyState, LoadingRegion, SkeletonTable } from '../components/states';
 import { WorkingHours } from '../components/working-hours';
+import { Icon } from '../components/Icon';
+import { StaffSchedule } from '../components/StaffSchedule';
 
 /**
  * Staff & Guides.
@@ -20,17 +29,63 @@ import { WorkingHours } from '../components/working-hours';
  * refusal is turned into the offer the API text already suggests.
  */
 
+type StaffAvailability =
+  | 'AVAILABLE'
+  | 'AWAY_TODAY'
+  | 'NO_HOURS'
+  | 'INACTIVE';
+
 type StaffRow = {
   id: string;
   name: string;
   email: string;
   phone: string | null;
+  /** Job title, shown under the name. Free text, often empty. */
+  role: string | null;
   color: string;
   isPublic: boolean;
   isActive: boolean;
   maxBookingsPerDay: number;
+  /** Derived on the server from real working hours. Never stored. */
+  availability: StaffAvailability;
+  awayReason: string | null;
+  stats: { upcoming: number; classesTaught: number; seatsTaught: number };
   staffServices: { serviceType: { id: string; name: string } }[];
 };
+
+/**
+ * The badge, and what each state means.
+ *
+ * NO_HOURS is deliberately alarming. It is not a neutral third state — it
+ * means this person cannot be booked at all, by anybody, and the studio has
+ * no other way to find that out.
+ */
+const AVAILABILITY: Record<
+  StaffAvailability,
+  { label: string; tone: string }
+> = {
+  AVAILABLE: { label: 'Available', tone: 'CONFIRMED' },
+  AWAY_TODAY: { label: 'Away today', tone: 'PENDING' },
+  NO_HOURS: { label: 'No hours set', tone: 'NO_SHOW' },
+  INACTIVE: { label: 'Deactivated', tone: 'EXPIRED' },
+};
+
+const STATUS_FILTERS = [
+  { value: '', label: 'All statuses' },
+  { value: 'AVAILABLE', label: 'Available' },
+  { value: 'AWAY_TODAY', label: 'Away today' },
+  { value: 'NO_HOURS', label: 'No hours set' },
+  { value: 'INACTIVE', label: 'Deactivated' },
+] as const;
+
+/** Two letters for the avatar. First and last word — see Customers. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  return (
+    parts[0]![0]! + (parts.length > 1 ? parts[parts.length - 1]![0]! : '')
+  ).toUpperCase();
+}
 
 type ServiceOption = { id: string; name: string };
 
@@ -46,6 +101,7 @@ const BLANK = {
   name: '',
   email: '',
   phone: '',
+  role: '',
   color: '#a6522c',
   isPublic: true,
   maxBookingsPerDay: 0,
@@ -58,7 +114,15 @@ export default function Staff() {
 
   const [staff, setStaff] = useState<StaffRow[] | null>(null);
   const [services, setServices] = useState<ServiceOption[]>([]);
-  const [includeInactive, setIncludeInactive] = useState(false);
+  /*
+    Everyone is fetched and the filtering happens here, because the statuses
+    the filter offers are DERIVED on the server and there is nothing to query
+    on. A studio's team is tens of people, not thousands.
+  */
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [view, setView] = useState<'cards' | 'table'>('cards');
+  /** Whose schedule is open, if anyone's. */
+  const [scheduleFor, setScheduleFor] = useState<StaffRow | null>(null);
   const [rota, setRota] = useState<Rota | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -74,8 +138,11 @@ export default function Staff() {
 
   const load = useCallback(async () => {
     try {
+      /* Always including deactivated: the filter above the list offers
+         "Deactivated" as a choice, and a filter that cannot show you what it
+         names is worse than not offering it. */
       const res = await api.get<{ staff: StaffRow[] }>(
-        `${base}/staff?includeInactive=${includeInactive}`,
+        `${base}/staff?includeInactive=true`,
       );
       setStaff(res.staff);
       setError(null);
@@ -93,11 +160,20 @@ export default function Staff() {
     } catch {
       /* Tiles stay hidden. */
     }
-  }, [base, includeInactive]);
+  }, [base]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  /* Null while loading, so the empty state does not flash before the first
+     response arrives. */
+  const visible =
+    staff === null
+      ? null
+      : statusFilter
+        ? staff.filter((row) => row.availability === statusFilter)
+        : staff;
 
   useEffect(() => {
     api
@@ -119,6 +195,7 @@ export default function Staff() {
       name: row.name,
       email: row.email,
       phone: row.phone ?? '',
+      role: row.role ?? '',
       color: row.color,
       isPublic: row.isPublic,
       maxBookingsPerDay: row.maxBookingsPerDay,
@@ -136,6 +213,7 @@ export default function Staff() {
       // Empty means "not recorded", which is null — not an empty string that
       // renders as a blank phone number on the public page.
       phone: form.phone.trim() || null,
+      role: form.role.trim() || null,
       color: form.color,
       isPublic: form.isPublic,
       maxBookingsPerDay: Number(form.maxBookingsPerDay) || 0,
@@ -229,11 +307,40 @@ export default function Staff() {
         title="Staff &amp; Guides"
         lede="Who teaches, what they teach, and who your customers can see."
         actions={
-          isAdmin && (
-            <button onClick={() => (editing ? setEditing(null) : startCreate())}>
-              {editing ? 'Close' : 'Add someone'}
-            </button>
-          )
+          <>
+            <select
+              value={statusFilter}
+              aria-label="Filter by status"
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              {STATUS_FILTERS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <SegRange
+              label="How to show the team"
+              options={[
+                { value: 'cards', label: 'Cards' },
+                { value: 'table', label: 'Table' },
+              ]}
+              value={view}
+              onChange={setView}
+            />
+            {isAdmin && (
+              <button
+                className="primary"
+                onClick={() => (editing ? setEditing(null) : startCreate())}
+              >
+                {editing ? 'Close' : (
+                  <>
+                    <Icon name="plus" /> Add staff
+                  </>
+                )}
+              </button>
+            )}
+          </>
         }
       />
 
@@ -267,22 +374,30 @@ export default function Staff() {
         </div>
       )}
 
-      <Toolbar>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={includeInactive}
-            onChange={(e) => setIncludeInactive(e.target.checked)}
-          />
-          Show deactivated
-        </label>
-      </Toolbar>
 
       {error && <div className="err">{error}</div>}
       {notice && (
         <div className="alert warn" role="status">
           {notice}
         </div>
+      )}
+
+      {scheduleFor && (
+        <Modal
+          title={`${scheduleFor.name}'s schedule`}
+          subtitle={
+            scheduleFor.stats.upcoming === 1
+              ? '1 class still to teach'
+              : `${scheduleFor.stats.upcoming} classes still to teach`
+          }
+          onClose={() => setScheduleFor(null)}
+        >
+          <StaffSchedule
+            base={base}
+            staffId={scheduleFor.id}
+            onClose={() => setScheduleFor(null)}
+          />
+        </Modal>
       )}
 
       {hoursFor && (
@@ -327,6 +442,22 @@ export default function Staff() {
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 placeholder="Optional"
               />
+            </label>
+
+            <label>
+              Role
+              <input
+                value={form.role}
+                maxLength={80}
+                onChange={(e) => setForm({ ...form, role: e.target.value })}
+                placeholder="Wheel instructor"
+              />
+              {/* Distinct from the public bio, which is prose. This is the
+                  line under a name on a card. */}
+              <span className="tiny muted">
+                Two or three words. Shown on their card, not on your booking
+                page.
+              </span>
             </label>
 
             <label>
@@ -379,16 +510,36 @@ export default function Staff() {
         </LoadingRegion>
       )}
 
-      {staff && staff.length === 0 && (
+      {visible && visible.length === 0 && (
         <EmptyState
           icon="◍"
-          hint={isAdmin ? 'Add someone to start scheduling classes.' : undefined}
+          hint={
+            statusFilter
+              ? 'Try a different status.'
+              : isAdmin
+                ? 'Add someone to start scheduling classes.'
+                : undefined
+          }
         >
-          Nobody on the team yet.
+          {statusFilter ? 'Nobody matches that status.' : 'Nobody on the team yet.'}
         </EmptyState>
       )}
 
-      {staff && staff.length > 0 && (
+      {visible && visible.length > 0 && view === 'cards' && (
+        <div className="staff-grid">
+          {visible.map((row) => (
+            <StaffCard
+              key={row.id}
+              row={row}
+              canEdit={isAdmin}
+              onEdit={() => startEdit(row)}
+              onSchedule={() => setScheduleFor(row)}
+            />
+          ))}
+        </div>
+      )}
+
+      {visible && visible.length > 0 && view === 'table' && (
         <div className="card" style={{ padding: 0 }}>
           <DataTable
             caption="Instructors, with what they teach and whether customers can see them"
@@ -403,7 +554,7 @@ export default function Staff() {
               </tr>
             }
           >
-            {staff.map((row) => (
+            {visible.map((row) => (
               <tr key={row.id} className={row.isActive ? '' : 'row-inactive'}>
                 <td>
                   <span className="staff-name">
@@ -436,18 +587,31 @@ export default function Staff() {
                   )}
                 </td>
                 <td>
-                  {row.isActive ? (
-                    <StatusPill status="ACTIVE">Active</StatusPill>
-                  ) : (
-                    <StatusPill status="EXPIRED">Deactivated</StatusPill>
+                  <StatusPill status={AVAILABILITY[row.availability].tone}>
+                    {AVAILABILITY[row.availability].label}
+                  </StatusPill>
+                  {/* The reason, when the studio typed one on the day off.
+                      "Away today" without it sends somebody to the calendar
+                      to find out what everyone already knows. */}
+                  {row.awayReason && (
+                    <div className="sub tiny">{row.awayReason}</div>
                   )}
                 </td>
                 {isAdmin && (
                   <td>
                     <div className="row-actions">
+                      <button
+                        className="link"
+                        onClick={() => setScheduleFor(row)}
+                      >
+                        Schedule
+                      </button>
                       <button className="link" onClick={() => startEdit(row)}>
                         Edit
                       </button>
+                      {/* Distinct from Schedule, and the distinction matters:
+                          Schedule is what they are down to teach, Hours is
+                          when they are willing to. */}
                       <button
                         className="link"
                         onClick={() =>
@@ -564,5 +728,106 @@ function NotBookable() {
     <span className="not-bookable" title="Pick at least one class to make this person bookable">
       Not bookable yet
     </span>
+  );
+}
+
+/**
+ * One instructor, as a card.
+ *
+ * The prototype's card carries a guest rating; this one does not, because
+ * Artweel has no reviews — nothing anywhere collects guest feedback, so any
+ * number in that slot would be invented and would read as earned. The two
+ * tiles hold figures the product can actually stand behind, and the slot is
+ * still there if ratings are ever built.
+ *
+ * "Not bookable yet" and "No hours set" are the two states worth spotting
+ * from across the grid, and they are different faults with the same symptom:
+ * one is nothing to teach, the other is no time to teach it. Both make the
+ * person invisible to customers with no error anywhere.
+ */
+function StaffCard({
+  row,
+  canEdit,
+  onEdit,
+  onSchedule,
+}: {
+  row: StaffRow;
+  canEdit: boolean;
+  onEdit: () => void;
+  onSchedule: () => void;
+}) {
+  const teaches = row.staffServices.map((s) => s.serviceType.name);
+
+  return (
+    <article className={`staff-card${row.isActive ? '' : ' is-inactive'}`}>
+      <header className="staff-card-head">
+        {/* The calendar colour, which is how this person is recognised on the
+            schedule. Carrying it here means the card and the calendar agree. */}
+        <span className="avatar lg" style={{ background: row.color }} aria-hidden="true">
+          {initials(row.name)}
+        </span>
+        <div className="staff-card-id">
+          <b>{row.name}</b>
+          {/*
+            Rendered even when there is no role, so the line is RESERVED. Most
+            studios fill this in for some people and not others, and without
+            the empty element those cards' badges and stat tiles sit a line
+            higher than their neighbours' — a grid where nothing lines up
+            across a row reads as broken rather than as varied.
+          */}
+          <div className="sub">{row.role}</div>
+          <div className="staff-card-badge">
+            <StatusPill status={AVAILABILITY[row.availability].tone}>
+              {AVAILABILITY[row.availability].label}
+            </StatusPill>
+          </div>
+        </div>
+      </header>
+
+      <div className="staff-tiles">
+        <div className="stat-tile">
+          <div className="l">Upcoming</div>
+          <div className="v">{row.stats.upcoming}</div>
+        </div>
+        <div className="stat-tile">
+          <div className="l">Classes taught</div>
+          <div className="v">{row.stats.classesTaught}</div>
+        </div>
+      </div>
+
+      <p className="staff-card-teaches tiny muted">
+        {teaches.length > 0 ? teaches.join(' · ') : <NotBookable />}
+      </p>
+
+      <footer className="staff-card-foot">
+        <span className="tiny muted">
+          {row.stats.seatsTaught === 1
+            ? '1 place taught'
+            : `${row.stats.seatsTaught} places taught`}
+        </span>
+        <span className="row-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            title={`${row.name}'s schedule`}
+            aria-label={`${row.name}'s schedule`}
+            onClick={onSchedule}
+          >
+            <Icon name="calendar" size={14} />
+          </button>
+          {canEdit && (
+            <button
+              type="button"
+              className="icon-btn"
+              title={`Edit ${row.name}`}
+              aria-label={`Edit ${row.name}`}
+              onClick={onEdit}
+            >
+              <Icon name="edit" size={14} />
+            </button>
+          )}
+        </span>
+      </footer>
+    </article>
   );
 }

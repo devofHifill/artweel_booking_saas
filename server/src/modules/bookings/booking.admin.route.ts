@@ -6,6 +6,7 @@ import {
   requireAdmin,
   requireFrontDesk,
   requireMember,
+  requirePermission,
 } from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import * as service from './booking.admin.service';
@@ -134,6 +135,8 @@ bookingAdminRouter.post(
         staffId: z.string().uuid().optional(),
         startsAt: z.coerce.date().optional(),
         seats: z.number().int().min(1).max(50).default(1),
+        /** How many of `seats` are children. Adults are the remainder. */
+        children: z.number().int().min(0).max(50).default(0),
         /** An existing customer, or the details for a new one. */
         customerId: z.string().uuid().optional(),
         customer: z
@@ -141,10 +144,15 @@ bookingAdminRouter.post(
             name: z.string().min(1).max(120),
             email: z.string().email().max(255),
             phone: z.string().max(32).optional(),
+            country: z.string().max(80).optional(),
           })
           .optional(),
         notes: z.string().max(2000).optional(),
         status: z.enum(['CONFIRMED', 'PENDING']).optional(),
+        /* The desk's claim about the money, which the payment rows may
+           contradict. See the column's comment before relying on it. */
+        paymentState: z.enum(['PAID', 'PARTIALLY_PAID', 'PENDING']).optional(),
+        waiverSigned: z.boolean().optional(),
         /* Front desk only, and bounded. See the note on the service. */
         totalCents: z.number().int().min(0).max(100_000_000).optional(),
         payment: z
@@ -159,6 +167,12 @@ bookingAdminRouter.post(
       .refine(
         (b) => Boolean(b.customerId) !== Boolean(b.customer),
         'Give either an existing customer or the details for a new one.',
+      )
+      /* Caught here so it reads as a sentence. The `bookings_children_within
+         _seats` CHECK would otherwise reject it as a raw constraint error. */
+      .refine(
+        (b) => b.children <= b.seats,
+        'There cannot be more children than guests.',
       ),
   ),
   asyncHandler(async (req, res) => {
@@ -178,7 +192,7 @@ bookingAdminRouter.post(
     cancels somebody's plans. It was reachable by every member, which since S9
     means any instructor could cancel any booking in the studio.
   */
-  requireFrontDesk,
+  requirePermission('booking.cancel'),
   validateBody(
     z.object({
       /** Studios sometimes cancel and settle the refund off-platform. */
@@ -252,26 +266,105 @@ bookingAdminRouter.post(
 
 export const customerRouter = Router({ mergeParams: true });
 
+const customerStatusSchema = z.enum(['ACTIVE', 'VIP', 'BLOCKED']);
+
+const customerListQuerySchema = z.object({
+  search: z.string().max(120).optional(),
+  status: customerStatusSchema.optional(),
+  /** Highest spend, most bookings, most recent visit, or name. */
+  sort: z.enum(['name', 'spent', 'bookings', 'recent']).default('name'),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(25),
+});
+
+/**
+ * The write shape, shared by create and edit.
+ *
+ * Consent fields are absent on purpose and must stay absent: `smsConsentAt`
+ * and `smsOptedOutAt` record what the CUSTOMER did under TCPA, and a studio
+ * form that could set them would let somebody who texted STOP be resubscribed
+ * by editing their row.
+ */
+const customerWriteSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  email: z.string().trim().email().max(200),
+  phone: z.string().trim().max(40).nullish(),
+  country: z.string().trim().max(80).nullish(),
+  status: customerStatusSchema.optional(),
+  notes: z.string().trim().max(2000).nullish(),
+});
+
 customerRouter.get(
   '/',
   requireMember,
-  validateQuery(
-    z.object({
-      search: z.string().max(120).optional(),
-      limit: z.coerce.number().int().min(1).max(200).default(50),
-      /** Highest spend, most bookings, most recent visit, or name. */
-      sort: z.enum(['name', 'spent', 'bookings', 'recent']).default('name'),
-    }),
-  ),
+  validateQuery(customerListQuerySchema),
+  asyncHandler(async (req, res) => {
+    res.json(
+      await service.listCustomers(
+        req.tenant!.organizationId,
+        req.query as unknown as z.infer<typeof customerListQuerySchema>,
+      ),
+    );
+  }),
+);
+
+/*
+  Registered BEFORE `/:customerId`, or Express hands "export.csv" to the
+  param route and the studio gets "Customer not found" for a download.
+*/
+customerRouter.get(
+  '/export.csv',
+  requireMember,
+  validateQuery(customerListQuerySchema.omit({ page: true, pageSize: true })),
+  asyncHandler(async (req, res) => {
+    const csv = await service.exportCustomersCsv(
+      req.tenant!.organizationId,
+      req.query as unknown as {
+        search?: string;
+        status?: 'ACTIVE' | 'VIP' | 'BLOCKED';
+        sort: service.CustomerSort;
+      },
+    );
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="customers-${stamp}.csv"`,
+    );
+    /*
+      A BOM, because Excel on Windows reads a CSV as the system codepage
+      unless one is present — and the first studio with an accented name in
+      its list would open the export to mojibake.
+    */
+    res.send(`﻿${csv}`);
+  }),
+);
+
+customerRouter.post(
+  '/',
+  requireFrontDesk,
+  validateBody(customerWriteSchema),
+  asyncHandler(async (req, res) => {
+    res.status(201).json({
+      customer: await service.createCustomer(
+        req.tenant!.organizationId,
+        req.body as service.CustomerWrite,
+      ),
+    });
+  }),
+);
+
+customerRouter.patch(
+  '/:customerId',
+  requireFrontDesk,
+  validateBody(customerWriteSchema.partial()),
   asyncHandler(async (req, res) => {
     res.json({
-      customers: await service.listCustomers(
+      customer: await service.updateCustomer(
         req.tenant!.organizationId,
-        req.query as unknown as {
-          search?: string;
-          limit: number;
-          sort: service.CustomerSort;
-        },
+        id(req, 'customerId'),
+        req.body as Partial<service.CustomerWrite>,
       ),
     });
   }),

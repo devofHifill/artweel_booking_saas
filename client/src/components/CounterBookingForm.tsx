@@ -22,21 +22,26 @@ import {
  * it in that order, and a flat column of fourteen fields does not tell them
  * when they have finished asking questions and started taking money.
  *
- * Two of the prototype's fields are deliberately absent, and both for reasons
- * that are about this product rather than about effort:
+ * Two of the prototype's fields were declined here and BOTH decisions have
+ * since been overturned. The original reasoning is kept because it says what
+ * would have to stay true for them to be right:
  *
- * - **Children.** There is no child price anywhere in the schema. Ceramics
- *   studios run a kids' class as a different service — different duration,
- *   different clay, different supervision — so a second quantity box with no
- *   price behind it would collect a number and silently charge the adult rate
- *   for it. Recorded as declined in BOOKING-PAGE-PLAN.md.
- * - **Waiver signed.** Waivers do not exist in this product. A checkbox with
- *   nothing behind it is worse than its absence: it reads as a record that
- *   somebody signed something.
+ * - **Children.** Declined because there was no child price in the schema, so
+ *   a second quantity box would have collected a number and silently charged
+ *   the adult rate for it. `child_price_cents` landed on 2026-09-03 and the
+ *   box now prices through `priceBooking`, exactly like the public page. The
+ *   objection was correct and is simply no longer true.
+ * - **Waiver signed.** Declined because a checkbox with nothing behind it
+ *   reads as a record that somebody signed something. Asked for anyway on
+ *   2026-09-07, and it now writes `waiver_signed_at` — so it IS a record, of
+ *   the desk saying paper was signed. It is still not a waiver feature:
+ *   nothing collects or stores a document and the public flow does not ask.
  *
  * What IS here that the prototype fakes: the payment is a real row in the
  * ledger, so the Paid pill, the payments screen and the outstanding figure all
- * agree without being told separately.
+ * agree without being told separately. The prototype's "Payment status" is
+ * also persisted now — as the desk's claim, which the ledger may contradict.
+ * See the `payment_state` column's comment before believing it.
  */
 
 type ServiceOption = {
@@ -45,6 +50,8 @@ type ServiceOption = {
   bookingMode: 'APPOINTMENT' | 'EVENT' | 'COURSE_SERIES';
   durationMinutes: number;
   priceCents?: number;
+  /** Zero means ADULTS ONLY, not "children go free". See priceBooking. */
+  childPriceCents?: number;
   isActive?: boolean;
 };
 
@@ -74,12 +81,21 @@ export function CounterBookingForm({
   base,
   timezone,
   currency,
+  customerId: presetCustomerId,
   onBooked,
   onCancel,
 }: {
   base: string;
   timezone: string;
   currency: string;
+  /**
+   * Opened from a customer's row, so the guest is already known.
+   *
+   * Only the INITIAL value — the picker stays enabled. Locking it would mean
+   * an operator who opened the wrong row has to close the dialog and start
+   * again, and the field is right there.
+   */
+  customerId?: string;
   onBooked: () => void;
   onCancel: () => void;
 }) {
@@ -89,7 +105,7 @@ export function CounterBookingForm({
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
 
   // --- Guest ---------------------------------------------------------------
-  const [customerId, setCustomerId] = useState('');
+  const [customerId, setCustomerId] = useState(presetCustomerId ?? '');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -100,7 +116,15 @@ export function CounterBookingForm({
   const [sessionId, setSessionId] = useState('');
   const [localTime, setLocalTime] = useState('18:00');
   const [staffId, setStaffId] = useState('');
-  const [seats, setSeats] = useState(1);
+  /*
+    Adults and children are held SEPARATELY here and added into one `seats`
+    before the request, because that is how somebody says it at the desk. The
+    server and the database only ever see the total plus how many of it are
+    children — the same rule the public page follows.
+  */
+  const [adults, setAdults] = useState(1);
+  const [children, setChildren] = useState(0);
+  const seats = adults + children;
 
   // --- Payment -------------------------------------------------------------
   const [status, setStatus] = useState<'CONFIRMED' | 'PENDING'>('CONFIRMED');
@@ -109,6 +133,7 @@ export function CounterBookingForm({
   const [partAmount, setPartAmount] = useState('');
   const [total, setTotal] = useState('');
   const [notes, setNotes] = useState('');
+  const [waiverSigned, setWaiverSigned] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,8 +224,20 @@ export function CounterBookingForm({
   const chosen = departures.find((s) => s.id === sessionId);
   const seatsLeft = chosen ? Math.max(0, chosen.capacity - chosen.seatsTaken) : 0;
 
-  /** The list price, which the Total field starts at and may be overridden. */
-  const listCents = (service?.priceCents ?? 0) * seats;
+  /**
+   * The list price, which the Total field starts at and may be overridden.
+   *
+   * Mirrors `priceBooking` rather than multiplying, and the mirror has to
+   * include the adults-only rule: a zero child price is the default every
+   * service carries and means children pay the ADULT rate here, not nothing.
+   * Getting that wrong client-side would quote a total the server then
+   * refuses to match, and the studio would blame the server.
+   */
+  const childUnit = service?.childPriceCents ?? 0;
+  const billedChildren = childUnit > 0 ? children : 0;
+  const listCents =
+    (service?.priceCents ?? 0) * (seats - billedChildren) +
+    childUnit * billedChildren;
   const totalCents =
     total.trim() === '' ? listCents : Math.round(Number(total) * 100) || 0;
 
@@ -227,7 +264,7 @@ export function CounterBookingForm({
             startsAt: zonedToInstant(`${onDate}T${localTime}`, timezone),
             seats: 1,
           }
-        : { sessionId, seats, ...(staffId ? { staffId } : {}) }),
+        : { sessionId, seats, children, ...(staffId ? { staffId } : {}) }),
       ...(customerId
         ? { customerId }
         : {
@@ -238,9 +275,21 @@ export function CounterBookingForm({
             },
           }),
       status,
+      /*
+        The desk's claim, sent alongside the real payment row rather than
+        instead of it. 'none' means nobody has paid yet, which is PENDING —
+        a claim, unlike the absent value the system's own bookings carry.
+      */
+      paymentState:
+        paymentState === 'paid'
+          ? 'PAID'
+          : paymentState === 'part'
+            ? 'PARTIALLY_PAID'
+            : 'PENDING',
       ...(totalCents !== listCents ? { totalCents } : {}),
       ...(paidCents > 0 ? { payment: { method, amountCents: paidCents } } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
+      ...(waiverSigned ? { waiverSigned: true } : {}),
     };
 
     try {
@@ -389,16 +438,43 @@ export function CounterBookingForm({
             </p>
           </div>
 
-          <div className="setting setting-stack">
-            <label htmlFor="cbSeats">Places</label>
-            <input
-              id="cbSeats"
-              type="number"
-              min={1}
-              max={Math.max(1, seatsLeft)}
-              value={seats}
-              onChange={(e) => setSeats(Math.max(1, Number(e.target.value) || 1))}
-            />
+          <div className="form-row">
+            <div className="setting setting-stack">
+              <label htmlFor="cbAdults">Adults</label>
+              <input
+                id="cbAdults"
+                type="number"
+                min={1}
+                max={Math.max(1, seatsLeft)}
+                value={adults}
+                onChange={(e) =>
+                  setAdults(Math.max(1, Number(e.target.value) || 1))
+                }
+              />
+            </div>
+
+            <div className="setting setting-stack">
+              <label htmlFor="cbChildren">Children</label>
+              <input
+                id="cbChildren"
+                type="number"
+                min={0}
+                max={Math.max(0, seatsLeft - adults)}
+                value={children}
+                onChange={(e) =>
+                  setChildren(Math.max(0, Number(e.target.value) || 0))
+                }
+              />
+              {/* Said out loud only when it changes the price. On a service
+                  with no child rate the seat costs the same, and a line
+                  claiming otherwise would be the silent overcharge this field
+                  was originally declined to avoid. */}
+              <p className="tiny muted">
+                {childUnit > 0
+                  ? `${money(childUnit, currency)} each`
+                  : 'Same price as an adult on this class.'}
+              </p>
+            </div>
           </div>
         </>
       )}
@@ -512,14 +588,38 @@ export function CounterBookingForm({
           />
           {/* The list price is the default and the placeholder; typing over it
               is a deliberate act, and the line below says what it replaced. */}
+          {/* The list price is the default and the placeholder; typing over it
+              is a deliberate act, and the line below says what it replaced.
+              The split is spelled out only when the two rates differ — on an
+              adults-only service "2 × $80 + 1 × $80" is noise. */}
           <p className="tiny muted">
-            {service?.priceCents
-              ? `${seats} × ${money(service.priceCents, currency)}`
-              : 'Free'}
+            {!service?.priceCents
+              ? 'Free'
+              : billedChildren > 0
+                ? `${seats - billedChildren} × ${money(
+                    service.priceCents,
+                    currency,
+                  )} + ${billedChildren} × ${money(childUnit, currency)}`
+                : `${seats} × ${money(service.priceCents, currency)}`}
             {total.trim() !== '' && totalCents !== listCents ? ' — overridden' : ''}
           </p>
         </div>
       </div>
+
+      {/*
+        The desk's record that paper was signed. Deliberately worded as the
+        desk's claim rather than "Waiver on file" — nothing here holds a
+        document, and a label implying one would be a promise the product
+        does not keep.
+      */}
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={waiverSigned}
+          onChange={(e) => setWaiverSigned(e.target.checked)}
+        />
+        Waiver signed
+      </label>
 
       <div className="setting setting-stack">
         <label htmlFor="cbNotes">Internal notes</label>

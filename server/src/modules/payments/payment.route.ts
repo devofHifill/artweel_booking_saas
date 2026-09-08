@@ -2,7 +2,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../lib/async-handler';
 import { validateBody } from '../../middleware/validate';
-import { requireAdmin, requireMember } from '../../middleware/authenticate';
+import {
+  requireAdmin,
+  requireMember,
+  requirePermission,
+} from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import { prisma } from '../../lib/prisma';
 import * as service from './payment.service';
@@ -150,7 +154,7 @@ paymentRouter.get(
 /** Refunds according to policy. Owner/admin only — it moves money. */
 paymentRouter.post(
   '/bookings/:bookingId/refund',
-  requireAdmin,
+  requirePermission('payment.refund'),
   validateBody(
     z.object({
       reason: z.string().max(500).optional(),

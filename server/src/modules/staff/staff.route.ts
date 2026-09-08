@@ -18,6 +18,8 @@ const createStaffSchema = z.object({
   name: z.string().min(1).max(120),
   email: z.string().email().max(255),
   phone: z.string().max(32).optional().nullable(),
+  /** The line under the name on a card. Two or three words, not prose. */
+  role: z.string().max(80).optional().nullable(),
   bio: z.string().max(4000).optional().nullable(),
   photoUrl: z.string().url().max(1000).optional().nullable(),
   /**
@@ -85,6 +87,24 @@ staffRouter.get(
     res.json({
       staff: await service.getStaff(req.tenant!.organizationId, id(req, 'staffId')),
     });
+  }),
+);
+
+/*
+  requireMember, not requireAdmin: an instructor looking up when a colleague
+  is teaching is the ordinary use of this, and the rota is already visible on
+  the calendar to everybody who can see the studio.
+*/
+staffRouter.get(
+  '/:staffId/schedule',
+  requireMember,
+  asyncHandler(async (req, res) => {
+    res.json(
+      await service.getStaffSchedule(
+        req.tenant!.organizationId,
+        id(req, 'staffId'),
+      ),
+    );
   }),
 );
 

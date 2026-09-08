@@ -116,6 +116,74 @@ export function DataTable({
 }
 
 /**
+ * The foot of a paged table.
+ *
+ * Prints the RANGE and the total — "26–50 of 312" — rather than "page 2 of
+ * 13". A page number is a fact about the pager; the range is a fact about the
+ * customers, and it is the one that tells somebody scanning for a name
+ * whether they have already passed it.
+ *
+ * Renders even on a single page, deliberately: the count is worth having, and
+ * a footer that appears only sometimes makes the table jump when a search
+ * narrows it.
+ */
+export function Pager({
+  page,
+  pageSize,
+  total,
+  onPage,
+  noun = 'rows',
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPage: (page: number) => void;
+  /** Plural. "customers", "bookings". */
+  noun?: string;
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const first = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const last = Math.min(page * pageSize, total);
+
+  return (
+    <div className="pager">
+      <span className="tiny muted">
+        {total === 0
+          ? `No ${noun}`
+          : `${first}–${last} of ${total} ${noun}`}
+      </span>
+
+      {pages > 1 && (
+        <div className="pager-actions">
+          <button
+            type="button"
+            className="ghost"
+            disabled={page <= 1}
+            onClick={() => onPage(page - 1)}
+          >
+            Previous
+          </button>
+          {/* The page number is small print between two buttons rather than a
+              row of numbered links: a studio pages through this looking for a
+              name, and never jumps to page nine on purpose. */}
+          <span className="tiny muted">
+            Page {page} of {pages}
+          </span>
+          <button
+            type="button"
+            className="ghost"
+            disabled={page >= pages}
+            onClick={() => onPage(page + 1)}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * A KPI tile.
  *
  * Lived in Dashboard.tsx until D5, when Customers wanted the same row of

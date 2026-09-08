@@ -3,24 +3,34 @@ import { api } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import { LoadingRegion, SkeletonCard } from '../components/states';
 import { PageHead } from '../components/layout';
+import { Icon } from '../components/Icon';
+import {
+  NavigationSection,
+  OverviewSection,
+  PagesSection,
+  PreviewSection,
+} from '../components/website-sections';
 
 /**
  * Website & Widget.
  *
- * Everything a studio owner needs to make the public booking page look like
- * their studio and get it onto their own site. Four sections behind a
- * sub-navigation, deliberately the same shape as Settings so the muscle
- * memory transfers.
+ * Everything a studio owner needs to make the public site look like their
+ * studio and get it onto their own site. Behind a sub-navigation, deliberately
+ * the same shape as Settings so the muscle memory transfers.
  *
+ *   Overview       the live site, and what is left to fill in
+ *   Pages          the studio's own pages — see `site.service.ts`
+ *   Navigation     the order of the menu, and the header button
  *   Page content   what the owner writes and the customer reads
- *   SEO            what the search engine reads
  *   Branding       reuses Settings → Appearance rather than duplicating it,
  *                  because two colour pickers pointing at one column drift
- *   Widget         the two lines the studio pastes into their own site
+ *   Booking Widget the two lines the studio pastes into their own site
+ *   SEO            what the search engine reads
+ *   Preview        the same site at three widths
  *
- * The page reads and writes ONE endpoint — `GET/PATCH /page` — so a save
- * repaints from the response rather than reloading, and Preview always
- * points at what has actually been saved.
+ * Page content, SEO and the embed read and write ONE endpoint —
+ * `GET/PATCH /page`. Pages and Navigation are their own resource under
+ * `/site`, because they are rows rather than columns on the organisation.
  */
 
 type PageContent = {
@@ -38,10 +48,14 @@ type WebsiteResponse = {
 };
 
 const SECTIONS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'pages', label: 'Pages' },
+  { id: 'navigation', label: 'Navigation' },
   { id: 'page', label: 'Page content' },
-  { id: 'seo', label: 'SEO' },
   { id: 'branding', label: 'Branding' },
-  { id: 'widget', label: 'Widget' },
+  { id: 'widget', label: 'Booking Widget' },
+  { id: 'seo', label: 'SEO' },
+  { id: 'preview', label: 'Preview' },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]['id'];
@@ -64,7 +78,7 @@ const LIMITS = {
 export default function Website() {
   const base = useOrgBase();
   const org = useActiveOrg();
-  const [section, setSection] = useState<SectionId>('page');
+  const [section, setSection] = useState<SectionId>('overview');
   const [data, setData] = useState<WebsiteResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,9 +105,20 @@ export default function Website() {
         and until now the only way through to it was Widget — three clicks past
         two forms, on the one section a studio visits least.
       */}
+      {/*
+        No "Publish changes" button, and its absence is deliberate.
+
+        Nothing here is staged: branding, SEO and page content save straight to
+        the live site, and a page's own Draft/Published state lives on its row
+        in the Pages table, which is where somebody looking for it will look.
+        A global Publish button would either do nothing or imply that
+        everything else had been held back — and an owner who believes their
+        edits are unpublished when they are already live is worse off than one
+        with no button at all.
+      */}
       <PageHead
-        title="Website &amp; widget"
-        lede="What your customers see, and the two lines you paste into your own site."
+        title="Website &amp; Booking Widget"
+        lede="Your storefront, and the widget you paste into any other site."
         actions={
           data && (
             <a
@@ -102,7 +127,7 @@ export default function Website() {
               target="_blank"
               rel="noreferrer"
             >
-              Open the booking page
+              <Icon name="eye" /> View live site
             </a>
           )
         }
@@ -136,6 +161,18 @@ export default function Website() {
             </div>
           )}
 
+          {data && section === 'overview' && (
+            <OverviewSection base={base} data={data} onGo={(s) => setSection(s as SectionId)} />
+          )}
+          {data && section === 'pages' && (
+            <PagesSection base={base} canEdit={canEdit} bookingUrl={data.embed.bookingUrl} />
+          )}
+          {data && section === 'navigation' && (
+            <NavigationSection base={base} canEdit={canEdit} />
+          )}
+          {data && section === 'preview' && (
+            <PreviewSection bookingUrl={data.embed.bookingUrl} />
+          )}
           {data && section === 'page' && (
             <PageContentSection
               data={data}

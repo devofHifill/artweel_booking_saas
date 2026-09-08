@@ -341,13 +341,18 @@ export default function Bookings() {
       <PageHead
         title="Bookings"
         lede="Every reservation across your booking page and the embedded widget."
+        /*
+          Two buttons, and the SAME two whatever is selected.
+
+          "Cancel N selected" used to live here, appearing only once rows were
+          ticked — which put a destructive button exactly where Export CSV had
+          been a moment earlier, and shifted both other buttons sideways as it
+          arrived. Somebody reaching for Export after ticking a row was aiming
+          at Cancel. It now lives on the selection bar below, beside the rows
+          it acts on.
+        */
         actions={
           <>
-            {selected.size > 0 && (
-              <button className="danger" onClick={cancelSelected} disabled={busy}>
-                Cancel {selected.size} selected
-              </button>
-            )}
             <button onClick={exportRows} disabled={bookings.length === 0}>
               <Icon name="download" size={16} />
               Export CSV
@@ -516,6 +521,35 @@ export default function Bookings() {
             </button>
           )}
         </Toolbar>
+
+        {/*
+          The selection bar.
+
+          Sits between the filters and the rows, so the count and the action
+          are next to the checkboxes that produced them rather than at the far
+          corner of the page. It REPLACES nothing when empty — it is simply
+          absent — and because it is its own row, its arrival pushes the table
+          down instead of rearranging buttons somebody is already reaching for.
+
+          Clear comes first and Cancel last: the escape is the one you want
+          under the cursor when you realise you ticked the wrong row.
+        */}
+        {selected.size > 0 && (
+          <div className="selection-bar" role="status">
+            <span>
+              <b>{selected.size}</b>{' '}
+              {selected.size === 1 ? 'booking' : 'bookings'} selected
+            </span>
+            <div className="selection-actions">
+              <button className="sm" onClick={() => setSelected(new Set())}>
+                Clear
+              </button>
+              <button className="sm danger" onClick={cancelSelected} disabled={busy}>
+                Cancel {selected.size === 1 ? 'booking' : 'bookings'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {bookings.length === 0 ? (
           <div style={{ padding: 'var(--space-5)' }}>

@@ -238,8 +238,53 @@ async function request<T>(
   return json as T;
 }
 
+/**
+ * A file download, with the session's credentials attached.
+ *
+ * Separate from `request` rather than a flag on it because that one's whole
+ * contract is "parse JSON or throw the API's error shape", and a Blob is
+ * neither. Folding it in would mean a generic that sometimes lies about what
+ * it returns.
+ *
+ * The auth handling is repeated on purpose and must stay in step: without the
+ * 401-refresh, a studio whose access token expired while the page was open
+ * downloads a file containing an error and named .csv, which is the worst
+ * possible way to fail — nothing on screen goes wrong.
+ */
+async function requestBlob(path: string, retrying = false): Promise<Blob> {
+  const headers = new Headers();
+  const access = tokens.access;
+  if (access) headers.set('Authorization', `Bearer ${access}`);
+
+  const response = await fetch(path, { headers });
+
+  if (response.status === 401 && !retrying) {
+    if (tokens.support) {
+      tokens.dropSupport();
+      window.dispatchEvent(new CustomEvent('bsaas:signed-out'));
+    } else if (tokens.refresh) {
+      if (await refreshTokens()) return requestBlob(path, true);
+      window.dispatchEvent(new CustomEvent('bsaas:signed-out'));
+    }
+  }
+
+  if (!response.ok) {
+    /* The error body is still JSON even though the success body is not. */
+    const json = await response.json().catch(() => ({}));
+    throw new ApiError(
+      json?.error?.message ?? 'Could not download that.',
+      response.status,
+      json?.error?.code,
+    );
+  }
+
+  return response.blob();
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  /** Downloads. Returns the body as a Blob rather than parsing it. */
+  blob: (path: string) => requestBlob(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, {
       method: 'POST',

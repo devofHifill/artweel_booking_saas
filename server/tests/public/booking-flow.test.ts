@@ -71,7 +71,7 @@ describe('the booking page', () => {
   it('server-renders the studio and its classes', async () => {
     await makeClass();
 
-    const res = await request(app).get(`/public/${slug}`);
+    const res = await request(app).get(`/public/${slug}/book`);
 
     expect(res.status).toBe(200);
     expect(res.type).toBe('text/html');
@@ -84,7 +84,7 @@ describe('the booking page', () => {
 
   it('emits JSON-LD so a search result can show the price', async () => {
     await makeClass();
-    const res = await request(app).get(`/public/${slug}`);
+    const res = await request(app).get(`/public/${slug}/book`);
 
     expect(res.text).toContain('application/ld+json');
     expect(res.text).toContain('"@type":"LocalBusiness"');

@@ -151,7 +151,7 @@ type PageData = {
   }[];
 };
 
-const STYLES = `
+export const STYLES = `
 ${tokensCss(config.THEME_PACK)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);

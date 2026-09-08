@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, money } from '../lib/api';
+import { api } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import { setBrand, type BrandScheme, type ThemeResponse } from '../lib/brand';
 import { useTheme, type Theme } from '../lib/theme';
-import { EmptyState, LoadingRegion, SkeletonCard } from '../components/states';
-import { PageHead, SegRange, StatusPill } from '../components/layout';
+import { LoadingRegion, SkeletonCard } from '../components/states';
+import { PageHead, SegRange } from '../components/layout';
+import {
+  BookingSettingsSection,
+  CurrencySection,
+  DangerZoneSection,
+  EmailSettingsSection,
+  LocalisationSection,
+  PaymentSettingsSection,
+  RolesTable,
+  SmsSettingsSection,
+} from '../components/settings-sections';
+import { CancellationPolicySection } from '../components/CancellationPolicyForm';
 
 /**
  * Settings.
@@ -52,11 +63,18 @@ const THEMES: { value: Theme; label: string }[] = [
  * rest of itself.
  */
 const SECTIONS = [
-  { id: 'studio', label: 'Studio' },
-  { id: 'team', label: 'Team' },
+  { id: 'studio', label: 'Business Information' },
+  { id: 'booking', label: 'Booking Settings' },
+  { id: 'payments', label: 'Payment Settings' },
+  { id: 'cancellation', label: 'Cancellation Policy' },
+  { id: 'email', label: 'Email Settings' },
+  { id: 'sms', label: 'SMS Settings' },
+  { id: 'team', label: 'Users & Permissions' },
+  { id: 'currency', label: 'Currency' },
+  { id: 'localisation', label: 'Localisation' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'classes', label: 'Classes & credits' },
-  { id: 'cancellation', label: 'Cancellation' },
+  { id: 'danger', label: 'Danger Zone' },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]['id'];
@@ -88,10 +106,22 @@ export default function Settings() {
 
         <div className="settings-panel">
           {section === 'studio' && <StudioSection />}
-          {section === 'team' && <TeamSection />}
+          {section === 'booking' && <BookingSettingsSection />}
+          {section === 'payments' && <PaymentSettingsSection />}
+          {section === 'email' && <EmailSettingsSection />}
+          {section === 'sms' && <SmsSettingsSection />}
+          {section === 'currency' && <CurrencySection />}
+          {section === 'localisation' && <LocalisationSection />}
+          {section === 'danger' && <DangerZoneSection />}
+          {section === 'team' && (
+            <>
+              <TeamSection />
+              <RolesTable />
+            </>
+          )}
           {section === 'appearance' && <Appearance />}
           {section === 'classes' && <ClassesSection />}
-          {section === 'cancellation' && <CancellationSection />}
+          {section === 'cancellation' && <CancellationPolicySection />}
         </div>
       </div>
     </>
@@ -679,6 +709,15 @@ type Organization = {
   makeUpNoticeHours: number;
   makeUpCrossCohort: boolean;
   pieceHoldDays: number;
+
+  /* Business identity, added 2026-09-07. All nullable — a studio that has
+     never opened this screen has none of them. */
+  legalName: string | null;
+  address: string | null;
+  website: string | null;
+  businessType: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
 };
 
 /**
@@ -712,14 +751,21 @@ function useOrganization() {
 }
 
 /** A common shape for the timezones a US studio actually picks. */
-const TIMEZONES = [
-  'America/New_York',
-  'America/Chicago',
-  'America/Denver',
-  'America/Phoenix',
-  'America/Los_Angeles',
-  'America/Anchorage',
-  'Pacific/Honolulu',
+/**
+ * What a studio calls itself.
+ *
+ * A shortlist, not an enum — nothing branches on this value, it is printed.
+ * A studio whose stored value is not on the list keeps it (see the select),
+ * so the list can grow without rewriting anybody's record.
+ */
+const BUSINESS_TYPES = [
+  'Pottery studio',
+  'Ceramics school',
+  'Art studio',
+  'Makerspace',
+  'Community centre',
+  'Tour & activity operator',
+  'Other',
 ];
 
 function StudioSection() {
@@ -727,12 +773,29 @@ function StudioSection() {
   const { role } = useActiveOrg() ?? {};
   const canEdit = role === 'OWNER' || role === 'ADMIN';
 
-  const [form, setForm] = useState({ name: '', timezone: '', currency: '' });
+  const [form, setForm] = useState({
+    name: '',
+    legalName: '',
+    contactEmail: '',
+    contactPhone: '',
+    address: '',
+    website: '',
+    businessType: '',
+  });
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (org) setForm({ name: org.name, timezone: org.timezone, currency: org.currency });
+    if (!org) return;
+    setForm({
+      name: org.name,
+      legalName: org.legalName ?? '',
+      contactEmail: org.contactEmail ?? '',
+      contactPhone: org.contactPhone ?? '',
+      address: org.address ?? '',
+      website: org.website ?? '',
+      businessType: org.businessType ?? '',
+    });
   }, [org]);
 
   async function save(event: React.FormEvent) {
@@ -740,10 +803,20 @@ function StudioSection() {
     setBusy(true);
     setSaved(false);
     try {
+      /*
+        One request. Contact details also live behind PATCH /page, and an
+        earlier draft of this form saved them separately — which meant a
+        failure on the second call left the studio looking at an error with
+        half their edit already applied.
+      */
       await api.patch(base, {
         name: form.name.trim(),
-        timezone: form.timezone,
-        currency: form.currency,
+        legalName: form.legalName.trim(),
+        contactEmail: form.contactEmail.trim(),
+        contactPhone: form.contactPhone.trim(),
+        address: form.address.trim(),
+        website: form.website.trim(),
+        businessType: form.businessType.trim(),
       });
       await reload();
       setSaved(true);
@@ -765,63 +838,127 @@ function StudioSection() {
 
   return (
     <section className="card settings-section">
-      <h2>Studio</h2>
+      <h2>Business information</h2>
+      <p className="sub">
+        Shown on confirmations, receipts and your booking site.
+      </p>
 
+      {/*
+        Timezone and currency have MOVED, to Localisation and Currency. They
+        were here because this was the only settings screen; they are not
+        business identity, and a studio changing its trading name should not
+        have the control that moves every class time sitting beside it.
+      */}
       <form onSubmit={(e) => void save(e)}>
-        <div className="fields">
-          <label>
-            Studio name
+        <div className="form-row">
+          <div className="setting setting-stack">
+            <label htmlFor="biName">Business name</label>
             <input
+              id="biName"
               value={form.name}
               disabled={!canEdit}
               maxLength={120}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
-            <span className="sub">Customers see this on your booking page.</span>
-          </label>
+          </div>
 
-          <label>
-            Timezone
-            <select
-              value={form.timezone}
+          <div className="setting setting-stack">
+            <label htmlFor="biLegal">Legal name</label>
+            <input
+              id="biLegal"
+              value={form.legalName}
               disabled={!canEdit}
-              onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+              maxLength={200}
+              placeholder={form.name || 'Optional'}
+              onChange={(e) => setForm({ ...form, legalName: e.target.value })}
+            />
+          </div>
+        </div>
+
+        <div className="form-row">
+          <div className="setting setting-stack">
+            <label htmlFor="biEmail">Email</label>
+            <input
+              id="biEmail"
+              type="email"
+              value={form.contactEmail}
+              disabled={!canEdit}
+              maxLength={254}
+              onChange={(e) =>
+                setForm({ ...form, contactEmail: e.target.value })
+              }
+            />
+          </div>
+
+          <div className="setting setting-stack">
+            <label htmlFor="biPhone">Phone</label>
+            <input
+              id="biPhone"
+              value={form.contactPhone}
+              disabled={!canEdit}
+              maxLength={40}
+              onChange={(e) =>
+                setForm({ ...form, contactPhone: e.target.value })
+              }
+            />
+          </div>
+        </div>
+
+        <div className="setting setting-stack">
+          <label htmlFor="biAddress">Address</label>
+          <input
+            id="biAddress"
+            value={form.address}
+            disabled={!canEdit}
+            maxLength={500}
+            onChange={(e) => setForm({ ...form, address: e.target.value })}
+          />
+        </div>
+
+        <div className="form-row">
+          <div className="setting setting-stack">
+            <label htmlFor="biWebsite">Website</label>
+            <input
+              id="biWebsite"
+              value={form.website}
+              disabled={!canEdit}
+              maxLength={300}
+              placeholder="https://"
+              onChange={(e) => setForm({ ...form, website: e.target.value })}
+            />
+          </div>
+
+          <div className="setting setting-stack">
+            <label htmlFor="biType">Business type</label>
+            <select
+              id="biType"
+              value={form.businessType}
+              disabled={!canEdit}
+              onChange={(e) =>
+                setForm({ ...form, businessType: e.target.value })
+              }
             >
-              {/* The stored value may be outside the shortlist — a studio set up
-                  by hand, or one that moved. Showing it keeps the select honest
-                  rather than silently reassigning them to New York. */}
-              {!TIMEZONES.includes(form.timezone) && form.timezone && (
-                <option value={form.timezone}>{form.timezone}</option>
-              )}
-              {TIMEZONES.map((tz) => (
-                <option key={tz} value={tz}>
-                  {tz.replace('_', ' ')}
+              <option value="">Choose…</option>
+              {/* A stored value outside the list is kept and shown, the same
+                  way the timezone picker used to — a studio set up by hand
+                  must not be silently reassigned by opening this page. */}
+              {form.businessType &&
+                !BUSINESS_TYPES.includes(form.businessType) && (
+                  <option value={form.businessType}>{form.businessType}</option>
+                )}
+              {BUSINESS_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
                 </option>
               ))}
             </select>
-            <span className="sub">
-              Every class time, reminder and report is written in this zone.
-            </span>
-          </label>
-
-          <label>
-            Currency
-            <input
-              value={form.currency}
-              disabled={!canEdit}
-              maxLength={3}
-              style={{ textTransform: 'uppercase', width: '8ch' }}
-              onChange={(e) =>
-                setForm({ ...form, currency: e.target.value.toUpperCase() })
-              }
-            />
-          </label>
+          </div>
         </div>
 
         {canEdit && (
           <div className="toolbar">
             <button className="primary" disabled={busy}>
-              Save
+              Save changes
             </button>
             {saved && <span className="saved-note">Saved.</span>}
           </div>
@@ -1040,162 +1177,6 @@ function ClassesSection() {
           <p className="sub">Only an owner or admin can change these.</p>
         )}
       </form>
-    </section>
-  );
-}
-
-// --- Cancellation -----------------------------------------------------------
-
-type Tier = { hoursBefore: number; refundPercent: number; creditPercent?: number };
-
-/**
- * How much notice a tier covers, in words.
- *
- * The zero tier is the catch-all at the bottom of the ladder — it matches any
- * cancellation that did not qualify for a tier above it. Rendering it literally
- * as "0 hours or more" is technically what the number says and tells an owner
- * nothing about when it applies.
- *
- * And a day is a day: "1 days or more" is the kind of thing that makes a
- * carefully built settings screen look unfinished.
- */
-function noticeLabel(hoursBefore: number): string {
-  if (hoursBefore === 0) return 'Any later than that';
-
-  if (hoursBefore >= 24) {
-    const days = Math.round(hoursBefore / 24);
-    return `${days} ${days === 1 ? 'day' : 'days'} or more`;
-  }
-
-  return `${hoursBefore} ${hoursBefore === 1 ? 'hour' : 'hours'} or more`;
-}
-
-type Policy = {
-  id: string;
-  name: string;
-  tiers: Tier[];
-  isDefault: boolean;
-  noShowFeeCents: number;
-  allowReschedule: boolean;
-  rescheduleCutoffHours: number;
-};
-
-/**
- * Cancellation policies.
- *
- * Read-only here, deliberately. The tiers are an ordered ladder — "24 hours
- * before: 100% refund; 6 hours: 50% and a credit; after that: nothing" — and an
- * editor for that is a real piece of interface with reordering, validation and
- * a live preview of what a given notice period would pay out. Half-building it
- * would produce something that saves a ladder nobody can reason about, against
- * the one setting in the product that decides who gets their money back.
- *
- * What this does instead is make the current rules VISIBLE, which they have
- * never been outside the database, and say plainly where the gap is.
- */
-function CancellationSection() {
-  const base = useOrgBase();
-  const org = useActiveOrg();
-  const currency = org?.organization.currency ?? 'USD';
-
-  const [policies, setPolicies] = useState<Policy[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .get<{ policies: Policy[] }>(`${base}/cancellation-policies`)
-      .then((res) => !cancelled && setPolicies(res.policies))
-      .catch(
-        (err) =>
-          !cancelled &&
-          setError(err instanceof Error ? err.message : 'Could not load policies.'),
-      );
-    return () => {
-      cancelled = true;
-    };
-  }, [base]);
-
-  if (error) return <div className="err">{error}</div>;
-  if (!policies) {
-    return (
-      <LoadingRegion label="Loading cancellation policies">
-        <SkeletonCard lines={3} />
-      </LoadingRegion>
-    );
-  }
-
-  return (
-    <section className="card settings-section">
-      <h2>Cancellation</h2>
-      <p className="sub">
-        What a customer gets back when they cancel, by how much notice they give.
-      </p>
-
-      {policies.length === 0 ? (
-        <EmptyState hint="Without one, a cancellation refunds in full.">
-          No cancellation policy set.
-        </EmptyState>
-      ) : (
-        <div className="policy-list">
-          {policies.map((policy) => (
-            <div className="policy" key={policy.id}>
-              <div className="policy-head">
-                <h3>
-                  {policy.name}
-                  {policy.isDefault && <StatusPill status="ACTIVE">Default</StatusPill>}
-                </h3>
-              </div>
-
-              <ol className="tiers">
-                {[...policy.tiers]
-                  .sort((a, b) => b.hoursBefore - a.hoursBefore)
-                  .map((tier) => (
-                    <li key={tier.hoursBefore}>
-                      <span className="tier-when">{noticeLabel(tier.hoursBefore)}</span>
-                      <span className="tier-what">
-                        {tier.refundPercent}% refunded
-                        {tier.creditPercent
-                          ? ` · ${tier.creditPercent}% as credit`
-                          : ''}
-                      </span>
-                    </li>
-                  ))}
-              </ol>
-
-              <dl className="policy-meta">
-                <div>
-                  <dt>No-show fee</dt>
-                  <dd>
-                    {policy.noShowFeeCents > 0
-                      ? money(policy.noShowFeeCents, currency)
-                      : 'None'}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Rescheduling</dt>
-                  <dd>
-                    {policy.allowReschedule
-                      ? `Allowed up to ${policy.rescheduleCutoffHours}h before`
-                      : 'Not allowed'}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/*
-        Said out loud rather than left as a missing button. An owner who cannot
-        find the edit control should know it does not exist yet, not conclude
-        they lack permission.
-      */}
-      <p className="sub">
-        Editing the refund ladder is not built yet — it needs its own screen, with
-        a preview of what each notice period actually pays out. Ask and it can be
-        changed for you in the meantime.
-      </p>
     </section>
   );
 }

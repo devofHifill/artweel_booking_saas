@@ -6,6 +6,7 @@ import { requireAdmin, requireMember } from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import { prisma } from '../../lib/prisma';
 import { DEFAULT_TEMPLATES, buildValues, render } from './templates';
+import { listAutomations, setAutomation } from './notification.service';
 import { config } from '../../config';
 
 /** Studio-side notification settings and delivery history. */
@@ -152,6 +153,43 @@ notificationRouter.post(
     });
 
     res.json({ notification });
+  }),
+);
+
+/**
+ * The Automations table: every message the product sends, with this studio's
+ * own on/off state and recent volume.
+ */
+notificationRouter.get(
+  '/automations',
+  requireMember,
+  asyncHandler(async (req, res) => {
+    res.json({
+      automations: await listAutomations(req.tenant!.organizationId),
+    });
+  }),
+);
+
+/*
+  requireAdmin, matching template editing. Switching off a confirmation
+  changes what every customer of the studio receives, which is not a front-desk
+  decision.
+*/
+notificationRouter.patch(
+  '/automations/:templateKey',
+  requireAdmin,
+  validateBody(z.object({ enabled: z.boolean() })),
+  asyncHandler(async (req, res) => {
+    const templateKey = req.params.templateKey;
+    if (!templateKey) throw AppError.badRequest('Missing templateKey.');
+
+    res.json(
+      await setAutomation(
+        req.tenant!.organizationId,
+        templateKey,
+        (req.body as { enabled: boolean }).enabled,
+      ),
+    );
   }),
 );
 

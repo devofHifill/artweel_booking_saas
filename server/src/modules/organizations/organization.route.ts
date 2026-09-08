@@ -85,6 +85,88 @@ organizationRouter.patch(
       makeUpNoticeHours: z.number().int().min(0).max(720).optional(),
       makeUpCrossCohort: z.boolean().optional(),
       pieceHoldDays: z.number().int().min(0).max(3650).optional(),
+
+      /**
+       * Business identity, for receipts and confirmations.
+       *
+       * Bounds mirror the CHECK constraints added in
+       * `20260907200000_organization_settings`, so a value the database would
+       * refuse is refused here with a sentence instead of a 500.
+       */
+      /*
+        Contact details are writable HERE as well as on PATCH /page.
+
+        Two screens legitimately edit them — Settings → Business information,
+        and Website → Page content — because they are both the studio's
+        contact details and the ones printed on the booking page. Validation is
+        identical in both places and both write the same two columns, so there
+        is no second source of truth; what there must never be is a second
+        INTERPRETATION, so if one of these ever starts normalising a phone
+        number, the other has to as well.
+      */
+      contactEmail: z.string().email().max(254).nullish().or(z.literal('')),
+      contactPhone: z.string().max(40).nullish(),
+
+      legalName: z.string().max(200).nullish(),
+      address: z.string().max(500).nullish(),
+      website: z.string().max(300).nullish(),
+      businessType: z.string().max(80).nullish(),
+
+      /**
+       * Transactional email.
+       *
+       * No from-address, deliberately and permanently until domain
+       * verification exists — see the migration. `emailReplyTo` is what puts
+       * a customer's reply in the studio's inbox and needs no DNS at all.
+       */
+      emailFromName: z.string().max(120).nullish(),
+      /* Stored whenever they like; applied only once their domain verifies.
+         `emailDomainStatus` is NOT writable here — it is a fact about DNS,
+         not a preference, and a studio marking itself ACTIVE would break
+         every message it sends. */
+      emailFromAddress: z.string().email().max(254).nullish().or(z.literal('')),
+      emailReplyTo: z.string().email().max(254).nullish().or(z.literal('')),
+      emailBcc: z.string().email().max(254).nullish().or(z.literal('')),
+      emailFooter: z.string().max(1000).nullish(),
+
+      /* Texts. No provider field — Twilio is the only one wired, so a stored
+         choice would be a preference nothing honours. Quiet hours are stored
+         as the operator sets them; applyQuietHours does the inversion. */
+      smsEnabled: z.boolean().optional(),
+      smsSenderId: z
+        .string()
+        .regex(/^[A-Za-z0-9 ]{1,11}$/, 'Up to 11 letters, digits or spaces.')
+        .nullish()
+        .or(z.literal('')),
+      smsQuietFromHour: z.number().int().min(0).max(23).optional(),
+      smsQuietToHour: z.number().int().min(0).max(23).optional(),
+
+      /** Operator display only. Customers always get unambiguous dates. */
+      dateFormat: z.string().max(40).optional(),
+      timeFormat: z.enum(['12h', '24h']).optional(),
+
+      /* Defaults the Create-activity form starts at. They do NOT reach back
+         and change an activity somebody has already tuned. */
+      defaultMinNoticeMinutes: z.number().int().min(0).max(20160).optional(),
+      defaultMaxHorizonDays: z.number().int().min(1).max(730).optional(),
+
+      /* Studio-wide booking rules. Bounds mirror the CHECK constraints in
+         `20260907220000_booking_rules`, so a value the database would refuse
+         is refused here with a sentence. */
+      seatHoldMinutes: z.number().int().min(1).max(60).optional(),
+      overbookingBuffer: z.number().int().min(0).max(20).optional(),
+      allowSameDayBookings: z.boolean().optional(),
+      autoConfirmOnPayment: z.boolean().optional(),
+      requireWaiver: z.boolean().optional(),
+      requirePhoneAtCheckout: z.boolean().optional(),
+      allowChildTickets: z.boolean().optional(),
+
+      /* Payments. No provider field: Stripe is the only one implemented, so
+         a stored choice would be a preference the code cannot honour. */
+      depositsEnabled: z.boolean().optional(),
+      defaultDepositPercent: z.number().int().min(0).max(99).optional(),
+      allowPayOnArrival: z.boolean().optional(),
+      acceptCash: z.boolean().optional(),
     }),
   ),
   asyncHandler(async (req, res) => {
@@ -186,6 +268,48 @@ organizationRouter.patch(
   asyncHandler(async (req, res) => {
     res.json(
       await service.updatePageContent(req.tenant!.organizationId, req.body),
+    );
+  }),
+);
+
+organizationRouter.get(
+  '/:organizationId/permissions',
+  withOrganization(),
+  requireMember,
+  asyncHandler(async (req, res) => {
+    res.json(await service.getPermissions(req.tenant!.organizationId));
+  }),
+);
+
+/*
+  requireAdmin, not the matrix itself. Letting a role edit the table that
+  decides what that role may do is a ladder anybody can climb — an admin could
+  grant themselves billing, or a manager could grant themselves settings.
+*/
+organizationRouter.put(
+  '/:organizationId/permissions',
+  withOrganization(),
+  requireAdmin,
+  validateBody(
+    z.object({
+      role: z.string().min(1).max(32),
+      permission: z.string().min(1).max(64),
+      allowed: z.boolean(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const { role, permission, allowed } = req.body as {
+      role: string;
+      permission: string;
+      allowed: boolean;
+    };
+    res.json(
+      await service.setPermission(
+        req.tenant!.organizationId,
+        role,
+        permission,
+        allowed,
+      ),
     );
   }),
 );

@@ -14,11 +14,38 @@ import { requireCapacity, type PlanId } from '../billing/plan';
  * listed at several studios.
  */
 
+/**
+ * Whether this person can be booked, and if not, why not.
+ *
+ * DERIVED, never stored. The prototype carries a hand-set Available / On
+ * Leave / Part-time field, and a stored one here would be free to contradict
+ * the availability engine — a guide badged "Available" who cannot take a
+ * booking, with nothing on screen explaining the difference.
+ *
+ * NO_HOURS is the one worth having built this. A staff member with no working
+ * rules is PERMANENTLY UNBOOKABLE and nothing said so: the onboarding wizard
+ * seeds hours for the first instructor only, so everybody hired afterwards
+ * landed in exactly this state, silently. It was found by walking screens
+ * rather than by reading code, and this badge is what makes it visible from
+ * the list instead of from a customer complaining.
+ */
+export type StaffAvailability = 'AVAILABLE' | 'AWAY_TODAY' | 'NO_HOURS' | 'INACTIVE';
+
 export async function listStaff(
   organizationId: string,
   opts: { includeInactive?: boolean } = {},
 ) {
-  return prisma.staff.findMany({
+  const org = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { timezone: true },
+  });
+
+  /* The studio's today, not the server's. A studio in Los Angeles asking at
+     23:00 UTC is asking about a date the server has already left. */
+  const today = DateTime.now().setZone(org.timezone).toFormat('yyyy-MM-dd');
+  const now = new Date();
+
+  const staff = await prisma.staff.findMany({
     where: {
       organizationId,
       ...(opts.includeInactive ? {} : { isActive: true }),
@@ -30,9 +57,97 @@ export async function listStaff(
       staffLocations: {
         include: { location: { select: { id: true, name: true } } },
       },
+      /* Counted, not listed. The card needs "does this person have any hours
+         at all", and pulling every rule to answer a yes/no would carry a
+         studio's entire rota to the browser for a badge. */
+      _count: { select: { availabilityRules: { where: { ruleType: 'WORKING' } } } },
+      availabilityOverride: {
+        where: { localDate: today, overrideType: 'DAY_OFF' },
+        select: { id: true, reason: true },
+      },
+      sessions: {
+        where: { status: { not: 'CANCELLED' } },
+        select: { id: true, startsAt: true, seatsTaken: true },
+      },
     },
     orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
   });
+
+  return staff.map((member) => {
+    const { sessions, availabilityOverride, _count, ...rest } = member;
+
+    const upcoming = sessions.filter((s) => s.startsAt > now).length;
+    const taught = sessions.filter((s) => s.startsAt <= now);
+
+    const availability: StaffAvailability = !member.isActive
+      ? 'INACTIVE'
+      : availabilityOverride.length > 0
+        ? 'AWAY_TODAY'
+        : _count.availabilityRules === 0
+          ? 'NO_HOURS'
+          : 'AVAILABLE';
+
+    return {
+      ...rest,
+      availability,
+      /* The reason the studio typed on the day off, so the card can say
+         "Away — holiday" rather than leaving somebody to look it up. */
+      awayReason: availabilityOverride[0]?.reason ?? null,
+      stats: {
+        upcoming,
+        classesTaught: taught.length,
+        /*
+          Seats on classes that have already run. Named "taught" rather than
+          "guests" because a customer who books six weeks of a course is one
+          person counted six times — which is right for "how much teaching has
+          this person done" and wrong for "how many people have they met".
+        */
+        seatsTaught: taught.reduce((sum, s) => sum + s.seatsTaken, 0),
+      },
+    };
+  });
+}
+
+/**
+ * What this person is down to teach, from now on.
+ *
+ * Sessions rather than bookings: the question the Schedule button asks is
+ * "where does this instructor have to be", and that is a class whether or not
+ * anybody has booked it yet. An empty class still has to be turned up to.
+ *
+ * Capped, and ordered soonest first. A studio scheduling a term at a time can
+ * have hundreds of future sessions per instructor, and nobody reads past the
+ * next fortnight in a dialog.
+ */
+export async function getStaffSchedule(organizationId: string, id: string) {
+  const staff = await prisma.staff.findFirst({
+    where: { id, organizationId },
+    select: { id: true, name: true, email: true },
+  });
+  if (!staff) throw AppError.notFound('Staff member not found.');
+
+  const sessions = await prisma.session.findMany({
+    where: {
+      staffId: id,
+      organizationId,
+      startsAt: { gte: new Date() },
+      status: { not: 'CANCELLED' },
+    },
+    select: {
+      id: true,
+      startsAt: true,
+      endsAt: true,
+      capacity: true,
+      seatsTaken: true,
+      status: true,
+      serviceType: { select: { id: true, name: true, emoji: true } },
+      location: { select: { id: true, name: true } },
+    },
+    orderBy: { startsAt: 'asc' },
+    take: 100,
+  });
+
+  return { staff, sessions };
 }
 
 export async function getStaff(organizationId: string, id: string) {

@@ -1,8 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
-import type { PaymentStatus } from '@prisma/client';
+import type {
+  BookingPaymentState,
+  CustomerStatus,
+  PaymentStatus,
+} from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { outstandingCentsOf, paidCentsOf } from '../analytics/analytics.service';
+import { priceBooking } from '../payments/money';
 import { AppError } from '../../lib/app-error';
 import { logger } from '../../lib/logger';
 import { bookAppointment, bookSeats, cancelBooking } from '../../scheduling/booking.service';
@@ -371,10 +376,28 @@ export async function createManualBooking(
     staffId?: string;
     startsAt?: Date;
     seats: number;
+    /**
+     * How many of `seats` are children. Adults are the remainder.
+     *
+     * The desk form asks for adults and children separately because that is
+     * how somebody says it out loud; it adds them into `seats` before calling
+     * here, so this path keeps the same one-total rule as every other. Never
+     * store an adult count.
+     */
+    children?: number;
     /** An existing customer. Wins over `customer` when both arrive. */
     customerId?: string;
-    customer?: { name: string; email: string; phone?: string };
+    customer?: {
+      name: string;
+      email: string;
+      phone?: string;
+      country?: string;
+    };
     notes?: string;
+    /** The desk's claim about the money. See the column's own comment. */
+    paymentState?: BookingPaymentState;
+    /** Ticked when paper was signed at the counter. */
+    waiverSigned?: boolean;
     /** A held place that is not paid for yet is PENDING, not CONFIRMED. */
     status?: 'CONFIRMED' | 'PENDING';
     /**
@@ -442,19 +465,46 @@ export async function createManualBooking(
     });
   }
 
-  /* The list price unless the counter said otherwise. Bounded at zero so a
-     negative total cannot be talked into the ledger. */
+  /*
+    The list price unless the counter said otherwise. Bounded at zero so a
+    negative total cannot be talked into the ledger.
+
+    Priced through `priceBooking` rather than `priceCents * seats`, which is
+    what this line used to be. That multiplication was a SECOND implementation
+    of the price and, once child rates existed, a wrong one: a party of two
+    adults and two children came out at four adult seats. cd3cee9 removed the
+    same expression from the public path for the same reason.
+  */
+  const children = Math.min(
+    input.seats,
+    Math.max(0, Math.floor(input.children ?? 0)),
+  );
+
   const totalCents =
     input.totalCents !== undefined
       ? Math.max(0, Math.round(input.totalCents))
-      : service.priceCents * input.seats;
+      : priceBooking({
+          seats: input.seats,
+          unitPriceCents: service.priceCents,
+          children,
+          childPriceCents: service.childPriceCents,
+        }).totalCents;
 
   const updated = await prisma.booking.update({
     where: { id: booking!.id },
     data: {
       totalCents,
+      children,
       notes: input.notes,
       ...(input.status ? { status: input.status } : {}),
+      ...(input.paymentState ? { paymentState: input.paymentState } : {}),
+      /*
+        Only ever set here, never cleared to null by an absent checkbox — an
+        unticked box on a form that did not ask is not evidence the waiver was
+        unsigned. A booking that needs its waiver revoked is a different
+        action from editing one.
+      */
+      ...(input.waiverSigned ? { waiverSignedAt: new Date() } : {}),
     },
   });
 
@@ -467,6 +517,27 @@ export async function createManualBooking(
    * separately. `provider` records that this did not come through Stripe, so a
    * later refund cannot be attempted against a processor that never saw it.
    */
+  /*
+    Cash, when the studio still takes it.
+
+    Checked here rather than in the route's enum because the enum is the shape
+    of the request and this is a studio's policy — a studio that switches cash
+    off should get a refusal that says so, not a validation error listing
+    allowed values.
+  */
+  if (input.payment?.method === 'cash') {
+    const { acceptCash } = await prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { acceptCash: true },
+    });
+    if (!acceptCash) {
+      throw AppError.badRequest(
+        'This studio is not taking cash. Record it as card, transfer or other.',
+        'CASH_NOT_ACCEPTED',
+      );
+    }
+  }
+
   if (input.payment && input.payment.amountCents > 0) {
     const amountCents = Math.min(
       Math.max(0, Math.round(input.payment.amountCents)),
@@ -507,7 +578,7 @@ export async function createManualBooking(
  */
 async function upsertCounterCustomer(
   organizationId: string,
-  customer?: { name: string; email: string; phone?: string },
+  customer?: { name: string; email: string; phone?: string; country?: string },
 ) {
   if (!customer) {
     throw AppError.badRequest('Pick a customer, or enter a new one.');
@@ -515,6 +586,12 @@ async function upsertCounterCustomer(
 
   const email = customer.email.trim().toLowerCase();
 
+  /*
+    Country is written only on CREATE. An existing customer keeps whatever the
+    studio last set: the desk form defaults this field, so letting it through
+    on the match would overwrite a hand-corrected country with a default
+    nobody typed, every time that customer booked again.
+  */
   return (
     (await prisma.customer.findFirst({ where: { organizationId, email } })) ??
     (await prisma.customer.create({
@@ -523,6 +600,7 @@ async function upsertCounterCustomer(
         email,
         name: customer.name.trim(),
         phone: customer.phone,
+        country: customer.country?.trim() || null,
       },
     }))
   );
@@ -745,13 +823,35 @@ async function afterBookingChange(
 
 export type CustomerSort = 'name' | 'spent' | 'bookings' | 'recent';
 
+/**
+ * The ceiling this list sorts within.
+ *
+ * Spend and last visit are DERIVED, so ordering by them means holding every
+ * customer in memory — the database cannot order by a number it did not
+ * compute. That is fine at the size a studio actually is and dishonest to
+ * pretend scales: past this many customers the answer is a materialised
+ * per-customer rollup, which is what the note on the select below says.
+ *
+ * Chosen so the failure is loud. Silently sorting the first N would put a
+ * page labelled "Highest spend" in front of somebody with the wrong names on
+ * it, which is the bug this constant exists to have already thought about.
+ */
+const CUSTOMER_SORT_CEILING = 5_000;
+
 export async function listCustomers(
   organizationId: string,
-  opts: { search?: string; limit: number; sort?: CustomerSort },
+  opts: {
+    search?: string;
+    status?: CustomerStatus;
+    sort?: CustomerSort;
+    page: number;
+    pageSize: number;
+  },
 ) {
   const rows = await prisma.customer.findMany({
     where: {
       organizationId,
+      ...(opts.status ? { status: opts.status } : {}),
       ...(opts.search
         ? {
             OR: [
@@ -767,6 +867,9 @@ export async function listCustomers(
       name: true,
       email: true,
       phone: true,
+      country: true,
+      status: true,
+      notes: true,
       smsConsentAt: true,
       smsOptedOutAt: true,
       createdAt: true,
@@ -804,7 +907,16 @@ export async function listCustomers(
         },
       },
     },
-    take: opts.limit,
+    /*
+      No `take`, and that is the fix rather than an oversight.
+
+      It used to take the page size and THEN sort in JS, which meant "Highest
+      spend" ordered whichever rows Postgres happened to hand back first — not
+      the studio's biggest spenders. It looked right only because a studio with
+      fewer customers than the limit sees every row anyway. Paginating on top
+      of that would have made page two quietly wrong.
+    */
+    take: CUSTOMER_SORT_CEILING,
   });
 
   const now = Date.now();
@@ -832,7 +944,16 @@ export async function listCustomers(
         ? past.reduce((latest, at) => (at > latest ? at : latest))
         : null;
 
-    return { ...rest, spentCents, lastVisit };
+    /**
+     * Still to come, counted from the same rows.
+     *
+     * The complement of `past` rather than its own query: they are the two
+     * halves of one list, and computing them apart is how the two start
+     * disagreeing about a booking that begins in the next second.
+     */
+    const upcoming = bookings.filter((b) => b.startsAt.getTime() > now).length;
+
+    return { ...rest, spentCents, lastVisit, upcoming };
   });
 
   /*
@@ -859,7 +980,42 @@ export async function listCustomers(
       sorted.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  return sorted;
+  /*
+    Paginated AFTER sorting, which is the only order that means anything: a
+    page cut before the sort is a page of arbitrary rows wearing a sort's
+    label.
+
+    `total` counts the filtered set, not the studio — the pager sits under a
+    table that a search may have narrowed to three rows, and a footer claiming
+    four hundred would be describing a different list from the one above it.
+  */
+  const start = (opts.page - 1) * opts.pageSize;
+
+  return {
+    customers: sorted.slice(start, start + opts.pageSize),
+    total: sorted.length,
+    page: opts.page,
+    pageSize: opts.pageSize,
+    /** True when the studio has outgrown the in-memory sort above. */
+    truncated: rows.length === CUSTOMER_SORT_CEILING,
+    /**
+     * The figures above the table, over the WHOLE filtered set.
+     *
+     * They used to be summed in the client from the rows it had, which was
+     * defensible while the client had every row: the tiles narrowed with a
+     * search, which is what you want. Pagination broke that silently — the
+     * same code would have gone on adding up whatever was on screen and
+     * labelled twenty-five people's spending "Lifetime revenue".
+     *
+     * Computed here, from `sorted`, so they still follow the search and no
+     * longer follow the page.
+     */
+    totals: {
+      customers: sorted.length,
+      repeat: sorted.filter((c) => c._count.bookings > 1).length,
+      spentCents: sorted.reduce((sum, c) => sum + c.spentCents, 0),
+    },
+  };
 }
 
 export async function getCustomer(organizationId: string, customerId: string) {
@@ -895,6 +1051,200 @@ export async function getCustomer(organizationId: string, customerId: string) {
         .reduce((s, b) => s + b.totalCents, 0),
     },
   };
+}
+
+export type CustomerWrite = {
+  name: string;
+  email: string;
+  phone?: string | null;
+  country?: string | null;
+  status?: CustomerStatus;
+  notes?: string | null;
+};
+
+/**
+ * Add a customer from the desk.
+ *
+ * The studio has always been able to create one implicitly — taking a manual
+ * booking upserts whoever is standing there — but never on its own, which
+ * meant a walk-in enquiry that did not book yet could not be written down at
+ * all. Same fault the parity pass kept turning up: a capability with no caller.
+ */
+export async function createCustomer(
+  organizationId: string,
+  input: CustomerWrite,
+) {
+  const email = input.email.trim().toLowerCase();
+
+  /*
+    Checked before the insert AND caught after it. The check gives a message
+    naming the person; the catch is what actually holds, because two desks
+    adding the same email a millisecond apart both pass the check. Without the
+    catch that race surfaces as a raw Prisma P2002 and a 500.
+  */
+  const clash = await prisma.customer.findFirst({
+    where: { organizationId, email },
+    select: { id: true, name: true },
+  });
+  if (clash) {
+    throw AppError.conflict(
+      `${clash.name} already uses that email address.`,
+    );
+  }
+
+  try {
+    return await prisma.customer.create({
+      data: {
+        organizationId,
+        name: input.name.trim(),
+        email,
+        phone: input.phone?.trim() || null,
+        country: input.country?.trim() || null,
+        status: input.status ?? 'ACTIVE',
+        notes: input.notes?.trim() || null,
+      },
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw AppError.conflict('That email address is already on your list.');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Edit one.
+ *
+ * Consent is deliberately NOT writable here. smsConsentAt and smsOptedOutAt
+ * are a TCPA record of what the customer did, not a preference the studio
+ * gets to set — letting this form clear an opt-out would let a studio
+ * resubscribe someone who texted STOP by editing their phone number.
+ */
+export async function updateCustomer(
+  organizationId: string,
+  customerId: string,
+  input: Partial<CustomerWrite>,
+) {
+  const existing = await prisma.customer.findFirst({
+    where: { id: customerId, organizationId },
+    select: { id: true },
+  });
+  if (!existing) throw AppError.notFound('Customer not found.');
+
+  const email = input.email?.trim().toLowerCase();
+
+  if (email) {
+    const clash = await prisma.customer.findFirst({
+      where: { organizationId, email, id: { not: customerId } },
+      select: { name: true },
+    });
+    if (clash) {
+      throw AppError.conflict(`${clash.name} already uses that email address.`);
+    }
+  }
+
+  try {
+    return await prisma.customer.update({
+      where: { id: customerId },
+      data: {
+        ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+        ...(email ? { email } : {}),
+        ...(input.phone !== undefined
+          ? { phone: input.phone?.trim() || null }
+          : {}),
+        ...(input.country !== undefined
+          ? { country: input.country?.trim() || null }
+          : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.notes !== undefined
+          ? { notes: input.notes?.trim() || null }
+          : {}),
+      },
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw AppError.conflict('That email address is already on your list.');
+    }
+    throw err;
+  }
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: string }).code === 'P2002'
+  );
+}
+
+/**
+ * The customer list as CSV.
+ *
+ * Built from `listCustomers` rather than its own query, so the file and the
+ * screen can never disagree about what a booking count or a spend is. It
+ * takes the same filters and deliberately ignores the pagination: somebody
+ * exporting a search wants every row it matched, not the twenty-five they can
+ * see.
+ */
+export async function exportCustomersCsv(
+  organizationId: string,
+  opts: { search?: string; status?: CustomerStatus; sort?: CustomerSort },
+): Promise<string> {
+  const { customers } = await listCustomers(organizationId, {
+    ...opts,
+    page: 1,
+    pageSize: CUSTOMER_SORT_CEILING,
+  });
+
+  const header = [
+    'Name',
+    'Email',
+    'Phone',
+    'Country',
+    'Status',
+    'Bookings',
+    'Upcoming',
+    'Total spent',
+    'Last visit',
+  ];
+
+  const lines = customers.map((c) =>
+    [
+      c.name,
+      c.email,
+      c.phone ?? '',
+      c.country ?? '',
+      c.status,
+      String(c._count.bookings),
+      String(c.upcoming),
+      /*
+        Written as plain decimal rather than formatted money. A spreadsheet
+        cannot add up "$1,234.00", and a currency symbol here would be a
+        second place the org's currency is decided.
+      */
+      (c.spentCents / 100).toFixed(2),
+      c.lastVisit ? c.lastVisit.toISOString().slice(0, 10) : '',
+    ].map(csvCell),
+  );
+
+  return [header.map(csvCell).join(','), ...lines.map((l) => l.join(','))].join(
+    '\r\n',
+  );
+}
+
+/**
+ * One CSV cell.
+ *
+ * The leading-character guard is not paranoia about quoting: a cell starting
+ * =, +, - or @ is executed as a FORMULA when the file is opened in Excel or
+ * Sheets, so a customer who types `=HYPERLINK(...)` into a name field gets it
+ * run on the machine of whoever opens the export. Prefixing a single quote
+ * makes it text, which is what a name always was.
+ */
+function csvCell(value: string): string {
+  const risky = /^[=+\-@\t\r]/.test(value);
+  const cell = risky ? `'${value}` : value;
+  return `"${cell.replace(/"/g, '""')}"`;
 }
 
 export { randomBytes };

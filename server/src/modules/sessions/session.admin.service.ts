@@ -185,6 +185,30 @@ export async function createClass(
     );
   }
 
+  /**
+   * The studio's overbooking buffer, applied HERE and nowhere else.
+   *
+   * The obvious place to put an overbooking allowance is the seat-taking
+   * path — let `seats_taken` exceed `capacity` by N. That is exactly what
+   * must not happen: `CHECK (seats_taken <= capacity)` under a locked row is
+   * one of Phase 0's settled guarantees and the only thing that stops a
+   * popular class being sold twice under concurrency.
+   *
+   * So the buffer raises the session's CAPACITY at creation instead. The
+   * studio genuinely sells N more places, the database still refuses to
+   * oversell the session it was given, and no concurrency guarantee is
+   * touched to get there.
+   *
+   * It is applied AFTER the service-max check on purpose: the max is what the
+   * room holds, the buffer is a deliberate decision to sell past it.
+   */
+  const { overbookingBuffer } = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { overbookingBuffer: true },
+  });
+
+  const capacity = input.capacity + overbookingBuffer;
+
   if (input.staffId) {
     const staff = await prisma.staff.findFirst({
       where: { id: input.staffId, organizationId },
@@ -255,7 +279,9 @@ export async function createClass(
         endsAt: end.instant,
         timezone: zone,
         localStartTime: input.localStartTime,
-        capacity: input.capacity,
+        /* The requested capacity plus the studio's overbooking buffer — see
+           the note where `capacity` is computed. */
+        capacity,
         staffId: input.staffId ?? null,
         locationId: input.locationId ?? null,
         paddingBeforeMinutes: service.paddingBeforeMinutes,

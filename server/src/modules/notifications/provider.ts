@@ -37,7 +37,17 @@ export interface EmailProvider {
     subject: string;
     text: string;
     replyTo?: string;
+    /** A copy to the studio's own address, when they have asked for one. */
+    bcc?: string;
     fromName: string;
+    /**
+     * The studio's own verified sending address.
+     *
+     * Only ever supplied once their domain is ACTIVE — an unverified domain
+     * is refused by the provider outright, so this must never carry an
+     * aspiration. Absent means our address with their name on it.
+     */
+    fromAddress?: string;
   }): Promise<SendResult>;
 }
 
@@ -98,7 +108,9 @@ export class ResendEmailProvider implements EmailProvider {
     subject: string;
     text: string;
     replyTo?: string;
+    bcc?: string;
     fromName: string;
+    fromAddress?: string;
   }): Promise<SendResult> {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -107,13 +119,17 @@ export class ResendEmailProvider implements EmailProvider {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        // The studio's name, our verified domain. Sending as their domain
-        // would need per-studio DNS verification, which is a Phase 2 feature.
-        from: `${input.fromName} <${this.fromAddress}>`,
+        /* Their name, and their address only once their domain is verified —
+           the caller is responsible for that gate, because an unverified
+           domain is a 403 rather than a fallback. */
+        from: `${input.fromName} <${input.fromAddress ?? this.fromAddress}>`,
         to: [input.to],
         subject: input.subject,
         text: input.text,
         ...(input.replyTo ? { reply_to: input.replyTo } : {}),
+        /* Blind, so a customer never sees the studio's internal address on a
+           confirmation they might forward on. */
+        ...(input.bcc ? { bcc: [input.bcc] } : {}),
       }),
     });
 

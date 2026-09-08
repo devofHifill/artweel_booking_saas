@@ -91,7 +91,7 @@ describe('the loader script', () => {
 
 describe('the booking page can be embedded', () => {
   it('permits any site to frame it', async () => {
-    const res = await request(app).get(`/public/${slug}`);
+    const res = await request(app).get(`/public/${slug}/book`);
 
     expect(res.status).toBe(200);
     expect(res.headers['content-security-policy']).toContain('frame-ancestors *');
@@ -101,7 +101,7 @@ describe('the booking page can be embedded', () => {
   });
 
   it('reports its height to the host page so the frame can grow', async () => {
-    const res = await request(app).get(`/public/${slug}`);
+    const res = await request(app).get(`/public/${slug}/book`);
 
     expect(res.text).toContain('artweel:height');
     // A fixed-height box with its own scrollbar is the sign of a cheap embed.
@@ -116,14 +116,14 @@ describe('the booking page can be embedded', () => {
    * in both directions.
    */
   it('measures the content box, not scrollHeight', async () => {
-    const res = await request(app).get(`/public/${slug}`);
+    const res = await request(app).get(`/public/${slug}/book`);
 
     expect(res.text).toContain('getBoundingClientRect');
     expect(res.text).not.toContain('document.body.scrollHeight');
   });
 
   it('keeps the rest of its content security policy intact', async () => {
-    const res = await request(app).get(`/public/${slug}`);
+    const res = await request(app).get(`/public/${slug}/book`);
     const csp = res.headers['content-security-policy'];
 
     // Only framing was relaxed. Everything else still holds.
@@ -234,7 +234,7 @@ describe('a booking placed through the widget is attributed to the widget', () =
       constant, the read of location.search, and the field in the body all
       have to line up for the widget slice to appear on the dashboard.
     */
-    const res = await request(app).get(`/public/${slug}`);
+    const res = await request(app).get(`/public/${slug}/book`);
 
     expect(res.text).toContain('IS_EMBED');
     expect(res.text).toContain("embed=1");

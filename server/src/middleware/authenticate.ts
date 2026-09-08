@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import type { MembershipRole } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../lib/app-error';
+import { allows, type Permission } from '../lib/permissions';
 import {
   verifyAccessToken,
   verifySupportToken,
@@ -296,6 +297,7 @@ export const requireAdmin = requireRole('OWNER', 'ADMIN');
 export const requireMember = requireRole(
   'OWNER',
   'ADMIN',
+  'MANAGER',
   'INSTRUCTOR',
   'FRONT_DESK',
 );
@@ -310,14 +312,88 @@ export const requireMember = requireRole(
  * because no instructor account had ever existed.
  *
  * Splitting them properly is the valuable half of S13. The expensive half —
- * turning every guard into a data-driven permission matrix — is deliberately
- * NOT done: it is a real chance of an authorization hole in exchange for
- * configurability nobody has asked for.
+ * turning every guard into a data-driven permission matrix — was deliberately
+ * left undone, on the grounds that it was a real chance of an authorization
+ * hole in exchange for configurability nobody had asked for.
+ *
+ * It was asked for on 2026-09-07, and `requirePermission` below is it. The
+ * hole is guarded against in one specific way: the defaults in
+ * `lib/permissions.ts` reproduce THESE guards exactly, so the new layer
+ * changes nothing until a studio deliberately changes it, and the tests assert
+ * that equivalence rather than trusting it.
+ *
+ * These role guards remain for the routes the matrix does not name.
  */
-export const requireFrontDesk = requireRole('OWNER', 'ADMIN', 'FRONT_DESK');
+export const requireFrontDesk = requireRole(
+  'OWNER',
+  'ADMIN',
+  'MANAGER',
+  'FRONT_DESK',
+);
 
 /** The floor: the register, attendance, pieces through the kiln. */
-export const requireInstructor = requireRole('OWNER', 'ADMIN', 'INSTRUCTOR');
+export const requireInstructor = requireRole(
+  'OWNER',
+  'ADMIN',
+  'MANAGER',
+  'INSTRUCTOR',
+);
+
+/**
+ * The data-driven gate, for the capabilities the permissions screen names.
+ *
+ * Reads the studio's exceptions and falls back to the defaults, which mirror
+ * the role guards above. One small query per guarded request, on a table that
+ * holds only deliberate exceptions and is usually empty.
+ *
+ * OWNER never reaches the query — `allows` short-circuits — so no stored row
+ * can lock an owner out of their own studio.
+ */
+export function requirePermission(permission: Permission) {
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.tenant) {
+      next(
+        new AppError(
+          'Organization context missing — withOrganization must run first.',
+          500,
+        ),
+      );
+      return;
+    }
+
+    const { organizationId, role } = req.tenant;
+
+    if (role === 'OWNER') {
+      next();
+      return;
+    }
+
+    try {
+      const rows = await prisma.rolePermission.findMany({
+        where: { organizationId, role },
+        select: { permission: true, allowed: true },
+      });
+
+      const overrides = new Map(
+        rows.map((r) => [`${role}:${r.permission}`, r.allowed]),
+      );
+
+      if (!allows(role, permission, overrides)) {
+        next(
+          AppError.forbidden(
+            'Your role does not allow that. Ask an owner or admin.',
+            'PERMISSION_DENIED',
+          ),
+        );
+        return;
+      }
+
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
 
 /**
  * An admin, or the staff member this route is about.

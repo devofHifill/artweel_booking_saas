@@ -155,7 +155,7 @@ describe('the price a customer is shown', () => {
     await makeClass();
     const org = await connectStripe();
 
-    const res = await request(app).get(`/public/${slug}`).expect(200);
+    const res = await request(app).get(`/public/${slug}/book`).expect(200);
 
     // The page must say WHETHER it can charge, never WHERE the money lands.
     expect(res.text).toContain('"acceptsPayment":true');

@@ -168,7 +168,7 @@ describe('the copy reaches the booking page', () => {
     save cleanly and the renderer ignores them, nothing has actually been
     built. This is the assertion that catches that.
   */
-  it('overrides the title, tagline and description on /public/{slug}', async () => {
+  it('overrides the title, tagline and description on the booking page', async () => {
     await request(app)
       .patch(`${studio.base}/page`)
       .set(studio.headers)
@@ -186,7 +186,7 @@ describe('the copy reaches the booking page', () => {
       select: { slug: true },
     });
 
-    const page = await request(app).get(`/public/${org.slug}`).expect(200);
+    const page = await request(app).get(`/public/${org.slug}/book`).expect(200);
 
     expect(page.text).toContain('<title>Pottery in Brooklyn</title>');
     expect(page.text).toContain(
@@ -206,7 +206,7 @@ describe('the copy reaches the booking page', () => {
       select: { slug: true, name: true },
     });
 
-    const page = await request(app).get(`/public/${org.slug}`).expect(200);
+    const page = await request(app).get(`/public/${org.slug}/book`).expect(200);
 
     // Untouched studio: the pre-B8 wording is what still shows.
     expect(page.text).toContain(`Book a class at ${org.name}`);
