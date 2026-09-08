@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { AppError } from '../../lib/app-error';
+import { config } from '../../config';
 import * as authService from './auth.service';
 import {
   rotateRefreshToken,
@@ -126,7 +127,17 @@ export async function forgotPassword(req: Request, res: Response) {
   // reveal who has an account.
   res.status(202).json({
     message: 'If that address has an account, a reset link is on its way.',
-    ...(result.token ? { resetToken: result.token } : {}),
+    /*
+      The token IS the reset credential — anyone holding it can take the
+      account over. It rides the email and nothing else. It was previously
+      returned here unconditionally, which made every account resettable by
+      anyone who knew the address; it is now withheld in production. Dev and
+      test keep it, because no mailer runs there and the flow (and the tests
+      that cover it) would otherwise have no way to read the token back.
+    */
+    ...(config.NODE_ENV !== 'production' && result.token
+      ? { resetToken: result.token }
+      : {}),
   });
 }
 

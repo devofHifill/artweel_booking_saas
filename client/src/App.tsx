@@ -37,6 +37,7 @@ import IntegrationsPage from './pages/Integrations';
 import ReportsPage from './pages/Reports';
 import Website from './pages/Website';
 import AcceptInvite from './pages/AcceptInvite';
+import ResetPassword from './pages/ResetPassword';
 import AdminApp from './admin/AdminApp';
 import { Shell } from './components/Shell';
 import { Icon } from './components/Icon';
@@ -97,6 +98,20 @@ export default function App() {
     return (
       <Routes>
         <Route path="/invite/:token" element={<AcceptInvite />} />
+      </Routes>
+    );
+  }
+
+  /*
+    Setting a new password from an emailed link, ABOVE the signed-in check for
+    the same reason as invitations: the person following it is usually locked
+    out, so bouncing them to a login they cannot pass is a dead end. Completing
+    it revokes every session anyway, so there is no dashboard to protect here.
+  */
+  if (location.pathname.startsWith('/reset-password')) {
+    return (
+      <Routes>
+        <Route path="/reset-password" element={<ResetPassword />} />
       </Routes>
     );
   }

@@ -1002,6 +1002,10 @@ tr:hover td { background: var(--clay-lt); }
 }
 .auth-submit:disabled { box-shadow: none; }
 
+.auth-forgot { margin-top: var(--space-4); text-align: center; }
+.auth-forgot .link { color: var(--muted); font-size: var(--text-sm); }
+.auth-forgot .link:hover { color: var(--clay-text); }
+
 .auth-foot {
   display: flex;
   align-items: center;

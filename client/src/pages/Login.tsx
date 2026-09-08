@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth';
 import { ApiError } from '../lib/api';
 import { Icon } from '../components/Icon';
 import { AuthField, AuthLayout } from '../components/AuthLayout';
+import ForgotPassword from './ForgotPassword';
 
 export default function Login({ onSwitch }: { onSwitch?: () => void }) {
   const { signIn } = useAuth();
@@ -10,6 +11,13 @@ export default function Login({ onSwitch }: { onSwitch?: () => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The request screen lives here rather than as its own route: it is a detour
+  // off sign-in, and returns to it, so a URL of its own would only be a page
+  // to get stranded on. The reset page proper (/reset-password) does need a
+  // URL — it is the far end of an emailed link.
+  const [forgot, setForgot] = useState(false);
+
+  if (forgot) return <ForgotPassword onBack={() => setForgot(false)} />;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -64,6 +72,19 @@ export default function Login({ onSwitch }: { onSwitch?: () => void }) {
           <Icon name="signin" size={18} />
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
+
+        <div className="auth-forgot">
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              setError(null);
+              setForgot(true);
+            }}
+          >
+            Forgot your password?
+          </button>
+        </div>
       </form>
     </AuthLayout>
   );
