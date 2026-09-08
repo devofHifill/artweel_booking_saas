@@ -23,6 +23,7 @@
     "platform:grant": "tsx scripts/platform-admin.ts grant",
     "platform:revoke": "tsx scripts/platform-admin.ts revoke",
     "platform:list": "tsx scripts/platform-admin.ts list",
+    "password:reset": "tsx scripts/reset-password.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:gate": "vitest run tests/gate",
