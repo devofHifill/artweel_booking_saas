@@ -1,61 +1,216 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { money, type Health, type Metrics } from './types';
+import { Icon, type IconName } from '../components/Icon';
 import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 /**
- * The landing screen.
+ * The platform landing screen — "Dashboard" in the sidebar.
  *
- * Every tile links through to the rows behind it. A count you cannot open is a
- * count you cannot act on — "4 trials expiring this week" is only useful if the
- * next click is the list of those four studios.
+ * Eight headline cards, then the actionable lists. Every tile links through to
+ * the rows behind it: a count you cannot open is a count you cannot act on.
+ *
+ * WHAT IS NOT HERE, and why. The prototype this was drawn from carried a Churn
+ * card (2.8%) and a net-revenue-retention line (108.6%). Neither is on screen,
+ * because neither can be computed: the platform stores only current state — no
+ * MRR history, no subscription-event log — so "what churned last month" has
+ * nothing to read from. Rather than print a number nothing measures, the eighth
+ * card is the churn LEADING indicator that IS real: studios that have gone quiet.
+ *
+ * For the same reason only three cards carry a delta. Bookings, GMV and new
+ * studios are each dated at the row level, so a window can be compared to the
+ * one before it. How many studios are ACTIVE, or what MRR is, are facts about
+ * this instant with no recorded past — so those cards state the number and stop,
+ * rather than inventing a trend.
  */
+
+const RANGES = [
+  { label: 'Today', days: 1 },
+  { label: '7 days', days: 7 },
+  { label: '30 days', days: 30 },
+  { label: '90 days', days: 90 },
+] as const;
+
+type Range =
+  | { kind: 'preset'; days: number; label: string }
+  | { kind: 'custom'; from: string; to: string };
+
 export default function Overview() {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [range, setRange] = useState<Range>({
+    kind: 'preset',
+    days: 30,
+    label: '30 days',
+  });
+  const [refreshing, setRefreshing] = useState(false);
+  /* Bumped by Refresh to force a refetch without changing the range. */
+  const [nonce, setNonce] = useState(0);
+
+  const query = useMemo(() => {
+    if (range.kind === 'custom') {
+      if (!range.from || !range.to) return '';
+      return `?from=${range.from}&to=${range.to}`;
+    }
+    return `?days=${range.days}`;
+  }, [range]);
+
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const [m, h] = await Promise.all([
+        api.get<{ metrics: Metrics }>(`/api/platform/metrics${query}`),
+        api.get<{ health: Health }>('/api/platform/health'),
+      ]);
+      setMetrics(m.metrics);
+      setHealth(h.health);
+      setError(null);
+    } catch {
+      setError('Could not load the overview.');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [query]);
 
   useEffect(() => {
     let cancelled = false;
-
-    Promise.all([
-      api.get<{ metrics: Metrics }>('/api/platform/metrics'),
-      api.get<{ health: Health }>('/api/platform/health'),
-    ])
-      .then(([m, h]) => {
-        if (cancelled) return;
-        setMetrics(m.metrics);
-        setHealth(h.health);
-      })
-      .catch(() => !cancelled && setError('Could not load the overview.'));
-
+    void (async () => {
+      await load();
+      if (cancelled) return;
+    })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [load, nonce]);
+
+  function exportCsv() {
+    if (!metrics) return;
+    const rows = metricRows(metrics);
+    const csv = [
+      'Metric,Value',
+      ...rows.map((r) => `${csvCell(r.label)},${csvCell(r.plain)}`),
+    ].join('\r\n');
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `artweel-platform-${stamp}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   if (error) return <div className="err">{error}</div>;
-  if (!metrics || !health) return (
+  if (!metrics || !health)
+    return (
       <LoadingRegion label="Loading the platform overview">
         <SkeletonStats />
         <SkeletonList count={2} lines={3} />
       </LoadingRegion>
     );
 
-  const { studios, trials, subscriptionRevenue, studioBookingVolume } = metrics;
+  const { studios, trials, subscriptionRevenue, window: w } = metrics;
+  const activePct =
+    studios.total > 0
+      ? Math.round((subscriptionRevenue.payingStudios / studios.total) * 100)
+      : 0;
+  const arrCents = subscriptionRevenue.mrrCents * 12;
 
   return (
     <>
-      <div className="page-head">
-        <h1>Overview</h1>
+      <div className="page-head ov-head">
+        <div>
+          <h1>Platform Overview</h1>
+          <p className="sub">Monitor Artweel&rsquo;s entire booking ecosystem.</p>
+        </div>
+
+        <div className="ov-controls">
+          <div className="ov-ranges" role="group" aria-label="Date range">
+            {RANGES.map((r) => (
+              <button
+                key={r.label}
+                type="button"
+                className={
+                  range.kind === 'preset' && range.days === r.days
+                    ? 'is-active'
+                    : ''
+                }
+                onClick={() =>
+                  setRange({ kind: 'preset', days: r.days, label: r.label })
+                }
+              >
+                {r.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              className={range.kind === 'custom' ? 'is-active' : ''}
+              onClick={() =>
+                setRange((prev) =>
+                  prev.kind === 'custom'
+                    ? prev
+                    : { kind: 'custom', from: '', to: '' },
+                )
+              }
+            >
+              Custom
+            </button>
+          </div>
+
+          <button type="button" className="ov-btn" onClick={exportCsv}>
+            <Icon name="download" size={16} />
+            Export
+          </button>
+          <button
+            type="button"
+            className="ov-btn primary"
+            onClick={() => setNonce((n) => n + 1)}
+            disabled={refreshing}
+          >
+            <Icon name="refund" size={16} />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
+      {range.kind === 'custom' && (
+        <div className="ov-custom">
+          <label>
+            From
+            <input
+              type="date"
+              value={range.from}
+              max={range.to || undefined}
+              onChange={(e) =>
+                setRange({ kind: 'custom', from: e.target.value, to: range.to })
+              }
+            />
+          </label>
+          <label>
+            To
+            <input
+              type="date"
+              value={range.to}
+              min={range.from || undefined}
+              onChange={(e) =>
+                setRange({ kind: 'custom', from: range.from, to: e.target.value })
+              }
+            />
+          </label>
+          {(!range.from || !range.to) && (
+            <span className="sub">Pick both dates to apply.</span>
+          )}
+        </div>
+      )}
+
       {/*
-        The health strip. Sits on the landing screen rather than only on its own
-        page, because the C2.1 failure was silent for two days — something that
-        has to be navigated to is something nobody navigates to.
+        Health strip on the landing screen, not only on its own page: the C2.1
+        failure was silent for two days, and a page nobody navigates to is a
+        page nobody sees.
       */}
       {health.degraded && (
         <div className="alert danger">
@@ -64,59 +219,69 @@ export default function Overview() {
         </div>
       )}
 
-      <section className="stats">
-        <Tile
-          label="Studios"
-          value={studios.total}
+      <section className="ov-grid">
+        <Card
+          icon="studios"
+          label="Total Studios"
+          value={String(studios.total)}
+          delta={w.studiosDeltaPct}
+          sub={`${w.studiosNew} new in ${w.days} day${w.days === 1 ? '' : 's'}`}
           onClick={() => navigate('/admin/studios')}
         />
-        <Tile
-          label="Paying"
-          value={subscriptionRevenue.payingStudios}
+        <Card
+          icon="studio"
+          label="Active Studios"
+          value={String(subscriptionRevenue.payingStudios)}
+          sub={`${activePct}% of platform`}
           onClick={() => navigate('/admin/studios?status=ACTIVE')}
         />
-        <Tile
-          label="Trialing"
-          value={studios.byStatus.TRIALING}
+        <Card
+          icon="today"
+          label="Trial Studios"
+          value={String(studios.byStatus.TRIALING)}
+          sub="14-day trial · no card required"
           onClick={() => navigate('/admin/studios?status=TRIALING')}
         />
-        <Tile
-          label="Suspended"
-          value={studios.byStatus.SUSPENDED}
-          onClick={() => navigate('/admin/studios?status=SUSPENDED')}
+        <Card
+          icon="plan"
+          label="Monthly Recurring Revenue"
+          value={money(subscriptionRevenue.mrrCents)}
+          sub={`${money(arrCents)} ARR`}
         />
-      </section>
-
-      <section className="cards-2">
-        <div className="card">
-          <h2>Our revenue</h2>
-          <p className="figure">{money(subscriptionRevenue.mrrCents)}</p>
-          <p className="sub">
-            MRR from {subscriptionRevenue.payingStudios} active subscription
-            {subscriptionRevenue.payingStudios === 1 ? '' : 's'}. Trials and
-            past-due studios are not counted.
-          </p>
-        </div>
-
+        <Card
+          icon="bookings"
+          label="Bookings"
+          value={w.bookings.toLocaleString('en-US')}
+          delta={w.bookingsDeltaPct}
+          sub={`across ${w.bookingsAcrossStudios} studio${
+            w.bookingsAcrossStudios === 1 ? '' : 's'
+          }`}
+        />
+        <Card
+          icon="money"
+          label="GMV"
+          value={money(w.gmvCents)}
+          delta={w.gmvDeltaPct}
+          sub="processed on studio accounts"
+        />
+        <Card
+          icon="refund"
+          label="Platform Payments"
+          value={money(w.platformPaymentsCents)}
+          sub="0% commission — direct charges"
+        />
         {/*
-          Deliberately a separate card with its own heading, never a tile beside
-          MRR. These are two unrelated numbers: Connect charges are direct with
-          the studio as merchant of record, so this money never touches our
-          balance. Showing them adjacent and unlabelled would overstate the
-          business by roughly the size of the customer base.
+          Where the prototype showed Churn. This is the real, computed leading
+          indicator instead — studios that have gone quiet — labelled as what it
+          is rather than dressed up as a churn rate nothing measures.
         */}
-        <div className="card">
-          <h2>Studio volume</h2>
-          <p className="figure muted">
-            {money(studioBookingVolume.last30DaysCents)}
-          </p>
-          <p className="sub">
-            Paid to studios by their own customers, last 30 days (
-            {studioBookingVolume.payments} payment
-            {studioBookingVolume.payments === 1 ? '' : 's'}).{' '}
-            <strong>Not platform revenue.</strong>
-          </p>
-        </div>
+        <Card
+          icon="customers"
+          label="At-risk studios"
+          value={String(studios.idle30Days)}
+          sub="no booking in 30 days"
+          onClick={() => navigate('/admin/studios')}
+        />
       </section>
 
       <section className="cards-2">
@@ -189,22 +354,76 @@ export default function Overview() {
   );
 }
 
-function Tile({
+function Card({
+  icon,
   label,
   value,
+  sub,
+  delta,
   onClick,
 }: {
+  icon: IconName;
   label: string;
-  value: number;
-  onClick: () => void;
+  value: string;
+  sub: string;
+  /** undefined = a point-in-time metric with no honest delta; null = a windowed
+   *  one whose prior window was empty (shown as "new"). */
+  delta?: number | null;
+  onClick?: () => void;
 }) {
-  // Matches the dashboard's existing `card stat` markup (`.label` / `.value`)
-  // rather than introducing a second way to draw the same tile.
+  const inner = (
+    <>
+      <div className="ov-card-top">
+        <span className="ov-card-icon">
+          <Icon name={icon} size={16} />
+        </span>
+        <span className="ov-card-label">{label}</span>
+      </div>
+      <div className="ov-card-value">{value}</div>
+      <div className="ov-card-foot">
+        {delta !== undefined && <Delta pct={delta} />}
+        <span className="ov-card-sub">{sub}</span>
+      </div>
+    </>
+  );
+
+  /*
+    A div, not a <button>, even when clickable. A <button> made a flex-column
+    container collapses to its header instead of growing to fit its children —
+    the value and footer then spill outside the card box. Kept a real control
+    for the keyboard and screen readers via role/tabIndex and an Enter/Space
+    handler rather than the element type.
+  */
+  if (!onClick) return <div className="card ov-card">{inner}</div>;
+
   return (
-    <button className="card stat stat-button" onClick={onClick}>
-      <div className="label">{label}</div>
-      <div className="value">{value}</div>
-    </button>
+    <div
+      className="card ov-card ov-card-button"
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
+      {inner}
+    </div>
+  );
+}
+
+/** Green up, red down, and "new" when there is no prior window to divide by. */
+function Delta({ pct }: { pct: number | null }) {
+  if (pct === null) return <span className="ov-delta new">new</span>;
+  const up = pct >= 0;
+  return (
+    <span className={`ov-delta ${up ? 'up' : 'down'}`}>
+      <Icon name="chevron" size={12} />
+      {up ? '+' : ''}
+      {pct}%
+    </span>
   );
 }
 
@@ -229,4 +448,26 @@ function ActionRow({
       )}
     </li>
   );
+}
+
+/** The rows the CSV export writes — label plus a plain, unformatted value. */
+function metricRows(m: Metrics) {
+  const arr = m.subscriptionRevenue.mrrCents * 12;
+  return [
+    { label: 'Total studios', plain: String(m.studios.total) },
+    { label: 'Active studios', plain: String(m.subscriptionRevenue.payingStudios) },
+    { label: 'Trial studios', plain: String(m.studios.byStatus.TRIALING) },
+    { label: 'MRR', plain: money(m.subscriptionRevenue.mrrCents) },
+    { label: 'ARR', plain: money(arr) },
+    { label: `Bookings (${m.window.days}d)`, plain: String(m.window.bookings) },
+    { label: `GMV (${m.window.days}d)`, plain: money(m.window.gmvCents) },
+    { label: 'Platform payments', plain: money(m.window.platformPaymentsCents) },
+    { label: 'At-risk studios (no booking 30d)', plain: String(m.studios.idle30Days) },
+  ];
+}
+
+/** Quote a CSV cell, and defuse a leading =/+/-/@ so a spreadsheet cannot run it. */
+function csvCell(value: string): string {
+  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  return `"${safe.replace(/"/g, '""')}"`;
 }

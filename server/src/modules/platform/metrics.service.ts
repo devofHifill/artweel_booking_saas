@@ -38,11 +38,44 @@ const DAY_MS = 86_400_000;
  */
 export type PlatformMetrics = Awaited<ReturnType<typeof getPlatformMetrics>>;
 
-export async function getPlatformMetrics() {
+/**
+ * The window the flow metrics (bookings, GMV, new signups) are measured over,
+ * and the equal-length window immediately before it that their deltas compare
+ * against.
+ *
+ * The point-in-time counts — total studios, status breakdown, MRR — are always
+ * "as of now" and ignore this. That asymmetry is real, not a shortcut: how many
+ * studios are ACTIVE is a fact about this instant, and there is no history table
+ * to say how many were ACTIVE a month ago, so those cards carry no delta rather
+ * than a fabricated one.
+ */
+export type MetricsRange = { start: Date; end: Date };
+
+function defaultRange(now: Date): MetricsRange {
+  return { start: new Date(now.getTime() - 30 * DAY_MS), end: now };
+}
+
+/**
+ * Percentage change, or null when it cannot honestly be one.
+ *
+ * A change from zero has no percentage — "up from nothing" is not 100%, it is
+ * undefined — so the UI is handed null and says "new" rather than inventing a
+ * figure.
+ */
+function deltaPct(current: number, previous: number): number | null {
+  if (previous <= 0) return null;
+  return Math.round(((current - previous) / previous) * 1000) / 10;
+}
+
+export async function getPlatformMetrics(range?: MetricsRange) {
   const now = new Date();
   const in7Days = new Date(now.getTime() + 7 * DAY_MS);
   const days30Ago = new Date(now.getTime() - 30 * DAY_MS);
   const weeks12Ago = new Date(now.getTime() - 84 * DAY_MS);
+
+  const { start: windowStart, end: windowEnd } = range ?? defaultRange(now);
+  const windowMs = Math.max(windowEnd.getTime() - windowStart.getTime(), DAY_MS);
+  const prevStart = new Date(windowStart.getTime() - windowMs);
 
   const [
     byStatus,
@@ -54,6 +87,13 @@ export async function getPlatformMetrics() {
     recentSignupSources,
     bookingVolume,
     totalStudios,
+    gmvWindow,
+    gmvPrevWindow,
+    bookingsInWindow,
+    bookingsPrevWindow,
+    bookingStudios,
+    studiosNewInWindow,
+    studiosNewPrevWindow,
   ] = await Promise.all([
     prisma.organization.groupBy({
       by: ['subscriptionStatus'],
@@ -112,6 +152,58 @@ export async function getPlatformMetrics() {
     }),
 
     prisma.organization.count(),
+
+    // --- Windowed flow metrics, and the prior window for their deltas -------
+
+    /* GMV over the selected window and the one before it. Same SUCCEEDED-only
+       rule as the 30-day figure above — a created-but-unpaid intent is not
+       volume. */
+    prisma.payment.aggregate({
+      where: {
+        status: 'SUCCEEDED',
+        createdAt: { gte: windowStart, lt: windowEnd },
+      },
+      _sum: { amountCents: true },
+    }),
+    prisma.payment.aggregate({
+      where: {
+        status: 'SUCCEEDED',
+        createdAt: { gte: prevStart, lt: windowStart },
+      },
+      _sum: { amountCents: true },
+    }),
+
+    /* Bookings taken across the platform. CANCELLED excluded: a booking that
+       was made and then cancelled is not one the platform carried. */
+    prisma.booking.count({
+      where: {
+        status: { not: 'CANCELLED' },
+        createdAt: { gte: windowStart, lt: windowEnd },
+      },
+    }),
+    prisma.booking.count({
+      where: {
+        status: { not: 'CANCELLED' },
+        createdAt: { gte: prevStart, lt: windowStart },
+      },
+    }),
+    /* How many distinct studios took at least one of those bookings. */
+    prisma.booking.groupBy({
+      by: ['organizationId'],
+      where: {
+        status: { not: 'CANCELLED' },
+        createdAt: { gte: windowStart, lt: windowEnd },
+      },
+    }),
+
+    /* New studios in the window and the one before, for the Total Studios
+       delta and its "N new" line. */
+    prisma.organization.count({
+      where: { createdAt: { gte: windowStart, lt: windowEnd } },
+    }),
+    prisma.organization.count({
+      where: { createdAt: { gte: prevStart, lt: windowStart } },
+    }),
   ]);
 
   const statusCounts = emptyStatusCounts();
@@ -182,6 +274,31 @@ export async function getPlatformMetrics() {
       last30DaysCents: bookingVolume._sum.amountCents ?? 0,
       payments: bookingVolume._count._all,
       note: 'Paid directly to studios via Connect. Not platform revenue.',
+    },
+
+    /**
+     * The flow metrics over the selected window, each with a delta against the
+     * equal window before it. These are the only cards that carry a delta,
+     * because these are the only ones whose past is recorded (every booking,
+     * payment and signup is dated). See MetricsRange.
+     *
+     * platformPaymentsCents is a literal 0 and not a query: Connect charges are
+     * direct, so the platform takes no commission and processes no payment of
+     * its own. It is on the dashboard precisely to state that out loud.
+     */
+    window: {
+      days: Math.round(windowMs / DAY_MS),
+      gmvCents: gmvWindow._sum.amountCents ?? 0,
+      gmvDeltaPct: deltaPct(
+        gmvWindow._sum.amountCents ?? 0,
+        gmvPrevWindow._sum.amountCents ?? 0,
+      ),
+      bookings: bookingsInWindow,
+      bookingsAcrossStudios: bookingStudios.length,
+      bookingsDeltaPct: deltaPct(bookingsInWindow, bookingsPrevWindow),
+      studiosNew: studiosNewInWindow,
+      studiosDeltaPct: deltaPct(studiosNewInWindow, studiosNewPrevWindow),
+      platformPaymentsCents: 0,
     },
 
     signups: {

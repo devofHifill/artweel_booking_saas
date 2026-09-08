@@ -296,6 +296,40 @@ describe('overview metrics', () => {
     expect(metrics.subscriptionRevenue.mrrCents).toBe(0);
   });
 
+  it('reports the windowed flow metrics, and platform payments as a literal zero', async () => {
+    await prisma.payment.create({
+      data: {
+        organizationId: admin.organizationId,
+        amountCents: 7000,
+        status: 'SUCCEEDED',
+        currency: 'USD',
+        provider: 'FAKE',
+        kind: 'FULL',
+      },
+    });
+
+    const res = await get('/api/platform/metrics');
+    const w = res.body.metrics.window;
+
+    // Default window is 30 days, and the fresh payment lands inside it.
+    expect(w.days).toBe(30);
+    expect(w.gmvCents).toBe(7000);
+    expect(typeof w.bookings).toBe('number');
+
+    // Never a query: the platform takes no commission on direct charges, and
+    // the card exists to say so. A non-zero here would mean we had started
+    // recording our own money in the studios' payments table.
+    expect(w.platformPaymentsCents).toBe(0);
+  });
+
+  it('lets the range narrow the window without erroring', async () => {
+    const res = await get('/api/platform/metrics', { days: 7 });
+    expect(res.status).toBe(200);
+    expect(res.body.metrics.window.days).toBe(7);
+    // The point-in-time counts are unaffected by the range.
+    expect(res.body.metrics.studios.total).toBe(1);
+  });
+
   it('counts studios still stalled in onboarding', async () => {
     await signUpStudio(app, { organizationName: 'Kiln House' });
     await prisma.organization.update({

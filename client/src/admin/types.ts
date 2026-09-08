@@ -106,6 +106,22 @@ export type Metrics = {
     payments: number;
     note: string;
   };
+  /**
+   * The flow metrics over the selected window. Only these carry a delta —
+   * a null delta means the prior window was empty, so there is no percentage
+   * to show and the card says "new" instead.
+   */
+  window: {
+    days: number;
+    gmvCents: number;
+    gmvDeltaPct: number | null;
+    bookings: number;
+    bookingsAcrossStudios: number;
+    bookingsDeltaPct: number | null;
+    studiosNew: number;
+    studiosDeltaPct: number | null;
+    platformPaymentsCents: number;
+  };
   signups: {
     byWeek: { week: string; count: number }[];
     bySource: { source: string; count: number }[];

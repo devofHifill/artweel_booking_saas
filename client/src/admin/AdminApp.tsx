@@ -100,7 +100,7 @@ export default function AdminApp() {
           <nav className="nav">
             <NavLink to="/admin" end>
               <Icon name="overview" />
-              Overview
+              Dashboard
             </NavLink>
             <NavLink to="/admin/studios">
               <Icon name="studios" />

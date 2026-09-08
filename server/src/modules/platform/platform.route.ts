@@ -444,10 +444,37 @@ platformRouter.post(
 
 // --- Overview -------------------------------------------------------------
 
+/*
+  The window for the flow metrics. `days` is the preset path (Today=1, 7, 30,
+  90); `from`/`to` is Custom. Point-in-time counts ignore all of it — see
+  MetricsRange — so an absent or malformed range simply falls back to 30 days
+  rather than erroring, because the bulk of the screen does not depend on it.
+*/
+const metricsRangeSchema = z
+  .object({
+    days: z.coerce.number().int().min(1).max(366).optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+  })
+  .refine((v) => !(Boolean(v.from) !== Boolean(v.to)), {
+    message: 'Give both from and to, or neither.',
+  });
+
 platformRouter.get(
   '/metrics',
-  asyncHandler(async (_req, res) => {
-    res.json({ metrics: await getPlatformMetrics() });
+  validateQuery(metricsRangeSchema),
+  asyncHandler(async (req, res) => {
+    const q = req.query as unknown as z.infer<typeof metricsRangeSchema>;
+    const now = new Date();
+
+    let range: { start: Date; end: Date } | undefined;
+    if (q.from && q.to && q.to > q.from) {
+      range = { start: q.from, end: q.to };
+    } else if (q.days) {
+      range = { start: new Date(now.getTime() - q.days * 86_400_000), end: now };
+    }
+
+    res.json({ metrics: await getPlatformMetrics(range) });
   }),
 );
 
