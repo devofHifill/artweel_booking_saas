@@ -15,6 +15,11 @@ import {
   PlatformLocations,
   PlatformResources,
 } from './Catalog';
+import {
+  PlatformIntegrations,
+  PlatformPlans,
+  PlatformWebhooks,
+} from './Management';
 import { Shell } from '../components/Shell';
 import { Icon } from '../components/Icon';
 import { LoadingRegion, SkeletonList } from '../components/states';
@@ -52,6 +57,7 @@ export default function AdminApp() {
   const [counts, setCounts] = useState<{
     studios: number;
     users: number;
+    failedWebhooks: number;
   } | null>(null);
 
   useEffect(() => {
@@ -65,7 +71,9 @@ export default function AdminApp() {
         setState('allowed');
 
         api
-          .get<{ studios: number; users: number }>('/api/platform/nav-counts')
+          .get<{ studios: number; users: number; failedWebhooks: number }>(
+            '/api/platform/nav-counts',
+          )
           .then((c) => !cancelled && setCounts(c))
           .catch(() => {
             /* Badges are decoration on top of working links. */
@@ -167,6 +175,21 @@ export default function AdminApp() {
             </NavLink>
 
             <p className="nav-group">Platform management</p>
+            <NavLink to="/admin/plans">
+              <Icon name="plan" />
+              Plans &amp; Limits
+            </NavLink>
+            <NavLink to="/admin/integrations">
+              <Icon name="plug" />
+              Integrations
+            </NavLink>
+            <NavLink to="/admin/webhooks">
+              <Icon name="send" />
+              Webhooks
+              {counts && counts.failedWebhooks > 0 && (
+                <span className="nav-count bad">{counts.failedWebhooks}</span>
+              )}
+            </NavLink>
             <NavLink to="/admin/health">
               <Icon name="health" />
               System Health
@@ -223,6 +246,9 @@ export default function AdminApp() {
         <Route path="/admin/activities" element={<PlatformActivities />} />
         <Route path="/admin/locations" element={<PlatformLocations />} />
         <Route path="/admin/resources" element={<PlatformResources />} />
+        <Route path="/admin/plans" element={<PlatformPlans />} />
+        <Route path="/admin/integrations" element={<PlatformIntegrations />} />
+        <Route path="/admin/webhooks" element={<PlatformWebhooks />} />
         <Route path="/admin/health" element={<Health />} />
         <Route path="/admin/audit" element={<Audit />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />

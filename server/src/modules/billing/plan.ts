@@ -74,12 +74,41 @@ export type Feature = keyof Pick<
   'mobileBookings' | 'smsReminders' | 'courseSeries' | 'apiAccess' | 'whiteLabel'
 >;
 
-const FEATURE_LABELS: Record<Feature, string> = {
+export const FEATURE_LABELS: Record<Feature, string> = {
   mobileBookings: 'Mobile and travelling bookings',
   smsReminders: 'Text reminders',
   courseSeries: 'Multi-week courses',
   apiAccess: 'API access',
   whiteLabel: 'Your own domain',
+};
+
+/**
+ * Whether a plan feature is actually GATED, as opposed to merely advertised.
+ *
+ * A flag in `PLANS` is a claim about what a plan includes. It only becomes a
+ * limit when something calls `requireFeature` with it, and today only two
+ * things do. The other three are sold and not enforced:
+ *
+ *   smsReminders — the pricing page offers text reminders from Studio, and
+ *                  nothing stops a Solo studio using them.
+ *   apiAccess    — offered on Pro. There is no public API to gate.
+ *   whiteLabel   — declared and labelled here, referenced by nothing at all,
+ *                  not even the marketing site.
+ *
+ * Recorded next to the definition rather than discovered again later, and
+ * surfaced on the platform Plans screen, because a plan matrix that shows only
+ * the claims is how the gap survives.
+ *
+ * MUST be updated when a `requireFeature` call is added or removed. There is
+ * no way to derive this at runtime — a call site is not introspectable — so
+ * this list is only as true as the last person to change one made it.
+ */
+export const FEATURE_ENFORCED: Record<Feature, boolean> = {
+  mobileBookings: true, // locations/location.service.ts
+  courseSeries: true, // courses/course.service.ts
+  smsReminders: false,
+  apiAccess: false,
+  whiteLabel: false,
 };
 
 /** The cheapest plan that includes a feature — so the message can name it. */

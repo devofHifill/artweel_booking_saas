@@ -14,6 +14,12 @@ import { getPlatformMetrics } from './metrics.service';
 import { getMrrHistory } from './mrr.service';
 import { getBookingVolume, getPlatformGrowth } from './growth.service';
 import {
+  getPlansOverview,
+  listIntegrations,
+  listWebhooks,
+  type WebhookStatus,
+} from './management.service';
+import {
   getNavCounts,
   listActivities,
   listBookings,
@@ -595,6 +601,39 @@ for (const [path, list] of Object.entries(CATALOGS)) {
     }),
   );
 }
+
+// --- Platform management ---------------------------------------------------
+
+platformRouter.get(
+  '/webhooks',
+  validateQuery(
+    listQuerySchema.extend({
+      status: z.enum(['processed', 'failed', 'pending']).optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    res.json(
+      await listWebhooks(
+        req.query as unknown as ListQuery & { status?: WebhookStatus },
+      ),
+    );
+  }),
+);
+
+platformRouter.get(
+  '/integrations',
+  validateQuery(listQuerySchema),
+  asyncHandler(async (req, res) => {
+    res.json(await listIntegrations(req.query as unknown as ListQuery));
+  }),
+);
+
+platformRouter.get(
+  '/plans-overview',
+  asyncHandler(async (_req, res) => {
+    res.json(await getPlansOverview());
+  }),
+);
 
 /** Sidebar badges. */
 platformRouter.get(

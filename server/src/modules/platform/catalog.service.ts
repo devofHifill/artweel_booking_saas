@@ -248,11 +248,23 @@ export async function listResources(query: ListQuery) {
   return envelope(rows, total, query);
 }
 
-/** Counts for the sidebar badges. Two cheap counts, read on every admin load. */
+/**
+ * Counts for the sidebar badges. Cheap counts, read on every admin load.
+ *
+ * The webhook badge counts FAILURES in the last 24 hours rather than total
+ * deliveries: a number that only ever goes up is wallpaper, and the point of a
+ * badge is that a non-zero one means go and look.
+ */
 export async function getNavCounts() {
-  const [studios, users] = await Promise.all([
+  const [studios, users, failedWebhooks] = await Promise.all([
     prisma.organization.count(),
     prisma.user.count(),
+    prisma.webhookEvent.count({
+      where: {
+        error: { not: null },
+        createdAt: { gte: new Date(Date.now() - 86_400_000) },
+      },
+    }),
   ]);
-  return { studios, users };
+  return { studios, users, failedWebhooks };
 }
