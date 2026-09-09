@@ -201,6 +201,58 @@ export type BookingVolume = {
   thisMonth: number;
 };
 
+export type PlanSegment = {
+  key: string;
+  label: string;
+  studios: number;
+  mrrCents: number;
+};
+
+export type Insights = {
+  plans: {
+    total: number;
+    segments: PlanSegment[];
+    mrrCents: number;
+    payingStudios: number;
+  };
+  geography: {
+    rows: { country: string; studios: number; gmvCents: number }[];
+    derivedFrom: 'timezone';
+  };
+  attention: {
+    items: {
+      key: string;
+      title: string;
+      detail: string;
+      count: number;
+      href: string;
+    }[];
+  };
+  activity: {
+    entries: {
+      id: string;
+      at: string;
+      title: string;
+      category: string;
+      actor: string;
+      status: 'success' | 'failed' | 'review';
+    }[];
+    note: string;
+  };
+  revenueModel: {
+    platformCommissionPct: number;
+    takeRateOnGmvPct: number;
+    mrrCents: number;
+    payingStudios: number;
+    arpaCents: number | null;
+    /** null with a reason, never a plausible-looking guess. */
+    ltvCents: number | null;
+    ltvUnavailableReason: string;
+    nrrPct: number | null;
+    nrrUnavailableReason: string;
+  };
+};
+
 export type Health = {
   checkedAt: string;
   degraded: boolean;

@@ -19,6 +19,35 @@ import { PLANS } from '../billing/plan';
 
 const DAY_MS = 86_400_000;
 
+/**
+ * MRR as it stands right now, and who is paying it.
+ *
+ * Shared rather than re-derived per screen. The plan distribution, the revenue
+ * model panel and the daily snapshot all have to agree, and three copies of
+ * "price times ACTIVE studios" is three chances for one of them to quietly
+ * drift after a pricing or status change.
+ */
+export async function currentMrr() {
+  const activeByPlan = await prisma.organization.groupBy({
+    by: ['plan'],
+    where: { subscriptionStatus: 'ACTIVE' },
+    _count: { _all: true },
+  });
+
+  return {
+    byPlan: activeByPlan.map((row) => ({
+      plan: row.plan,
+      studios: row._count._all,
+      mrrCents: PLANS[row.plan].priceCentsMonthly * row._count._all,
+    })),
+    mrrCents: activeByPlan.reduce(
+      (total, row) => total + PLANS[row.plan].priceCentsMonthly * row._count._all,
+      0,
+    ),
+    payingStudios: activeByPlan.reduce((n, row) => n + row._count._all, 0),
+  };
+}
+
 /** Midnight UTC for the day `at` falls in — the shape the DATE column stores. */
 function utcDay(at: Date): Date {
   return new Date(

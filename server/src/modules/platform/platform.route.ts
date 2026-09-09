@@ -13,6 +13,13 @@ import { getStudio, listStudios } from './studios.service';
 import { getPlatformMetrics } from './metrics.service';
 import { getMrrHistory } from './mrr.service';
 import { getBookingVolume, getPlatformGrowth } from './growth.service';
+import {
+  getGeographicDistribution,
+  getNeedsAttention,
+  getPlanDistribution,
+  getRecentActivity,
+  getRevenueModel,
+} from './insights.service';
 import { getPlatformHealth } from './health.service';
 import {
   availablePlans,
@@ -523,6 +530,28 @@ platformRouter.get(
     ]);
 
     res.json({ growth, volume });
+  }),
+);
+
+/**
+ * The lower half of the dashboard, in one call.
+ *
+ * Five panels that are each a handful of cheap queries and are always read
+ * together. Split up they would be five round trips for one screen.
+ */
+platformRouter.get(
+  '/insights',
+  asyncHandler(async (_req, res) => {
+    const [plans, geography, attention, activity, revenueModel] =
+      await Promise.all([
+        getPlanDistribution(),
+        getGeographicDistribution(),
+        getNeedsAttention(),
+        getRecentActivity(12),
+        getRevenueModel(),
+      ]);
+
+    res.json({ plans, geography, attention, activity, revenueModel });
   }),
 );
 

@@ -6,6 +6,7 @@ import {
   type BookingVolume,
   type Health,
   type Metrics,
+  type Insights,
   type MrrHistory,
   type PlatformGrowth,
 } from './types';
@@ -13,6 +14,13 @@ import { Icon, type IconName } from '../components/Icon';
 import MrrPanel from './MrrPanel';
 import HealthPanel from './HealthPanel';
 import { BookingVolumePanel, GrowthPanel } from './GrowthPanel';
+import {
+  ActivityPanel,
+  GeographyPanel,
+  NeedsAttentionPanel,
+  PlanDistributionPanel,
+  RevenueModelPanel,
+} from './InsightPanels';
 import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 /**
@@ -53,6 +61,7 @@ export default function Overview() {
   const [mrr, setMrr] = useState<MrrHistory | null>(null);
   const [growth, setGrowth] = useState<PlatformGrowth | null>(null);
   const [volume, setVolume] = useState<BookingVolume | null>(null);
+  const [insights, setInsights] = useState<Insights | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState<Range>({
     kind: 'preset',
@@ -74,19 +83,21 @@ export default function Overview() {
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [m, h, r, g] = await Promise.all([
+      const [m, h, r, g, i] = await Promise.all([
         api.get<{ metrics: Metrics }>(`/api/platform/metrics${query}`),
         api.get<{ health: Health }>('/api/platform/health'),
         api.get<{ history: MrrHistory }>('/api/platform/mrr?days=365'),
         api.get<{ growth: PlatformGrowth; volume: BookingVolume }>(
           '/api/platform/growth?months=12',
         ),
+        api.get<Insights>('/api/platform/insights'),
       ]);
       setMetrics(m.metrics);
       setHealth(h.health);
       setMrr(r.history);
       setGrowth(g.growth);
       setVolume(g.volume);
+      setInsights(i);
       setError(null);
     } catch {
       setError('Could not load the overview.');
@@ -322,6 +333,19 @@ export default function Overview() {
       <section className="ov-panels even">
         <GrowthPanel growth={growth} />
         <BookingVolumePanel volume={volume} />
+      </section>
+
+      {/* Plan mix, geography and the action list: three columns, because each
+          is a short list rather than a chart needing width. */}
+      <section className="ov-panels three">
+        <PlanDistributionPanel plans={insights?.plans ?? null} />
+        <GeographyPanel geography={insights?.geography ?? null} />
+        <NeedsAttentionPanel attention={insights?.attention ?? null} />
+      </section>
+
+      <section className="ov-panels">
+        <ActivityPanel activity={insights?.activity ?? null} />
+        <RevenueModelPanel revenue={insights?.revenueModel ?? null} />
       </section>
 
       <section className="cards-2">
