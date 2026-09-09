@@ -14,6 +14,15 @@ import { getPlatformMetrics } from './metrics.service';
 import { getMrrHistory } from './mrr.service';
 import { getBookingVolume, getPlatformGrowth } from './growth.service';
 import {
+  getNavCounts,
+  listActivities,
+  listBookings,
+  listCustomers,
+  listLocations,
+  listResources,
+  type ListQuery,
+} from './catalog.service';
+import {
   getGeographicDistribution,
   getNeedsAttention,
   getPlanDistribution,
@@ -552,6 +561,46 @@ platformRouter.get(
       ]);
 
     res.json({ plans, geography, attention, activity, revenueModel });
+  }),
+);
+
+// --- Cross-studio lists ----------------------------------------------------
+
+/**
+ * The support lists. All read-only: see the note on catalog.service — anything
+ * that changes a studio's data belongs on the studio's own surface, entered
+ * through a support session that records who looked and why.
+ */
+const listQuerySchema = z.object({
+  search: z.string().max(120).optional(),
+  organizationId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const CATALOGS = {
+  bookings: listBookings,
+  customers: listCustomers,
+  activities: listActivities,
+  locations: listLocations,
+  resources: listResources,
+} as const;
+
+for (const [path, list] of Object.entries(CATALOGS)) {
+  platformRouter.get(
+    `/${path}`,
+    validateQuery(listQuerySchema),
+    asyncHandler(async (req, res) => {
+      res.json(await list(req.query as unknown as ListQuery));
+    }),
+  );
+}
+
+/** Sidebar badges. */
+platformRouter.get(
+  '/nav-counts',
+  asyncHandler(async (_req, res) => {
+    res.json(await getNavCounts());
   }),
 );
 

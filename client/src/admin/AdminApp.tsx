@@ -8,6 +8,13 @@ import StudioDetail from './StudioDetail';
 import Health from './Health';
 import Audit from './Audit';
 import Users from './Users';
+import {
+  PlatformActivities,
+  PlatformBookings,
+  PlatformCustomers,
+  PlatformLocations,
+  PlatformResources,
+} from './Catalog';
 import { Shell } from '../components/Shell';
 import { Icon } from '../components/Icon';
 import { LoadingRegion, SkeletonList } from '../components/states';
@@ -40,6 +47,12 @@ export default function AdminApp() {
     'checking',
   );
   const [grant, setGrant] = useState<Grant | null>(null);
+  /* Sidebar badges. Fetched separately from the gate so a counts failure
+     leaves the navigation working without numbers rather than blocking it. */
+  const [counts, setCounts] = useState<{
+    studios: number;
+    users: number;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +63,13 @@ export default function AdminApp() {
         if (cancelled) return;
         setGrant(res.platformAdmin);
         setState('allowed');
+
+        api
+          .get<{ studios: number; users: number }>('/api/platform/nav-counts')
+          .then((c) => !cancelled && setCounts(c))
+          .catch(() => {
+            /* Badges are decoration on top of working links. */
+          });
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -97,26 +117,63 @@ export default function AdminApp() {
       }
       sidebar={
         <>
+          {/*
+            Grouped, and deliberately shorter than the reference design.
+
+            Only destinations that exist appear here. A sidebar is a promise
+            about what the product does, so an item leading to a blank page is
+            the same mistake as a button wired to nothing — and it is worse in
+            navigation, because the operator went looking for it.
+
+            Sections are added as their pages are built.
+          */}
           <nav className="nav">
+            <p className="nav-group">Overview</p>
             <NavLink to="/admin" end>
               <Icon name="overview" />
               Dashboard
             </NavLink>
+
+            <p className="nav-group">Platform</p>
             <NavLink to="/admin/studios">
               <Icon name="studios" />
               Studios
+              {counts && <span className="nav-count">{counts.studios}</span>}
             </NavLink>
             <NavLink to="/admin/users">
-              <Icon name="customers" />
+              <Icon name="staff" />
               Users
+              {counts && <span className="nav-count">{counts.users}</span>}
             </NavLink>
+            <NavLink to="/admin/bookings">
+              <Icon name="bookings" />
+              Bookings
+            </NavLink>
+            <NavLink to="/admin/customers">
+              <Icon name="customers" />
+              Customers
+            </NavLink>
+            <NavLink to="/admin/activities">
+              <Icon name="classes" />
+              Activities
+            </NavLink>
+            <NavLink to="/admin/locations">
+              <Icon name="site" />
+              Locations
+            </NavLink>
+            <NavLink to="/admin/resources">
+              <Icon name="packs" />
+              Resources
+            </NavLink>
+
+            <p className="nav-group">Platform management</p>
             <NavLink to="/admin/health">
               <Icon name="health" />
-              Health
+              System Health
             </NavLink>
             <NavLink to="/admin/audit">
               <Icon name="audit" />
-              Audit
+              Audit Log
             </NavLink>
           </nav>
 
@@ -161,6 +218,11 @@ export default function AdminApp() {
           element={<StudioDetail />}
         />
         <Route path="/admin/users" element={<Users />} />
+        <Route path="/admin/bookings" element={<PlatformBookings />} />
+        <Route path="/admin/customers" element={<PlatformCustomers />} />
+        <Route path="/admin/activities" element={<PlatformActivities />} />
+        <Route path="/admin/locations" element={<PlatformLocations />} />
+        <Route path="/admin/resources" element={<PlatformResources />} />
         <Route path="/admin/health" element={<Health />} />
         <Route path="/admin/audit" element={<Audit />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />

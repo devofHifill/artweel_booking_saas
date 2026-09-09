@@ -4303,3 +4303,9 @@ code.path {
 .revenue-rows dt:last-of-type, .revenue-rows dd:last-of-type { border-bottom: 0; }
 .revenue-missing { display: inline-flex; align-items: baseline; gap: 8px; font-weight: 400; }
 .revenue-missing .sub { font-size: var(--text-xs); max-width: 26ch; text-align: right; }
+
+/* --- Grouped platform sidebar -------------------------------------------- */
+
+.nav-group { margin: var(--space-4) 0 4px; padding: 0 10px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); opacity: .75; }
+.nav-group:first-child { margin-top: 0; }
+.nav-count { margin-left: auto; font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, currentColor 16%, transparent); }
