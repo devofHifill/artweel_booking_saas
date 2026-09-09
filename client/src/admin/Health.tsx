@@ -65,7 +65,7 @@ export default function Health() {
   return (
     <>
       <div className="page-head">
-        <h1>Health</h1>
+        <h1>System Health</h1>
         <span className="sub">checked {dateTime(data.checkedAt)}</span>
       </div>
 

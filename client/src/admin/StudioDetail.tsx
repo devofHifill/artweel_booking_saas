@@ -528,6 +528,7 @@ function Integrations({ organizationId }: { organizationId: string }) {
           {status.calendars.length === 0 ? (
             <p className="sub">No active instructors.</p>
           ) : (
+            <div className="table-wrap">
             <table className="admin-table">
               <tbody>
                 {status.calendars.map((calendar) => (
@@ -562,6 +563,7 @@ function Integrations({ organizationId }: { organizationId: string }) {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
 
           {wedged && wedged.length > 0 && (

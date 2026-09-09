@@ -320,37 +320,22 @@ export default function Overview() {
         the two because a line needs width to be a line, while the health list
         is a column of short rows.
       */}
-      <section className="ov-panels">
-        <MrrPanel
-          history={mrr}
-          currentMrrCents={subscriptionRevenue.mrrCents}
-        />
-        <HealthPanel health={health} />
-      </section>
+      {/*
+        What needs a person, first — before any chart.
 
-      {/* The two historical charts. Equal width: both are time series read the
-          same way, unlike the MRR row where one side is a list. */}
+        The two action lists sit together at the top because an operator opens
+        this page to find out what is wrong, not to read MRR history. They were
+        sixth and eleventh, below four charts, purely because that is the order
+        they were built in.
+      */}
       <section className="ov-panels even">
-        <GrowthPanel growth={growth} />
-        <BookingVolumePanel volume={volume} />
-      </section>
-
-      {/* Plan mix, geography and the action list: three columns, because each
-          is a short list rather than a chart needing width. */}
-      <section className="ov-panels three">
-        <PlanDistributionPanel plans={insights?.plans ?? null} />
-        <GeographyPanel geography={insights?.geography ?? null} />
         <NeedsAttentionPanel attention={insights?.attention ?? null} />
-      </section>
-
-      <section className="ov-panels">
-        <ActivityPanel activity={insights?.activity ?? null} />
-        <RevenueModelPanel revenue={insights?.revenueModel ?? null} />
-      </section>
-
-      <section className="cards-2">
         <div className="card">
-          <h2>Needs a look</h2>
+          <h2>Lifecycle watchlist</h2>
+          <p className="sub">
+            Studios drifting through the funnel — distinct from the faults in
+            Needs Attention beside it.
+          </p>
           <ul className="list">
             <ActionRow
               label="Trials expiring within 7 days"
@@ -374,7 +359,29 @@ export default function Overview() {
             />
           </ul>
         </div>
+      </section>
 
+      <section className="ov-panels">
+        <MrrPanel
+          history={mrr}
+          currentMrrCents={subscriptionRevenue.mrrCents}
+        />
+        <HealthPanel health={health} />
+      </section>
+
+      {/* The two historical charts. Equal width: both are time series read the
+          same way, unlike the MRR row where one side is a list. */}
+      <section className="ov-panels even">
+        <GrowthPanel growth={growth} />
+        <BookingVolumePanel volume={volume} />
+      </section>
+
+      {/* Plan mix, geography and the action list: three columns, because each
+          is a short list rather than a chart needing width. */}
+      {/* Composition: what the platform is made of. */}
+      <section className="ov-panels three">
+        <PlanDistributionPanel plans={insights?.plans ?? null} />
+        <GeographyPanel geography={insights?.geography ?? null} />
         <div className="card">
           <h2>Signups</h2>
           {metrics.signups.byWeek.length === 0 ? (
@@ -414,6 +421,12 @@ export default function Overview() {
           )}
         </div>
       </section>
+
+      <section className="ov-panels">
+        <ActivityPanel activity={insights?.activity ?? null} />
+        <RevenueModelPanel revenue={insights?.revenueModel ?? null} />
+      </section>
+
     </>
   );
 }

@@ -1160,7 +1160,6 @@ tr:hover td { background: var(--clay-lt); }
 
 /* Wide by nature — eight columns of studio state. Scrolls inside its own box so
    the page itself never scrolls sideways. */
-.table-scroll { overflow-x: auto; margin-bottom: 18px; }
 .admin-table { width: 100%; border-collapse: collapse; font-size: .86rem; min-width: 900px; }
 .admin-table th {
   text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line);
@@ -1303,9 +1302,15 @@ tr:hover td { background: var(--clay-lt); }
    phone layout can do. Applied to the wrapper where one exists, and to bare
    tables via their card. */
 @media (max-width: 900px) {
-  .table-scroll { -webkit-overflow-scrolling: touch; }
   .card > table, .main > table { display: block; overflow-x: auto; white-space: nowrap; }
 }
+
+/* The fallback above is deliberately mobile-only, which left a gap: a bare
+   `.admin-table` carries `min-width: 900px`, so between 900px and roughly
+   1180px it pushed the whole PAGE sideways rather than scrolling itself — on
+   the Users screen that put the Disable button off-screen. Every admin table
+   now sits in `.table-wrap`, and this catches anything that forgets to. */
+.main > table { display: block; overflow-x: auto; }
 
 /* Touch targets. 44px is the accepted minimum for a finger; the dashboard's
    default button is 33px tall, which is comfortable with a mouse and a
@@ -2165,6 +2170,9 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
   overflow-x: auto;
   /* Momentum scrolling on iOS, and a scrollbar that does not overlay content. */
   -webkit-overflow-scrolling: touch;
+  /* Inherited from the retired `.table-scroll`, which this replaced: without it
+     a table sits flush against the pagination controls below it. */
+  margin-bottom: 18px;
 }
 
 /* --- Tabs ---------------------------------------------------------------- */
@@ -4328,7 +4336,11 @@ code.path {
 .plan-limits dt:last-of-type, .plan-limits dd:last-of-type { border-bottom: 0; }
 
 .plan-features { list-style: none; margin: 0; padding: 0; }
-.plan-features li { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: var(--text-sm); flex-wrap: wrap; }
+.plan-features li { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: var(--text-sm); }
+/* The label takes the slack and wraps internally, so the tag stays on the
+   first line beside it instead of dropping below and breaking the column. */
+.plan-features li > span:nth-child(2) { flex: 1; min-width: 0; }
+.plan-features li .tag { flex: none; }
 .plan-features li.off { color: var(--muted); }
 .plan-mark { width: 14px; text-align: center; color: var(--ok); font-weight: 700; }
 .plan-features li.off .plan-mark { color: var(--muted); }
@@ -4341,7 +4353,7 @@ code.path {
 .plan-price-edit input:hover { border-color: var(--line); }
 .plan-price-edit input:focus { border-color: var(--clay); background: var(--card); outline: none; }
 
-.plan-limits dd input { width: 7ch; text-align: right; border: 1px solid transparent; border-radius: 6px; padding: 1px 5px; background: transparent; color: var(--ink); font: inherit; font-weight: 600; }
+.plan-limits dd input { width: 12ch; text-align: right; border: 1px solid transparent; border-radius: 6px; padding: 1px 5px; background: transparent; color: var(--ink); font: inherit; font-weight: 600; }
 .plan-limits dd input:hover { border-color: var(--line); }
 .plan-limits dd input:focus { border-color: var(--clay); background: var(--card); outline: none; }
 .plan-features-note { margin-top: var(--space-3); font-size: var(--text-xs); }

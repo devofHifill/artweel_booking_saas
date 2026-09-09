@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
-import { dateTime, type AuditEntry } from './types';
+import { dateTime, formatAction, type AuditEntry } from './types';
 import { LoadingRegion, SkeletonList } from '../components/states';
 
 /**
@@ -39,7 +39,7 @@ export default function Audit() {
   return (
     <>
       <div className="page-head">
-        <h1>Audit</h1>
+        <h1>Audit Log</h1>
         {entries && (
           <span className="sub">
             {entries.length} most recent {entries.length === 1 ? 'entry' : 'entries'}
@@ -79,7 +79,7 @@ export default function Audit() {
             <li key={entry.id} className="audit-entry">
               <div className="row-head">
                 <span>
-                  <strong>{entry.action}</strong>
+                  <strong>{formatAction(entry.action)}</strong>
                   {entry.organizationId && (
                     <>
                       {' '}

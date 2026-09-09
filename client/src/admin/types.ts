@@ -285,6 +285,19 @@ export type AuditEntry = {
 
 // --- Shared formatting ----------------------------------------------------
 
+/**
+ * `plan.settings.set` -> `Plan settings set`.
+ *
+ * Audit actions are dotted keys chosen for grepping, not for reading. The log
+ * screen rendered them raw while the dashboard's activity feed spelled the same
+ * events out, so the one surface whose whole job is to be read was the less
+ * readable of the two.
+ */
+export function formatAction(action: string): string {
+  const words = action.replace(/[._]/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export function money(cents: number, currency = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',

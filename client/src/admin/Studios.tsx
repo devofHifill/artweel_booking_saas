@@ -143,7 +143,7 @@ export default function Studios() {
           <p className="empty-title">No studios match that.</p>
         </div>
       ) : (
-        <div className="table-scroll">
+        <div className="table-wrap">
           <table className="admin-table">
             <thead>
               <tr>

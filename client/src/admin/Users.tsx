@@ -130,7 +130,8 @@ export default function Users() {
       )}
 
       {data && (
-        <table className="admin-table">
+        <div className="table-wrap">
+          <table className="admin-table">
           <thead>
             <tr>
               <th scope="col">Person</th>
@@ -189,7 +190,8 @@ export default function Users() {
               </tr>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
       )}
 
       {acting && (
