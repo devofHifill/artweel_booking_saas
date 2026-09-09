@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { money, type Health, type Metrics } from './types';
+import {
+  money,
+  type BookingVolume,
+  type Health,
+  type Metrics,
+  type MrrHistory,
+  type PlatformGrowth,
+} from './types';
 import { Icon, type IconName } from '../components/Icon';
+import MrrPanel from './MrrPanel';
+import HealthPanel from './HealthPanel';
+import { BookingVolumePanel, GrowthPanel } from './GrowthPanel';
 import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 /**
@@ -40,6 +50,9 @@ export default function Overview() {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
+  const [mrr, setMrr] = useState<MrrHistory | null>(null);
+  const [growth, setGrowth] = useState<PlatformGrowth | null>(null);
+  const [volume, setVolume] = useState<BookingVolume | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState<Range>({
     kind: 'preset',
@@ -61,12 +74,19 @@ export default function Overview() {
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [m, h] = await Promise.all([
+      const [m, h, r, g] = await Promise.all([
         api.get<{ metrics: Metrics }>(`/api/platform/metrics${query}`),
         api.get<{ health: Health }>('/api/platform/health'),
+        api.get<{ history: MrrHistory }>('/api/platform/mrr?days=365'),
+        api.get<{ growth: PlatformGrowth; volume: BookingVolume }>(
+          '/api/platform/growth?months=12',
+        ),
       ]);
       setMetrics(m.metrics);
       setHealth(h.health);
+      setMrr(r.history);
+      setGrowth(g.growth);
+      setVolume(g.volume);
       setError(null);
     } catch {
       setError('Could not load the overview.');
@@ -282,6 +302,26 @@ export default function Overview() {
           sub="no booking in 30 days"
           onClick={() => navigate('/admin/studios')}
         />
+      </section>
+
+      {/*
+        The chart and the health panel, side by side. The chart is the wider of
+        the two because a line needs width to be a line, while the health list
+        is a column of short rows.
+      */}
+      <section className="ov-panels">
+        <MrrPanel
+          history={mrr}
+          currentMrrCents={subscriptionRevenue.mrrCents}
+        />
+        <HealthPanel health={health} />
+      </section>
+
+      {/* The two historical charts. Equal width: both are time series read the
+          same way, unlike the MRR row where one side is a list. */}
+      <section className="ov-panels even">
+        <GrowthPanel growth={growth} />
+        <BookingVolumePanel volume={volume} />
       </section>
 
       <section className="cards-2">

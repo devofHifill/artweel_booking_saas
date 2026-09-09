@@ -3,6 +3,7 @@ import { recordWorkerRun } from '../lib/heartbeat';
 import { sweepExpiredOffers } from '../modules/waitlists/waitlist.service';
 import { sweepExpiredSubscriptions } from '../modules/billing/billing.service';
 import { sweepExpiredHolds } from '../scheduling/hold.service';
+import { takeMrrSnapshot } from '../modules/platform/mrr.service';
 
 /**
  * The state changes that happen because time passed, and for no other reason.
@@ -96,6 +97,13 @@ export function startSweepWorker(intervalMs = 60_000) {
   if (timer) return;
 
   let billingCounter = 0;
+  /*
+    The MRR snapshot also runs on the first tick after start, not only on the
+    hourly branch. A process that restarts more often than once an hour would
+    otherwise never reach the branch, and every restart would cost a day of
+    history that cannot be reconstructed afterwards.
+  */
+  let snapshotPending = true;
 
   const tick = async () => {
     // Roughly hourly at the default interval.
@@ -109,6 +117,24 @@ export function startSweepWorker(intervalMs = 60_000) {
     const result = await recordWorkerRun('sweeps', () =>
       processSweepBatch({ billing }),
     );
+
+    /*
+      Its own heartbeat, not folded into the sweeps one: this is the sole
+      writer of a table that cannot be backfilled, so "did it run" has to be
+      answerable about this job specifically rather than about the timer that
+      happens to carry it.
+
+      Isolated like each sweep above — a snapshot failure must not stop the
+      expiry work, which is the part with seats and trials riding on it.
+    */
+    if (billing || snapshotPending) {
+      snapshotPending = false;
+      try {
+        await recordWorkerRun('mrrSnapshot', () => takeMrrSnapshot());
+      } catch (err) {
+        logger.error({ err }, 'MRR snapshot failed');
+      }
+    }
 
     // Quiet when there is nothing to do, which is most ticks. A sweep that
     // logged every minute would bury the one line that matters.

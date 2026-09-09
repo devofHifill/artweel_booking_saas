@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { config } from '../../config';
 import { EXPECTED_WORKERS, type WorkerName } from '../../lib/heartbeat';
 
 /**
@@ -36,7 +37,62 @@ export type WorkerHealth = {
   lastErrorAt: Date | null;
 };
 
+/**
+ * A single line on the health panel.
+ *
+ * THERE IS NO UPTIME FIGURE HERE, deliberately. Nothing in this system records
+ * availability over time — no probe history, no incident log — so a "99.98%"
+ * would be a number with no measurement behind it, on the one screen whose
+ * entire job is to be trusted when something is wrong.
+ *
+ * `latencyMs` is present only where it was actually timed on this request. For
+ * the database that is a real round trip. For Stripe, Resend, Twilio and Google
+ * it is absent on purpose: timing them would mean calling four third-party APIs
+ * every time an operator opens the dashboard, which buys a number nobody acts
+ * on at the cost of rate limits and a page that fails when a vendor is slow.
+ * What those rows report instead is whether they are configured at all — which
+ * is the question that has actually been wrong in this deployment.
+ */
+export type HealthComponent = {
+  key: string;
+  label: string;
+  status: 'ok' | 'degraded' | 'down' | 'not-configured';
+  detail: string;
+  latencyMs: number | null;
+};
+
+/** Configured means "a real provider will be used", not "we called it". */
+function providerComponent(
+  key: string,
+  label: string,
+  configured: boolean,
+  fallback: string,
+): HealthComponent {
+  return {
+    key,
+    label,
+    status: configured ? 'ok' : 'not-configured',
+    detail: configured ? 'Configured' : fallback,
+    latencyMs: null,
+  };
+}
+
 export async function getPlatformHealth(now = new Date()) {
+  /*
+    Timed around a trivial round trip, so the number means "the pool answered",
+    not "this query is fast". It is the one latency on the panel that was
+    genuinely measured.
+  */
+  const dbStartedAt = Date.now();
+  let dbLatencyMs: number | null = null;
+  let dbError: string | null = null;
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    dbLatencyMs = Date.now() - dbStartedAt;
+  } catch (err) {
+    dbError = err instanceof Error ? err.message : String(err);
+  }
+
   const rows = await prisma.workerHeartbeat.findMany();
   const byName = new Map(rows.map((row) => [row.name, row]));
 
@@ -158,9 +214,87 @@ export async function getPlatformHealth(now = new Date()) {
     }),
   ]);
 
+  const workersDown = workers.filter((w) => w.state !== 'ok');
+
+  const components: HealthComponent[] = [
+    {
+      key: 'database',
+      label: 'Database',
+      status: dbError ? 'down' : 'ok',
+      detail: dbError ? dbError.slice(0, 120) : 'Responding',
+      latencyMs: dbLatencyMs,
+    },
+    {
+      key: 'workers',
+      label: 'Workers',
+      status: workersDown.length === 0 ? 'ok' : 'degraded',
+      detail:
+        workersDown.length === 0
+          ? `All ${workers.length} running`
+          : workersDown.map((w) => `${w.name}: ${w.state}`).join(', '),
+      latencyMs: null,
+    },
+    {
+      key: 'notifications',
+      label: 'Notification queue',
+      status:
+        notificationsOverdue > 0 || notificationsFailed > 0 ? 'degraded' : 'ok',
+      detail:
+        notificationsOverdue > 0 || notificationsFailed > 0
+          ? `${notificationsOverdue} overdue, ${notificationsFailed} failed`
+          : `${notificationsPending} queued, none overdue`,
+      latencyMs: null,
+    },
+    {
+      key: 'calendar-queue',
+      label: 'Calendar sync queue',
+      status: calendarOverdue > 0 || calendarFailed > 0 ? 'degraded' : 'ok',
+      detail:
+        calendarOverdue > 0 || calendarFailed > 0
+          ? `${calendarOverdue} overdue, ${calendarFailed} failed`
+          : `${calendarPending} queued, none overdue`,
+      latencyMs: null,
+    },
+    providerComponent(
+      'stripe',
+      'Stripe',
+      Boolean(config.STRIPE_SECRET_KEY),
+      'No key — payments cannot be taken',
+    ),
+    providerComponent(
+      'email',
+      'Email (Resend)',
+      Boolean(config.RESEND_API_KEY),
+      'No key — email is logged, not sent',
+    ),
+    providerComponent(
+      'sms',
+      'SMS (Twilio)',
+      Boolean(
+        config.TWILIO_ACCOUNT_SID &&
+          config.TWILIO_AUTH_TOKEN &&
+          config.TWILIO_FROM_NUMBER,
+      ),
+      'Not configured — SMS is logged, not sent',
+    ),
+    providerComponent(
+      'google-calendar',
+      'Google Calendar',
+      Boolean(config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET),
+      'Not configured — using the in-memory fake',
+    ),
+  ];
+
   return {
     checkedAt: now,
     workers,
+    /**
+     * The rows the health panel draws. `not-configured` is deliberately not
+     * counted as a fault below: a staging box with no Twilio key is working as
+     * intended, and colouring it red would train the one person who reads this
+     * screen to ignore it.
+     */
+    components,
     /**
      * True when anything needs a human. The dashboard uses this for the strip on
      * the Overview screen, so a problem is visible without opening this page.

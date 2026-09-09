@@ -445,6 +445,7 @@ model Organization {
   calendarConnections  CalendarConnection[]
   supportSessions      SupportSession[]
   invitations          Invitation[]
+  mrrDaily             MrrDailyStudio[]
 
   @@map("organizations")
 }
@@ -2702,4 +2703,37 @@ model IdempotencyKey {
   @@unique([organizationId, key])
   @@index([expiresAt])
   @@map("idempotency_keys")
+}
+
+/// One row per paying studio per day — the MRR history the platform never kept.
+///
+/// Recorded rather than derived, because it cannot be derived. Nothing in the
+/// system records what a studio's plan WAS: `organizations.plan` holds only the
+/// current value, and the Stripe webhook log is not a substitute because
+/// comping and platform `setPlan` deliberately never touch Stripe. So MRR a
+/// month ago is unrecoverable, and the only honest fix is to start writing it
+/// down.
+///
+/// ABSENCE IS THE SIGNAL. A row exists only while a studio is ACTIVE, matching
+/// how the headline MRR is computed, so the movement between two days falls
+/// straight out of the diff: a row that appears is new, one that vanishes is
+/// churn, and one whose amount moved is expansion or contraction.
+model MrrDailyStudio {
+  /// The UTC day. DATE, not a timestamp: two snapshots on the same day are the
+  /// same fact, and the primary key makes the writer idempotent.
+  date           DateTime @db.Date
+  organizationId String   @map("organization_id") @db.Uuid
+
+  /// Snapshotted alongside the amount so a later price change cannot silently
+  /// rewrite history — `PLANS` is read at write time and never again.
+  plan     Plan
+  mrrCents Int  @map("mrr_cents")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([date, organizationId])
+  @@index([date])
+  @@map("mrr_daily_studio")
 }

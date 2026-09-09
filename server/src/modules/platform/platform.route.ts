@@ -11,6 +11,8 @@ import { findLiveGrant } from './platform.service';
 import { auditContext, listAuditLog } from './audit.service';
 import { getStudio, listStudios } from './studios.service';
 import { getPlatformMetrics } from './metrics.service';
+import { getMrrHistory } from './mrr.service';
+import { getBookingVolume, getPlatformGrowth } from './growth.service';
 import { getPlatformHealth } from './health.service';
 import {
   availablePlans,
@@ -475,6 +477,52 @@ platformRouter.get(
     }
 
     res.json({ metrics: await getPlatformMetrics(range) });
+  }),
+);
+
+/**
+ * MRR over time.
+ *
+ * Separate from `/metrics` because it answers a different kind of question and
+ * reads a different table: `/metrics` is the state of the platform now, this is
+ * what was written down on each past day. Keeping them apart also means the
+ * dashboard's headline cards still render if this table is empty, which it is
+ * until the snapshot worker has run.
+ */
+platformRouter.get(
+  '/mrr',
+  validateQuery(
+    z.object({ days: z.coerce.number().int().min(2).max(1096).optional() }),
+  ),
+  asyncHandler(async (req, res) => {
+    const { days } = req.query as unknown as { days?: number };
+    res.json({ history: await getMrrHistory(days ?? 365) });
+  }),
+);
+
+/**
+ * Studio growth and booking volume, by month.
+ *
+ * Both in one response because both screens are one row of the dashboard and
+ * neither is worth a second round trip. Signups and bookings are genuinely
+ * historical; churn is not, and says so by returning null for the months no
+ * snapshot covers.
+ */
+platformRouter.get(
+  '/growth',
+  validateQuery(
+    z.object({ months: z.coerce.number().int().min(1).max(36).optional() }),
+  ),
+  asyncHandler(async (req, res) => {
+    const { months } = req.query as unknown as { months?: number };
+    const window = months ?? 12;
+
+    const [growth, volume] = await Promise.all([
+      getPlatformGrowth(window),
+      getBookingVolume(window),
+    ]);
+
+    res.json({ growth, volume });
   }),
 );
 

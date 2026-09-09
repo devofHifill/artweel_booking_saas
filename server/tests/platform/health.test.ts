@@ -7,7 +7,11 @@ import { resetRateLimits } from '../../src/middleware/rate-limit';
 import { signUpStudio, type Studio } from '../helpers/api';
 import { grantPlatformAdmin } from '../../src/modules/platform/platform.service';
 import { getPlatformHealth } from '../../src/modules/platform/health.service';
-import { recordWorkerRun } from '../../src/lib/heartbeat';
+import {
+  EXPECTED_WORKERS,
+  recordWorkerRun,
+  type WorkerName,
+} from '../../src/lib/heartbeat';
 import { startSweepWorker, stopSweepWorker } from '../../src/workers/sweep.worker';
 
 /**
@@ -60,9 +64,14 @@ function worker(health: Awaited<ReturnType<typeof getPlatformHealth>>, name: str
  * `degraded` is true no matter what else is going on.
  */
 async function allWorkersHealthy() {
-  await recordWorkerRun('notifications', async () => undefined);
-  await recordWorkerRun('calendar', async () => undefined);
-  await recordWorkerRun('sweeps', async () => undefined);
+  /*
+    Driven from the registry rather than a hand-written list. Adding a worker
+    used to break three unrelated tests here, each of which then looked like a
+    queue or degradation bug rather than "the list moved".
+  */
+  for (const name of Object.keys(EXPECTED_WORKERS) as WorkerName[]) {
+    await recordWorkerRun(name, async () => undefined);
+  }
 }
 
 /** A queued notification due at the given moment. */
@@ -109,7 +118,8 @@ describe('a worker that has never run', () => {
   it('is reported as never-run rather than omitted', async () => {
     const health = await getPlatformHealth();
 
-    expect(health.workers).toHaveLength(3);
+    // Every worker the registry names, not a number that has to be edited.
+    expect(health.workers).toHaveLength(Object.keys(EXPECTED_WORKERS).length);
     for (const w of health.workers) {
       expect(w.state).toBe('never-run');
       expect(w.lastFinishedAt).toBeNull();
@@ -425,7 +435,9 @@ describe('over HTTP', () => {
       .set(admin.headers);
 
     expect(res.status).toBe(200);
-    expect(res.body.health.workers).toHaveLength(3);
+    expect(res.body.health.workers).toHaveLength(
+      Object.keys(EXPECTED_WORKERS).length,
+    );
     expect(res.body.health).toHaveProperty('queues.notifications.pending');
     expect(res.body.health).toHaveProperty('unswept.waitlistOffersOverdue');
   });

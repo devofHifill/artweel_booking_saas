@@ -153,9 +153,58 @@ export type QueueHealth = {
   nextScheduledFor: string | null;
 };
 
+/**
+ * One row on the health panel. There is no uptime percentage because nothing
+ * measures one; `latencyMs` is present only where it was actually timed.
+ */
+export type HealthComponent = {
+  key: string;
+  label: string;
+  status: 'ok' | 'degraded' | 'down' | 'not-configured';
+  detail: string;
+  latencyMs: number | null;
+};
+
+export type MrrPoint = {
+  date: string;
+  mrrCents: number;
+  activeStudios: number;
+  newCents: number;
+  expansionCents: number;
+  contractionCents: number;
+  churnedCents: number;
+};
+
+export type MrrHistory = {
+  days: number;
+  points: MrrPoint[];
+  hasHistory: boolean;
+  firstDate: string | null;
+  lastDate: string | null;
+};
+
+export type GrowthMonth = {
+  month: string;
+  newStudios: number;
+  activated: number;
+  /** null means the month was never measured, which is not the same as zero. */
+  churned: number | null;
+};
+
+export type PlatformGrowth = {
+  months: GrowthMonth[];
+  churnMeasuredFrom: string | null;
+};
+
+export type BookingVolume = {
+  months: { month: string; bookings: number }[];
+  thisMonth: number;
+};
+
 export type Health = {
   checkedAt: string;
   degraded: boolean;
+  components: HealthComponent[];
   workers: WorkerHealth[];
   queues: {
     notifications: QueueHealth;

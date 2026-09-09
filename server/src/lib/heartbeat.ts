@@ -30,6 +30,14 @@ export const EXPECTED_WORKERS = {
   notifications: { expectedIntervalMs: 5_000 },
   calendar: { expectedIntervalMs: 10_000 },
   sweeps: { expectedIntervalMs: 60_000 },
+  /*
+    Rides the sweep timer's hourly branch rather than owning a loop, so it has
+    no interval of its own to drift from — but it is named here anyway, because
+    it is the only writer of MRR history and a month of it silently not running
+    is a month of the chart that can never be recovered. Absence has to be
+    reportable for exactly the C2.1 reason above.
+  */
+  mrrSnapshot: { expectedIntervalMs: 3_600_000 },
 } as const;
 
 export type WorkerName = keyof typeof EXPECTED_WORKERS;
