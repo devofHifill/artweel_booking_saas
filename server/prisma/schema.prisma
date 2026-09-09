@@ -149,6 +149,16 @@ model Organization {
    */
   compedAt DateTime? @map("comped_at") @db.Timestamptz(3)
 
+  /// What this studio actually agreed to pay, in cents per month.
+  ///
+  /// Recorded when the subscription starts, and never rewritten by a later
+  /// price change. Without it, MRR is "today's list price times whoever is
+  /// active", so editing a plan's price would silently restate the revenue of
+  /// every existing subscriber while Stripe went on charging them the old
+  /// amount. Null means the studio predates this column or never subscribed;
+  /// the list price is the fallback.
+  subscribedPriceCents Int? @map("subscribed_price_cents")
+
   /// Which setup steps the studio has finished. Drives the wizard.
   onboardingSteps  Json?     @map("onboarding_steps")
   onboardingDoneAt DateTime? @map("onboarding_done_at") @db.Timestamptz(3)
@@ -2736,4 +2746,28 @@ model MrrDailyStudio {
   @@id([date, organizationId])
   @@index([date])
   @@map("mrr_daily_studio")
+}
+
+/// The editable half of a plan: what it costs and what it allows.
+///
+/// Plans began as a TypeScript constant, which is right for anything the code
+/// must branch on and wrong for anything a human should be able to change
+/// without a deploy. Price and the two capacity limits moved here; the feature
+/// flags did NOT, because a feature is only real when something calls
+/// `requireFeature` with it, and a toggle that flips a flag nothing reads is a
+/// control that does nothing.
+///
+/// Read through an in-process cache — see `plan.ts` — so every existing
+/// synchronous `PLANS[id]` call site keeps working.
+model PlanSetting {
+  id Plan @id
+
+  priceCentsMonthly Int  @map("price_cents_monthly")
+  /// null means unlimited, matching the constant this replaced.
+  maxStaff          Int? @map("max_staff")
+  maxLocations      Int? @map("max_locations")
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("plan_settings")
 }
