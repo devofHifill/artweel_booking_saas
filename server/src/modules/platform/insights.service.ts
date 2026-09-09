@@ -179,6 +179,20 @@ export function countryForTimezone(timezone: string): string {
   return TZ_COUNTRY[timezone] ?? 'Other';
 }
 
+/** Every zone the map knows, so "Other" can be expressed as "none of these". */
+export const MAPPED_TIMEZONES = Object.keys(TZ_COUNTRY);
+
+/**
+ * The zones that make up a country, for filtering a list by it.
+ *
+ * Returns null for "Other", which is not a country and cannot be an `in`
+ * clause — the caller inverts it against MAPPED_TIMEZONES instead.
+ */
+export function timezonesForCountry(country: string): string[] | null {
+  if (country === 'Other') return null;
+  return MAPPED_TIMEZONES.filter((tz) => TZ_COUNTRY[tz] === country);
+}
+
 export async function getGeographicDistribution(now = new Date()) {
   const since = new Date(now.getTime() - 30 * DAY_MS);
 

@@ -11,10 +11,13 @@ export type PlanId = 'SOLO' | 'STUDIO' | 'PRO';
 
 export type StudioCounts = {
   staff: number;
+  locations: number;
   customers: number;
   bookings: number;
   lastBookingAt: string | null;
 };
+
+export type StripeState = 'connected' | 'restricted' | 'none';
 
 export type StudioRow = {
   id: string;
@@ -32,12 +35,31 @@ export type StudioRow = {
   createdAt: string;
   owner: { id: string; name: string; email: string } | null;
   counts: StudioCounts;
+  /** Derived from the studio's timezone; no studio declares a country. */
+  country: string;
+  limits: { maxStaff: number | null; maxLocations: number | null };
+  /** Null unless ACTIVE — a trialing studio pays nothing. */
+  mrrCents: number | null;
+  stripeState: StripeState;
+};
+
+export type StudioSummary = {
+  total: number;
+  active: number;
+  activePct: number;
+  trialing: number;
+  pastDue: number;
+  suspended: number;
+  cancelled: number;
+  addedLast30Days: number;
 };
 
 export type StudioList = {
   total: number;
   limit: number;
   offset: number;
+  summary: StudioSummary;
+  availableCountries: string[];
   sortedBy: string;
   direction: 'asc' | 'desc';
   sortFellBack: boolean;

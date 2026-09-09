@@ -3,6 +3,11 @@ import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
 import { PLANS } from '../billing/plan';
 import { getOnboardingState } from '../onboarding/onboarding.service';
+import {
+  countryForTimezone,
+  MAPPED_TIMEZONES,
+  timezonesForCountry,
+} from './insights.service';
 
 /**
  * Reading the platform: which studios exist, what state they are in.
@@ -19,10 +24,20 @@ export type StudioSort =
   | 'trialEndsAt'
   | 'lastBookingAt';
 
+/** Stripe Connect state, as three answers rather than two booleans. */
+export type StripeFilter = 'connected' | 'restricted' | 'none';
+
+/** Presets rather than a date picker: these are the questions actually asked. */
+export type CreatedFilter = '30d' | '90d' | '12m';
+
 export type StudioListQuery = {
   search?: string;
   status?: SubscriptionStatus;
   plan?: Plan;
+  /** Derived from the studio's timezone — no studio declares a country. */
+  country?: string;
+  stripe?: StripeFilter;
+  created?: CreatedFilter;
   sort?: StudioSort;
   direction?: 'asc' | 'desc';
   limit?: number;
@@ -48,8 +63,13 @@ async function countsFor(organizationIds: string[]) {
 
   const where = { organizationId: { in: organizationIds } };
 
-  const [staff, customers, bookings, lastBookings] = await Promise.all([
+  const [staff, locations, customers, bookings, lastBookings] = await Promise.all([
     prisma.staff.groupBy({
+      by: ['organizationId'],
+      where: { ...where, isActive: true },
+      _count: { _all: true },
+    }),
+    prisma.location.groupBy({
       by: ['organizationId'],
       where: { ...where, isActive: true },
       _count: { _all: true },
@@ -73,11 +93,14 @@ async function countsFor(organizationIds: string[]) {
 
   const map = new Map<string, StudioCounts>();
   for (const id of organizationIds) {
-    map.set(id, { staff: 0, customers: 0, bookings: 0, lastBookingAt: null });
+    map.set(id, { staff: 0, locations: 0, customers: 0, bookings: 0, lastBookingAt: null });
   }
 
   for (const row of staff) {
     map.get(row.organizationId)!.staff = row._count._all;
+  }
+  for (const row of locations) {
+    map.get(row.organizationId)!.locations = row._count._all;
   }
   for (const row of customers) {
     map.get(row.organizationId)!.customers = row._count._all;
@@ -94,17 +117,63 @@ async function countsFor(organizationIds: string[]) {
 
 export type StudioCounts = {
   staff: number;
+  /** Active only, matching how the plan limit is enforced on create. */
+  locations: number;
   customers: number;
   bookings: number;
   lastBookingAt: Date | null;
 };
 
+const DAY_MS = 86_400_000;
+
+/** Stripe Connect state expressed as a where-clause. */
+function stripeWhere(filter: StripeFilter): Prisma.OrganizationWhereInput {
+  if (filter === 'none') return { stripeAccountId: null };
+  if (filter === 'connected') {
+    return {
+      stripeAccountId: { not: null },
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+    };
+  }
+  /* Restricted is the interesting one: an account exists, so the studio thinks
+     it is set up, but Stripe will not let money move in one direction or the
+     other. */
+  return {
+    stripeAccountId: { not: null },
+    OR: [{ stripeChargesEnabled: false }, { stripePayoutsEnabled: false }],
+  };
+}
+
 function buildWhere(query: StudioListQuery): Prisma.OrganizationWhereInput {
   const search = query.search?.trim();
+
+  const createdSince =
+    query.created === '30d'
+      ? 30
+      : query.created === '90d'
+        ? 90
+        : query.created === '12m'
+          ? 365
+          : null;
+
+  /* Country is derived from the timezone, so filtering by it means filtering
+     by the set of zones that map to it. "Other" is everything unmapped, which
+     has to be expressed as an exclusion rather than a list. */
+  const zones = query.country ? timezonesForCountry(query.country) : undefined;
 
   return {
     ...(query.status ? { subscriptionStatus: query.status } : {}),
     ...(query.plan ? { plan: query.plan } : {}),
+    ...(query.stripe ? stripeWhere(query.stripe) : {}),
+    ...(createdSince
+      ? { createdAt: { gte: new Date(Date.now() - createdSince * DAY_MS) } }
+      : {}),
+    ...(zones === undefined
+      ? {}
+      : zones === null
+        ? { timezone: { notIn: MAPPED_TIMEZONES } }
+        : { timezone: { in: zones } }),
     ...(search
       ? {
           OR: [
@@ -129,6 +198,44 @@ function buildWhere(query: StudioListQuery): Prisma.OrganizationWhereInput {
   };
 }
 
+/**
+ * The counts above the table.
+ *
+ * Deliberately NOT filtered by the query: these describe the platform, and a
+ * strip that moved every time somebody typed in the search box would stop being
+ * a reference point. Only "added in 30 days" is a window, and it says so.
+ *
+ * Cancelled carries no time qualifier because it cannot: nothing records WHEN a
+ * studio cancelled, so "cancelled in the last 12 months" is unanswerable and
+ * this is the all-time figure instead.
+ */
+async function summarise() {
+  const [byStatus, total, addedLast30Days] = await Promise.all([
+    prisma.organization.groupBy({
+      by: ['subscriptionStatus'],
+      _count: { _all: true },
+    }),
+    prisma.organization.count(),
+    prisma.organization.count({
+      where: { createdAt: { gte: new Date(Date.now() - 30 * DAY_MS) } },
+    }),
+  ]);
+
+  const by = new Map(byStatus.map((r) => [r.subscriptionStatus, r._count._all]));
+  const active = by.get('ACTIVE') ?? 0;
+
+  return {
+    total,
+    active,
+    activePct: total > 0 ? Math.round((active / total) * 100) : 0,
+    trialing: by.get('TRIALING') ?? 0,
+    pastDue: by.get('PAST_DUE') ?? 0,
+    suspended: by.get('SUSPENDED') ?? 0,
+    cancelled: by.get('CANCELED') ?? 0,
+    addedLast30Days,
+  };
+}
+
 export async function listStudios(query: StudioListQuery = {}) {
   const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
   const offset = Math.max(query.offset ?? 0, 0);
@@ -145,7 +252,7 @@ export async function listStudios(query: StudioListQuery = {}) {
   const sortable = query.sort && query.sort !== 'lastBookingAt' ? query.sort : 'createdAt';
   const direction = query.direction ?? (sortable === 'name' ? 'asc' : 'desc');
 
-  const [total, organizations] = await Promise.all([
+  const [total, organizations, summary, timezones] = await Promise.all([
     prisma.organization.count({ where }),
     prisma.organization.findMany({
       where,
@@ -162,7 +269,11 @@ export async function listStudios(query: StudioListQuery = {}) {
         gracePeriodEndsAt: true,
         currentPeriodEnd: true,
         onboardingDoneAt: true,
+        stripeAccountId: true,
         stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+        subscribedPriceCents: true,
+        timezone: true,
         signupSource: true,
         createdAt: true,
         memberships: {
@@ -173,6 +284,13 @@ export async function listStudios(query: StudioListQuery = {}) {
         },
       },
     }),
+    summarise(),
+    /* Only the countries that actually have a studio, so the filter never
+       offers one that returns nothing. */
+    prisma.organization.findMany({
+      distinct: ['timezone'],
+      select: { timezone: true },
+    }),
   ]);
 
   const counts = await countsFor(organizations.map((o) => o.id));
@@ -181,6 +299,10 @@ export async function listStudios(query: StudioListQuery = {}) {
     total,
     limit,
     offset,
+    summary,
+    availableCountries: [
+      ...new Set(timezones.map((t) => countryForTimezone(t.timezone))),
+    ].sort((a, b) => (a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b))),
     sortedBy: sortable,
     direction,
     /** True when the requested sort could not be honoured. */
@@ -199,6 +321,32 @@ export async function listStudios(query: StudioListQuery = {}) {
         onboardingComplete: org.onboardingDoneAt !== null,
         owner: memberships[0]?.user ?? null,
         counts: counts.get(org.id)!,
+
+        /* Derived, not declared — see countryForTimezone. */
+        country: countryForTimezone(org.timezone),
+
+        /* The limits this studio is measured against, so the row can render
+           "4 / 5" without the client needing its own copy of the plan table. */
+        limits: {
+          maxStaff: PLANS[org.plan].maxStaff,
+          maxLocations: PLANS[org.plan].maxLocations,
+        },
+
+        /*
+          What this studio actually pays, monthly. Null unless ACTIVE: a
+          trialing or cancelled studio pays nothing, and printing the list
+          price against it would read as revenue.
+        */
+        mrrCents:
+          org.subscriptionStatus === 'ACTIVE'
+            ? (org.subscribedPriceCents ?? PLANS[org.plan].priceCentsMonthly)
+            : null,
+
+        stripeState: org.stripeAccountId === null
+          ? ('none' as const)
+          : org.stripeChargesEnabled && org.stripePayoutsEnabled
+            ? ('connected' as const)
+            : ('restricted' as const),
       };
     }),
   };
@@ -316,4 +464,68 @@ export async function getStudio(organizationId: string) {
       bookingUrl: onboarding.bookingUrl,
     },
   };
+}
+
+/**
+ * The studio list as CSV, honouring whatever filters are on screen.
+ *
+ * Exports the FILTERED set rather than everything: an operator who has narrowed
+ * to "restricted Stripe accounts in Germany" wants those rows, and handing them
+ * the whole platform instead is the kind of helpfulness that gets a spreadsheet
+ * quietly filtered by hand and got wrong.
+ *
+ * Capped, because a CSV is built entirely in memory before it is sent.
+ */
+export async function exportStudiosCsv(query: StudioListQuery = {}) {
+  const { studios } = await listStudios({ ...query, limit: 5000, offset: 0 });
+
+  const header = [
+    'Studio',
+    'Slug',
+    'Country',
+    'Owner',
+    'Owner email',
+    'Plan',
+    'Status',
+    'Locations',
+    'Location limit',
+    'Instructors',
+    'Instructor limit',
+    'Bookings',
+    'MRR',
+    'Stripe',
+    'Trial ends',
+    'Created',
+  ];
+
+  const rows = studios.map((s) => [
+    s.name,
+    s.slug,
+    s.country,
+    s.owner?.name ?? '',
+    s.owner?.email ?? '',
+    PLANS[s.plan].name,
+    s.subscriptionStatus,
+    String(s.counts.locations),
+    s.limits.maxLocations === null ? 'unlimited' : String(s.limits.maxLocations),
+    String(s.counts.staff),
+    s.limits.maxStaff === null ? 'unlimited' : String(s.limits.maxStaff),
+    String(s.counts.bookings),
+    s.mrrCents === null ? '' : (s.mrrCents / 100).toFixed(2),
+    s.stripeState,
+    s.trialEndsAt ? s.trialEndsAt.toISOString().slice(0, 10) : '',
+    s.createdAt.toISOString().slice(0, 10),
+  ]);
+
+  return [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
+}
+
+/**
+ * Quotes a cell, and defuses a leading =/+/-/@ so a spreadsheet treats it as
+ * text rather than a formula. A studio is free to call itself "=cmd|..." and
+ * this file is opened by an operator on a work laptop.
+ */
+function csvCell(value: string): string {
+  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  return `"${safe.replace(/"/g, '""')}"`;
 }

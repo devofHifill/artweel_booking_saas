@@ -9,7 +9,11 @@ import { rateLimit } from '../../middleware/rate-limit';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { findLiveGrant } from './platform.service';
 import { auditContext, listAuditLog } from './audit.service';
-import { getStudio, listStudios } from './studios.service';
+import {
+  exportStudiosCsv,
+  getStudio,
+  listStudios,
+} from './studios.service';
 import { getPlatformMetrics } from './metrics.service';
 import { getMrrHistory } from './mrr.service';
 import { getBookingVolume, getPlatformGrowth } from './growth.service';
@@ -147,6 +151,11 @@ const studioListQuerySchema = z.object({
     .enum(['TRIALING', 'ACTIVE', 'PAST_DUE', 'SUSPENDED', 'CANCELED'])
     .optional(),
   plan: z.enum(['SOLO', 'STUDIO', 'PRO']).optional(),
+  /* Derived from timezone rather than declared, so any string is allowed and
+     an unknown one simply matches nothing. */
+  country: z.string().trim().min(1).max(60).optional(),
+  stripe: z.enum(['connected', 'restricted', 'none']).optional(),
+  created: z.enum(['30d', '90d', '12m']).optional(),
   sort: z.enum(['createdAt', 'name', 'trialEndsAt', 'lastBookingAt']).optional(),
   direction: z.enum(['asc', 'desc']).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -159,6 +168,31 @@ platformRouter.get(
   asyncHandler(async (req, res) => {
     const query = req.query as z.infer<typeof studioListQuerySchema>;
     res.json(await listStudios(query));
+  }),
+);
+
+/*
+  Registered BEFORE `/organizations/:organizationId`, or Express hands
+  "export.csv" to the param route and an operator gets "Studio not found" for a
+  download.
+*/
+platformRouter.get(
+  '/organizations/export.csv',
+  validateQuery(studioListQuerySchema.omit({ limit: true, offset: true })),
+  asyncHandler(async (req, res) => {
+    const csv = await exportStudiosCsv(
+      req.query as z.infer<typeof studioListQuerySchema>,
+    );
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="artweel-studios-${stamp}.csv"`,
+    );
+    // A BOM, or Excel on Windows reads the file as the system codepage and any
+    // accented studio name opens as mojibake.
+    res.send(`﻿${csv}`);
   }),
 );
 

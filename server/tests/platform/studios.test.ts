@@ -56,6 +56,9 @@ describe('the studios list', () => {
     expect(clay.owner.email).toContain('@clay.test');
     expect(clay.counts).toEqual({
       staff: 0,
+      // Counted alongside staff so the list can show "2 / 3" against the
+      // plan's location limit without a query per row.
+      locations: 0,
       customers: 0,
       bookings: 0,
       lastBookingAt: null,
@@ -185,6 +188,110 @@ describe('the studios list', () => {
       .set(outsider.headers);
 
     expect(res.status).toBe(404);
+  });
+});
+
+describe('the studios list header and filters', () => {
+  it('summarises the platform, and does not let filters move the summary', async () => {
+    const other = await signUpStudio(app, { organizationName: 'Kiln House' });
+    await prisma.organization.update({
+      where: { id: other.organizationId },
+      data: { subscriptionStatus: 'ACTIVE', subscribedPriceCents: 8900 },
+    });
+
+    const all = await get('/api/platform/organizations');
+    expect(all.body.summary.total).toBe(2);
+    expect(all.body.summary.active).toBe(1);
+    expect(all.body.summary.activePct).toBe(50);
+
+    /*
+      The strip describes the PLATFORM. Filtering the table to one studio must
+      not restate the totals, or the numbers stop being a reference point and
+      start being a second, quieter copy of the row count.
+    */
+    const filtered = await get('/api/platform/organizations', {
+      status: 'ACTIVE',
+    });
+    expect(filtered.body.studios).toHaveLength(1);
+    expect(filtered.body.summary.total).toBe(2);
+  });
+
+  it('reports MRR only for studios that actually pay', async () => {
+    const paying = await signUpStudio(app, { organizationName: 'Kiln House' });
+    await prisma.organization.update({
+      where: { id: paying.organization?.id ?? paying.organizationId },
+      data: {
+        subscriptionStatus: 'ACTIVE',
+        plan: 'STUDIO',
+        subscribedPriceCents: 8900,
+      },
+    });
+
+    const res = await get('/api/platform/organizations');
+    const rows = res.body.studios as { name: string; mrrCents: number | null }[];
+
+    expect(rows.find((r) => r.name === 'Kiln House')!.mrrCents).toBe(8900);
+    /* Trialing: null, not the list price. A number here would read as revenue
+       on a screen whose other columns are money. */
+    expect(rows.find((r) => r.name === 'Clay & Co')!.mrrCents).toBeNull();
+  });
+
+  it('filters by the country derived from the timezone', async () => {
+    const indian = await signUpStudio(app, { organizationName: 'Clay Mumbai' });
+    await prisma.organization.update({
+      where: { id: indian.organizationId },
+      data: { timezone: 'Asia/Kolkata' },
+    });
+
+    const india = await get('/api/platform/organizations', { country: 'India' });
+    expect(india.body.studios).toHaveLength(1);
+    expect(india.body.studios[0].name).toBe('Clay Mumbai');
+    expect(india.body.studios[0].country).toBe('India');
+
+    // And it genuinely excludes rather than being ignored.
+    const nowhere = await get('/api/platform/organizations', {
+      country: 'Japan',
+    });
+    expect(nowhere.body.studios).toHaveLength(0);
+
+    // The dropdown only offers countries that actually have a studio.
+    expect(india.body.availableCountries).toContain('India');
+    expect(india.body.availableCountries).not.toContain('Japan');
+  });
+
+  it('filters by Stripe Connect state', async () => {
+    const restricted = await signUpStudio(app, { organizationName: 'Kiln House' });
+    await prisma.organization.update({
+      where: { id: restricted.organizationId },
+      data: {
+        stripeAccountId: 'acct_restricted',
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: false,
+      },
+    });
+
+    const res = await get('/api/platform/organizations', {
+      stripe: 'restricted',
+    });
+
+    expect(res.body.studios).toHaveLength(1);
+    expect(res.body.studios[0].stripeState).toBe('restricted');
+
+    // The one with no account at all is a different answer, not the same one.
+    const none = await get('/api/platform/organizations', { stripe: 'none' });
+    expect(none.body.studios).toHaveLength(1);
+    expect(none.body.studios[0].name).toBe('Clay & Co');
+  });
+
+  it('carries the plan limits each row is measured against', async () => {
+    const res = await get('/api/platform/organizations');
+    const clay = res.body.studios.find(
+      (s: { name: string }) => s.name === 'Clay & Co',
+    );
+
+    /* Sent with the row so the client can render "2 / 5" without keeping its
+       own copy of the plan table, which would drift the moment a limit moved. */
+    expect(clay.limits).toEqual({ maxStaff: null, maxLocations: null });
   });
 });
 
