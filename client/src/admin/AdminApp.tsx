@@ -15,11 +15,8 @@ import {
   PlatformLocations,
   PlatformResources,
 } from './Catalog';
-import {
-  PlatformIntegrations,
-  PlatformPlans,
-  PlatformWebhooks,
-} from './Management';
+import { PlatformIntegrations, PlatformWebhooks } from './Management';
+import { PlatformPlans } from './Plans';
 import { Shell } from '../components/Shell';
 import { Icon } from '../components/Icon';
 import { LoadingRegion, SkeletonList } from '../components/states';

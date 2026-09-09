@@ -11,6 +11,7 @@ import {
   stopCalendarWorker,
 } from './modules/calendar/calendar.worker';
 import { startSweepWorker, stopSweepWorker } from './workers/sweep.worker';
+import { refreshPlans } from './modules/billing/plan';
 
 const app = createApp();
 
@@ -28,6 +29,15 @@ const server = app.listen(config.PORT, () => {
  * so this can be pulled out into its own container the day the API needs to
  * scale independently of message volume, with no code change.
  */
+/*
+  Plan price and limits live in `plan_settings` and are read synchronously all
+  over the app through the PLANS cache, so they are loaded before anything can
+  quote a price. Failure is logged, not fatal: the seeded constants are correct
+  until somebody edits them, and refusing to boot over a plan table would take
+  the whole product down to protect three numbers.
+*/
+void refreshPlans();
+
 startNotificationWorker();
 startCalendarWorker();
 

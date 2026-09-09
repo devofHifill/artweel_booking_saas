@@ -321,6 +321,23 @@ export async function onSubscriptionChanged(data: {
         : null,
       // A successful renewal clears any outstanding grace period.
       ...(effectiveStatus === 'ACTIVE' ? { gracePeriodEndsAt: null } : {}),
+
+      /*
+        What this studio agreed to pay, recorded once and never rewritten.
+
+        Written only when the subscription first becomes ACTIVE and only when
+        the column is still empty: a later price change must not reach back and
+        restate what an existing subscriber committed to, which is the entire
+        reason this column exists. The list price at this moment is the right
+        value because checkout builds the Stripe line item from the same number
+        (`price_data.unit_amount`) rather than from a fixed Price id.
+      */
+      ...(effectiveStatus === 'ACTIVE' && org.subscribedPriceCents === null
+        ? {
+            subscribedPriceCents:
+              PLANS[(data.planId ?? org.plan) as PlanId].priceCentsMonthly,
+          }
+        : {}),
     },
   });
 }

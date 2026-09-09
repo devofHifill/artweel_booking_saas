@@ -4,6 +4,7 @@ import { sweepExpiredOffers } from '../modules/waitlists/waitlist.service';
 import { sweepExpiredSubscriptions } from '../modules/billing/billing.service';
 import { sweepExpiredHolds } from '../scheduling/hold.service';
 import { takeMrrSnapshot } from '../modules/platform/mrr.service';
+import { refreshPlans } from '../modules/billing/plan';
 
 /**
  * The state changes that happen because time passed, and for no other reason.
@@ -117,6 +118,13 @@ export function startSweepWorker(intervalMs = 60_000) {
     const result = await recordWorkerRun('sweeps', () =>
       processSweepBatch({ billing }),
     );
+
+    /*
+      Plan price and limits are cached in-process, so a second API container
+      would otherwise serve stale prices until it restarted. Re-read on the
+      same hourly beat as the billing sweep: bounded staleness, one query.
+    */
+    if (billing) await refreshPlans();
 
     /*
       Its own heartbeat, not folded into the sweeps one: this is the sole

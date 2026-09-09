@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma';
-import { PLANS } from '../billing/plan';
+import { PLANS, type PlanId } from '../billing/plan';
 
 /**
  * MRR over time, and the movements that produced it.
@@ -28,23 +28,35 @@ const DAY_MS = 86_400_000;
  * drift after a pricing or status change.
  */
 export async function currentMrr() {
-  const activeByPlan = await prisma.organization.groupBy({
-    by: ['plan'],
+  /*
+    Summed from what each studio AGREED to pay, not from today's list price.
+
+    The difference only appears once a price is edited, and then it is the
+    whole story: list price times active studios would restate the revenue of
+    every existing subscriber the moment somebody changed a number, while
+    Stripe went on charging them the old amount. `subscribedPriceCents` is
+    captured when the subscription starts; the list price is the fallback for
+    studios that predate the column.
+  */
+  const active = await prisma.organization.findMany({
     where: { subscriptionStatus: 'ACTIVE' },
-    _count: { _all: true },
+    select: { plan: true, subscribedPriceCents: true },
   });
 
+  const byPlan = new Map<PlanId, { studios: number; mrrCents: number }>();
+  for (const org of active) {
+    const plan = org.plan as PlanId;
+    const cents = org.subscribedPriceCents ?? PLANS[plan].priceCentsMonthly;
+    const entry = byPlan.get(plan) ?? { studios: 0, mrrCents: 0 };
+    entry.studios += 1;
+    entry.mrrCents += cents;
+    byPlan.set(plan, entry);
+  }
+
   return {
-    byPlan: activeByPlan.map((row) => ({
-      plan: row.plan,
-      studios: row._count._all,
-      mrrCents: PLANS[row.plan].priceCentsMonthly * row._count._all,
-    })),
-    mrrCents: activeByPlan.reduce(
-      (total, row) => total + PLANS[row.plan].priceCentsMonthly * row._count._all,
-      0,
-    ),
-    payingStudios: activeByPlan.reduce((n, row) => n + row._count._all, 0),
+    byPlan: [...byPlan.entries()].map(([plan, v]) => ({ plan, ...v })),
+    mrrCents: [...byPlan.values()].reduce((t, v) => t + v.mrrCents, 0),
+    payingStudios: active.length,
   };
 }
 
@@ -73,16 +85,17 @@ export async function takeMrrSnapshot(now = new Date()) {
 
   const active = await prisma.organization.findMany({
     where: { subscriptionStatus: 'ACTIVE' },
-    select: { id: true, plan: true },
+    select: { id: true, plan: true, subscribedPriceCents: true },
   });
 
   const rows = active.map((org) => ({
     date,
     organizationId: org.id,
     plan: org.plan,
-    /* Resolved here and never recomputed. A later price change must move
-       future rows only — recomputing would rewrite every month on the chart. */
-    mrrCents: PLANS[org.plan].priceCentsMonthly,
+    /* What this studio agreed to pay, resolved here and never recomputed. A
+       later price change must move future rows only — recomputing would
+       rewrite every month already on the chart. */
+    mrrCents: org.subscribedPriceCents ?? PLANS[org.plan].priceCentsMonthly,
   }));
 
   await prisma.$transaction([

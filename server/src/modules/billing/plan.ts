@@ -26,6 +26,24 @@ export type PlanDefinition = {
   blurb: string;
 };
 
+/**
+ * The plan table, read synchronously by everything that branches on a plan.
+ *
+ * PRICE AND THE TWO LIMITS ARE NOW DATA. They live in `plan_settings` and are
+ * loaded into this object at boot by `refreshPlans()`. It is mutated in place
+ * rather than replaced so that the several dozen existing `PLANS[id]` call
+ * sites — the marketing site, Stripe checkout, requireCapacity — keep working
+ * unchanged and synchronous. Turning all of them async to read a table on every
+ * request would have been a far larger change for no benefit.
+ *
+ * The values below are therefore the SHAPE and the seed, not the truth: once
+ * the table exists it is the source. Feature flags are the exception and stay
+ * genuinely constant here, because a feature is only real when something calls
+ * `requireFeature` with it.
+ *
+ * The cache is refreshed on write and hourly by the sweep worker, so a second
+ * API process picks up a change within the hour rather than at next restart.
+ */
 export const PLANS: Record<PlanId, PlanDefinition> = {
   SOLO: {
     id: 'SOLO',
@@ -187,4 +205,37 @@ export function canWrite(status: string): boolean {
  */
 export function canAcceptBookings(status: string): boolean {
   return status === 'TRIALING' || status === 'ACTIVE' || status === 'PAST_DUE';
+}
+
+// ---------------------------------------------------------------------------
+// Plan settings, loaded from the database
+// ---------------------------------------------------------------------------
+
+/**
+ * Loads price and limits from `plan_settings` into `PLANS`.
+ *
+ * Mutating the exported object is deliberate — see the note on PLANS. It is the
+ * one place that does it, and it only ever writes the three fields the table
+ * owns; feature flags are never touched.
+ *
+ * Never throws. A studio hitting an upgrade wall because the plan table was
+ * briefly unreadable would be a worse failure than serving the last known
+ * prices, which are correct until somebody edits them.
+ */
+export async function refreshPlans(): Promise<void> {
+  try {
+    const { prisma } = await import('../../lib/prisma');
+    const rows = await prisma.planSetting.findMany();
+
+    for (const row of rows) {
+      const plan = PLANS[row.id as PlanId];
+      if (!plan) continue;
+      plan.priceCentsMonthly = row.priceCentsMonthly;
+      plan.maxStaff = row.maxStaff;
+      plan.maxLocations = row.maxLocations;
+    }
+  } catch (err) {
+    const { logger } = await import('../../lib/logger');
+    logger.error({ err }, 'Plan settings not refreshed — serving last known');
+  }
 }

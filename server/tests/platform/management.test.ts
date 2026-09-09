@@ -46,7 +46,7 @@ describe('plans overview', () => {
       data: { plan: 'STUDIO', subscriptionStatus: 'TRIALING' },
     });
 
-    const { plans, editable } = await getPlansOverview();
+    const { plans, editable, featuresEditable } = await getPlansOverview();
     const studio = plans.find((p) => p.id === 'STUDIO')!;
 
     expect(studio.studios).toBe(2);
@@ -54,9 +54,14 @@ describe('plans overview', () => {
     // Two studios on the plan, one paying: MRR is one subscription.
     expect(studio.mrrCents).toBe(8900);
 
-    /* Read-only is a property of the screen, not a styling choice: PLANS is a
-       code constant the marketing site and Stripe checkout also read. */
-    expect(editable).toBe(false);
+    /*
+      Price and limits are editable now that they are data and every studio
+      records what it agreed to pay. Features are still not: a toggle for a
+      flag nothing reads would be a control that does nothing, and three of the
+      five are in exactly that state.
+    */
+    expect(editable).toBe(true);
+    expect(featuresEditable).toBe(false);
   });
 
   it('separates a feature being included from it being enforced', async () => {

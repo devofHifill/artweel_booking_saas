@@ -17,8 +17,11 @@ import {
   getPlansOverview,
   listIntegrations,
   listWebhooks,
+  updatePlanSettings,
+  type PlanSettingsPatch,
   type WebhookStatus,
 } from './management.service';
+import type { PlanId } from '../billing/plan';
 import {
   getNavCounts,
   listActivities,
@@ -632,6 +635,53 @@ platformRouter.get(
   '/plans-overview',
   asyncHandler(async (_req, res) => {
     res.json(await getPlansOverview());
+  }),
+);
+
+/**
+ * Changes a plan's price or limits.
+ *
+ * A reason is REQUIRED, like every other consequential platform action. "Who
+ * set Solo to $49, and why" is a question that gets asked a quarter later, and
+ * the current value cannot answer it.
+ *
+ * Existing subscribers are unaffected: their price was fixed at subscription
+ * time in `subscribedPriceCents`, so this moves the list price for new
+ * subscriptions only.
+ */
+platformRouter.patch(
+  '/plans/:planId',
+  validateBody(
+    z
+      .object({
+        // A hard ceiling rather than an open number: a fat-fingered extra zero
+        // on a price is charged to a real card.
+        priceCentsMonthly: z.number().int().min(0).max(1_000_000).optional(),
+        maxStaff: z.number().int().min(1).max(10_000).nullable().optional(),
+        maxLocations: z.number().int().min(1).max(10_000).nullable().optional(),
+        reason: z.string().trim().min(3).max(500),
+      })
+      .refine(
+        (b) =>
+          b.priceCentsMonthly !== undefined ||
+          b.maxStaff !== undefined ||
+          b.maxLocations !== undefined,
+        'Change at least one of price, instructors or locations.',
+      ),
+  ),
+  asyncHandler(async (req, res) => {
+    const planId = req.params.planId as PlanId;
+    if (!['SOLO', 'STUDIO', 'PRO'].includes(planId)) {
+      throw AppError.notFound('No such plan.');
+    }
+
+    const { reason, ...patch } = req.body as PlanSettingsPatch & {
+      reason: string;
+    };
+
+    res.json({
+      plan: await updatePlanSettings(auditContext(req), planId, patch, reason),
+    });
   }),
 );
 

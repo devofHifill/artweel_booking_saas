@@ -4332,3 +4332,23 @@ code.path {
 .plan-features li.off { color: var(--muted); }
 .plan-mark { width: 14px; text-align: center; color: var(--ok); font-weight: 700; }
 .plan-features li.off .plan-mark { color: var(--muted); }
+
+/* --- Editable plan cards -------------------------------------------------- */
+
+.plan-price-edit { display: flex; align-items: baseline; gap: 4px; margin: 4px 0 6px; }
+.plan-price-edit > span:first-child { font-size: var(--text-2xl); font-weight: 700; }
+.plan-price-edit input { width: 5.5ch; font-size: var(--text-2xl); font-weight: 700; border: 1px solid transparent; border-radius: 8px; padding: 0 4px; background: transparent; color: var(--ink); font-family: inherit; }
+.plan-price-edit input:hover { border-color: var(--line); }
+.plan-price-edit input:focus { border-color: var(--clay); background: var(--card); outline: none; }
+
+.plan-limits dd input { width: 7ch; text-align: right; border: 1px solid transparent; border-radius: 6px; padding: 1px 5px; background: transparent; color: var(--ink); font: inherit; font-weight: 600; }
+.plan-limits dd input:hover { border-color: var(--line); }
+.plan-limits dd input:focus { border-color: var(--clay); background: var(--card); outline: none; }
+.plan-features-note { margin-top: var(--space-3); font-size: var(--text-xs); }
+
+.plan-save { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-5); flex-wrap: wrap; border-color: var(--clay); }
+.plan-save > div { flex: 1; min-width: 220px; }
+.plan-save .sub { margin-top: 2px; }
+.plan-save input { flex: 1; min-width: 200px; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; background: var(--card); color: var(--ink); font: inherit; }
+
+.enforcement-behaviour { text-align: right; font-weight: 600; font-size: var(--text-sm); max-width: 34ch; }

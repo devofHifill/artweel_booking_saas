@@ -4,18 +4,26 @@ import {
   FEATURE_ENFORCED,
   FEATURE_LABELS,
   PLANS,
+  refreshPlans,
   type Feature,
   type PlanId,
 } from '../billing/plan';
+import { withAudit, type AuditEntry } from './audit.service';
+import { currentMrr } from './mrr.service';
 import { config } from '../../config';
 import type { ListQuery } from './catalog.service';
 
 /**
  * Platform management: webhooks, integrations, and the plan matrix.
  *
- * All read-only. Retrying a webhook or reconnecting a calendar from here would
- * act as the studio without a support session recording it — and in the webhook
- * case would duplicate work Stripe already does on its own schedule.
+ * The webhook and integration views are read-only. Retrying a webhook or
+ * reconnecting a calendar from here would act as the studio without a support
+ * session recording it — and in the webhook case would duplicate work Stripe
+ * already does on its own schedule.
+ *
+ * Plan price and limits are the exception: they are platform-wide settings
+ * rather than one studio's data, nobody is impersonated by changing them, and
+ * every change is audited with its before and after.
  */
 
 function envelope<T>(rows: T[], total: number, query: ListQuery) {
@@ -181,26 +189,31 @@ export async function listIntegrations(query: ListQuery) {
 // ---------------------------------------------------------------------------
 
 /**
- * The plan matrix, with what each plan CLAIMS and what is actually enforced.
+ * The plan matrix: what each plan costs, what it allows, what it CLAIMS, and
+ * what is actually enforced.
  *
- * Read-only, and not for want of a form: `PLANS` is a TypeScript constant that
- * the marketing site, Stripe checkout and this screen all read. Editing a price
- * here would need it to become data, and then the pricing page and the checkout
- * would have to read that data too — otherwise the site advertises one number
- * and the card is charged another.
+ * Price and the two limits are editable — they live in `plan_settings`. The
+ * feature flags are not, because a feature is only real when something calls
+ * `requireFeature` with it, and a toggle for one nothing reads would be a
+ * control that does nothing.
  */
 export async function getPlansOverview() {
-  const [byPlan, activeByPlan] = await Promise.all([
+  const [byPlan, activeByPlan, mrr] = await Promise.all([
     prisma.organization.groupBy({ by: ['plan'], _count: { _all: true } }),
     prisma.organization.groupBy({
       by: ['plan'],
       where: { subscriptionStatus: 'ACTIVE' },
       _count: { _all: true },
     }),
+    /* Per-plan MRR from what studios AGREED to pay, not list price times a
+       headcount — the same reason the column exists. After a price edit the
+       two differ, and the card must show the money actually being billed. */
+    currentMrr(),
   ]);
 
   const total = new Map(byPlan.map((r) => [r.plan, r._count._all]));
   const paying = new Map(activeByPlan.map((r) => [r.plan, r._count._all]));
+  const mrrByPlan = new Map(mrr.byPlan.map((r) => [r.plan, r.mrrCents]));
 
   const features = Object.keys(FEATURE_LABELS) as Feature[];
 
@@ -217,7 +230,7 @@ export async function getPlansOverview() {
       maxLocations: plan.maxLocations,
       studios: total.get(id) ?? 0,
       payingStudios: payingCount,
-      mrrCents: plan.priceCentsMonthly * payingCount,
+      mrrCents: mrrByPlan.get(id) ?? 0,
       features: features.map((key) => ({
         key,
         label: FEATURE_LABELS[key],
@@ -229,14 +242,198 @@ export async function getPlansOverview() {
     };
   });
 
+  const [nearLimit, history] = await Promise.all([
+    studiosNearLimit(),
+    planChangeHistory(),
+  ]);
+
   return {
     plans,
     unenforced: features.filter((f) => !FEATURE_ENFORCED[f]).map((f) => ({
       key: f,
       label: FEATURE_LABELS[f],
     })),
-    editable: false,
-    readOnlyReason:
-      'Plan prices and limits are defined in code (billing/plan.ts), which the marketing site and Stripe checkout also read. Changing them here would let the advertised price and the charged price disagree.',
+    nearLimit,
+    history,
+    /**
+     * What actually happens at each boundary, as the code behaves — not as a
+     * policy document would like it to. Two entries the reference design had
+     * are absent because they describe machinery that does not exist (an SMS
+     * allowance and a storage quota), and the downgrade row is stated as it
+     * really is rather than as "downgrades are blocked", which nothing does.
+     */
+    enforcement: [
+      {
+        boundary: 'Instructor limit reached',
+        behaviour: 'Adding an instructor is blocked, naming the plan that lifts it',
+        real: true,
+      },
+      {
+        boundary: 'Location limit reached',
+        behaviour: 'Adding a location is blocked, naming the plan that lifts it',
+        real: true,
+      },
+      {
+        boundary: 'Trial expired',
+        behaviour: 'Suspended: the booking page stops taking new bookings',
+        real: true,
+      },
+      {
+        boundary: 'Past due',
+        behaviour:
+          'Nothing switches off during the grace period — booking pages stay live',
+        real: true,
+      },
+      {
+        boundary: 'Downgraded below current usage',
+        behaviour:
+          'Allowed. The studio keeps the instructors and locations it has and simply cannot add more',
+        real: true,
+      },
+    ],
+    editable: true,
+    editableFields: ['priceCentsMonthly', 'maxStaff', 'maxLocations'],
+    /* Features are not editable: a toggle for a flag nothing reads would be a
+       control that does nothing. See FEATURE_ENFORCED. */
+    featuresEditable: false,
   };
+}
+
+/**
+ * Studios at or one short of their plan's instructor limit.
+ *
+ * The upgrade candidates, and the same rule the dashboard's attention list
+ * uses — counted on ACTIVE staff, matching how the limit is actually enforced
+ * when somebody tries to add one.
+ */
+async function studiosNearLimit() {
+  const [orgs, staff] = await Promise.all([
+    prisma.organization.findMany({
+      select: { id: true, name: true, plan: true },
+    }),
+    prisma.staff.groupBy({
+      by: ['organizationId'],
+      where: { isActive: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const counts = new Map(staff.map((s) => [s.organizationId, s._count._all]));
+
+  return orgs
+    .map((org) => ({
+      id: org.id,
+      name: org.name,
+      plan: org.plan as PlanId,
+      planName: PLANS[org.plan as PlanId].name,
+      staff: counts.get(org.id) ?? 0,
+      limit: PLANS[org.plan as PlanId].maxStaff,
+    }))
+    .filter((row) => row.limit !== null && row.staff >= row.limit - 1)
+    .sort((a, b) => b.staff / (b.limit ?? 1) - a.staff / (a.limit ?? 1));
+}
+
+/** Every plan edit, read back out of the audit log rather than a second table. */
+async function planChangeHistory() {
+  const rows = await prisma.platformAuditLog.findMany({
+    where: { action: 'plan.settings.set' },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    select: {
+      id: true,
+      actorEmail: true,
+      targetId: true,
+      reason: true,
+      metadata: true,
+      createdAt: true,
+    },
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    plan: row.targetId,
+    actor: row.actorEmail,
+    reason: row.reason,
+    changes: row.metadata,
+    at: row.createdAt,
+  }));
+}
+
+export type PlanSettingsPatch = {
+  priceCentsMonthly?: number;
+  maxStaff?: number | null;
+  maxLocations?: number | null;
+};
+
+/**
+ * Changes a plan's price or limits.
+ *
+ * Audited, and the audit row carries before AND after — a price change is the
+ * kind of thing somebody asks about a quarter later, and "who set it to $49"
+ * is unanswerable from the current value alone.
+ *
+ * EXISTING SUBSCRIBERS ARE UNTOUCHED. Their `subscribedPriceCents` was fixed
+ * when they subscribed, so this moves the list price for new subscriptions
+ * only — which is also what Stripe does, since it holds each subscription's own
+ * price. The two therefore stay in step instead of drifting apart.
+ */
+/** Same shape the other audited platform writes take. */
+type Actor = Pick<AuditEntry, 'actorUserId' | 'actorEmail' | 'ip' | 'userAgent'>;
+
+export async function updatePlanSettings(
+  actor: Actor,
+  planId: PlanId,
+  patch: PlanSettingsPatch,
+  reason: string,
+) {
+  const result = await withAudit(
+    {
+      ...actor,
+      action: 'plan.settings.set',
+      targetType: 'plan',
+      targetId: planId,
+      reason,
+    },
+    async (tx, audit) => {
+      const before = await tx.planSetting.findUniqueOrThrow({
+        where: { id: planId },
+      });
+
+      const after = await tx.planSetting.update({
+        where: { id: planId },
+        data: {
+          ...(patch.priceCentsMonthly !== undefined
+            ? { priceCentsMonthly: patch.priceCentsMonthly }
+            : {}),
+          ...(patch.maxStaff !== undefined ? { maxStaff: patch.maxStaff } : {}),
+          ...(patch.maxLocations !== undefined
+            ? { maxLocations: patch.maxLocations }
+            : {}),
+        },
+      });
+
+      audit({
+        metadata: {
+          before: {
+            priceCentsMonthly: before.priceCentsMonthly,
+            maxStaff: before.maxStaff,
+            maxLocations: before.maxLocations,
+          },
+          after: {
+            priceCentsMonthly: after.priceCentsMonthly,
+            maxStaff: after.maxStaff,
+            maxLocations: after.maxLocations,
+          },
+        },
+      });
+
+      return after;
+    },
+  );
+
+  // The cache every synchronous PLANS[id] reader sees, updated immediately in
+  // this process; other processes pick it up on the sweep worker's hourly beat.
+  await refreshPlans();
+
+  return result;
 }

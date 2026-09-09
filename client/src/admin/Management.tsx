@@ -1,17 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
-import { dateTime, money } from './types';
+import { dateTime } from './types';
 import { LoadingRegion, SkeletonTable } from '../components/states';
 
 /**
- * Platform management: the webhook log, integration status, and the plan
- * matrix.
+ * Platform management: the webhook log and integration status.
  *
- * All read-only. The plan matrix in particular is read-only for a reason worth
- * stating on the screen: prices live in code that the marketing site and Stripe
- * checkout also read, so an editable copy here is how the advertised price and
- * the charged price come apart.
+ * Both read-only views. The plan matrix moved to its own screen once it became
+ * editable — see Plans.tsx.
  */
 
 // --- Webhooks --------------------------------------------------------------
@@ -382,124 +379,6 @@ export function PlatformIntegrations() {
           </button>
         </div>
       )}
-    </>
-  );
-}
-
-// --- Plans and limits ------------------------------------------------------
-
-type PlanRow = {
-  id: string;
-  name: string;
-  priceCentsMonthly: number;
-  blurb: string;
-  maxStaff: number | null;
-  maxLocations: number | null;
-  studios: number;
-  payingStudios: number;
-  mrrCents: number;
-  features: {
-    key: string;
-    label: string;
-    included: boolean;
-    enforced: boolean;
-  }[];
-};
-
-type PlansOverview = {
-  plans: PlanRow[];
-  unenforced: { key: string; label: string }[];
-  editable: boolean;
-  readOnlyReason: string;
-};
-
-export function PlatformPlans() {
-  const [data, setData] = useState<PlansOverview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .get<PlansOverview>('/api/platform/plans-overview')
-      .then((res) => !cancelled && setData(res))
-      .catch(() => !cancelled && setError('Could not load plans.'));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (error) return <div className="err">{error}</div>;
-  if (!data)
-    return (
-      <LoadingRegion label="Loading plans">
-        <SkeletonTable rows={4} />
-      </LoadingRegion>
-    );
-
-  return (
-    <>
-      <div className="page-head">
-        <h1>Plans &amp; Limits</h1>
-        <span className="sub">Read-only</span>
-      </div>
-
-      {/*
-        The gap this screen exists to show. A plan matrix that lists only what
-        each plan claims is how "sold but never gated" survives — three of the
-        five features here are advertised and enforced by nothing.
-      */}
-      {data.unenforced.length > 0 && (
-        <div className="alert warn">
-          <strong>
-            {data.unenforced.length} advertised feature
-            {data.unenforced.length === 1 ? '' : 's'} not enforced anywhere:
-          </strong>{' '}
-          {data.unenforced.map((f) => f.label).join(', ')}. A studio on any plan
-          can use them.
-        </div>
-      )}
-
-      <div className="plan-grid">
-        {data.plans.map((plan) => (
-          <div className="card plan-card" key={plan.id}>
-            <h2>{plan.name}</h2>
-            <p className="plan-price">
-              {money(plan.priceCentsMonthly)}
-              <span className="sub"> /month</span>
-            </p>
-            <p className="sub">{plan.blurb}</p>
-
-            <dl className="plan-limits">
-              <dt>Instructors</dt>
-              <dd>{plan.maxStaff ?? 'Unlimited'}</dd>
-              <dt>Locations</dt>
-              <dd>{plan.maxLocations ?? 'Unlimited'}</dd>
-              <dt>Studios on plan</dt>
-              <dd>{plan.studios}</dd>
-              <dt>Paying</dt>
-              <dd>{plan.payingStudios}</dd>
-              <dt>MRR</dt>
-              <dd>{money(plan.mrrCents)}</dd>
-            </dl>
-
-            <ul className="plan-features">
-              {plan.features.map((f) => (
-                <li key={f.key} className={f.included ? '' : 'off'}>
-                  <span className="plan-mark">{f.included ? '✓' : '—'}</span>
-                  <span>{f.label}</span>
-                  {f.included && !f.enforced && (
-                    <span className="tag tag-warn" title="Nothing checks this">
-                      not enforced
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-
-      <p className="insight-note subtle">{data.readOnlyReason}</p>
     </>
   );
 }
