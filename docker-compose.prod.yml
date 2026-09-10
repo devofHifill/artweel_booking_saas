@@ -63,39 +63,57 @@ services:
       - "traefik.docker.network=n8n_default"
       - "traefik.http.services.artweel-api.loadbalancer.server.port=4000"
 
-      # --- Staging: keep this deployment out of search results ------------
+      # --- Per-environment routing ----------------------------------------
       #
-      # The app generates robots.txt from PUBLIC_URL and always emits
-      # "Allow: /" (src/modules/marketing/render.ts, renderRobots). An
-      # X-Robots-Tag response header is the stronger instrument anyway:
-      # Disallow only asks a crawler not to fetch, while noindex tells it not
-      # to index what it did fetch. Crawlers must be ALLOWED to fetch the page
-      # in order to see this header, so the two work together rather than
-      # fighting.
+      # Staging (artweel.fillforge.cloud) and live (bookaihub.com) share this
+      # file and differ only through variables Compose reads from a `.env` in
+      # the project directory. That file is gitignored and never leaves its
+      # box, so no hostname is committed and neither environment can be broken
+      # by a deploy to the other.
       #
-      # DELETE this middleware and its two references when the product name is
-      # settled and this becomes the real production hostname.
+      # Required in every .env, or `:?` refuses the deploy by name:
+      #   PUBLIC_HOST, PUBLIC_RULE, PUBLIC_MIDDLEWARES, APP_HOST, APP_MIDDLEWARES
+      #
+      # BOTH middlewares below are DEFINED on every environment; which one is
+      # ATTACHED is what differs. A middleware no router references is inert,
+      # so defining both costs nothing and keeps the two boxes symmetrical.
+      #
+      # artweel-noindex keeps staging out of search results. An X-Robots-Tag
+      # header is stronger than a robots.txt Disallow: Disallow only asks a
+      # crawler not to FETCH, while noindex tells it not to INDEX what it did
+      # fetch -- and it must be allowed to fetch in order to see the header.
+      # The app's own robots.txt says "Allow: /" for exactly that reason
+      # (src/modules/marketing/render.ts, renderRobots).
       - "traefik.http.middlewares.artweel-noindex.headers.customresponseheaders.X-Robots-Tag=noindex, nofollow"
 
+      # artweel-www redirects www.<host> to the bare host, 301. Attached on
+      # live; defined but unreferenced on staging, which has no www record.
+      # Staging deliberately keeps www OUT of its router rule: a Host() for a
+      # name with no DNS makes Traefik request a certificate it can never
+      # validate, which burns the Let's Encrypt failure rate limit.
+      - "traefik.http.middlewares.artweel-www.redirectregex.regex=^https?://www\\.${PUBLIC_HOST:?set PUBLIC_HOST in .env}/(.*)"
+      - "traefik.http.middlewares.artweel-www.redirectregex.replacement=https://${PUBLIC_HOST}/$${1}"
+      - "traefik.http.middlewares.artweel-www.redirectregex.permanent=true"
+
       # Marketing site, studio booking pages, Stripe/Twilio/Google webhooks.
-      - "traefik.http.routers.artweel-public.rule=Host(`artweel.fillforge.cloud`)"
+      - "traefik.http.routers.artweel-public.rule=${PUBLIC_RULE:?set PUBLIC_RULE in .env}"
       - "traefik.http.routers.artweel-public.entrypoints=web,websecure"
       - "traefik.http.routers.artweel-public.tls=true"
       - "traefik.http.routers.artweel-public.tls.certresolver=mytlschallenge"
       - "traefik.http.routers.artweel-public.service=artweel-api"
-      - "traefik.http.routers.artweel-public.middlewares=artweel-noindex@docker"
+      - "traefik.http.routers.artweel-public.middlewares=${PUBLIC_MIDDLEWARES:?set PUBLIC_MIDDLEWARES in .env}"
 
       # The dashboard bundle calls /api with relative paths, so those requests
       # arrive on the DASHBOARD hostname and must be peeled off to the API
       # before the catch-all router below sends them to the static container.
       # Priority beats the client router the same way SEBVM's api router does.
-      - "traefik.http.routers.artweel-api.rule=Host(`app.artweel.fillforge.cloud`) && (PathPrefix(`/api`) || PathPrefix(`/public`))"
+      - "traefik.http.routers.artweel-api.rule=Host(`${APP_HOST:?set APP_HOST in .env}`) && (PathPrefix(`/api`) || PathPrefix(`/public`))"
       - "traefik.http.routers.artweel-api.entrypoints=web,websecure"
       - "traefik.http.routers.artweel-api.tls=true"
       - "traefik.http.routers.artweel-api.tls.certresolver=mytlschallenge"
       - "traefik.http.routers.artweel-api.priority=100"
       - "traefik.http.routers.artweel-api.service=artweel-api"
-      - "traefik.http.routers.artweel-api.middlewares=artweel-noindex@docker"
+      - "traefik.http.routers.artweel-api.middlewares=${APP_MIDDLEWARES:?set APP_MIDDLEWARES in .env}"
 
   client:
     build:
@@ -116,7 +134,7 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=n8n_default"
       - "traefik.http.services.artweel-client.loadbalancer.server.port=80"
-      - "traefik.http.routers.artweel-app.rule=Host(`app.artweel.fillforge.cloud`)"
+      - "traefik.http.routers.artweel-app.rule=Host(`${APP_HOST}`)"
       - "traefik.http.routers.artweel-app.entrypoints=web,websecure"
       - "traefik.http.routers.artweel-app.tls=true"
       - "traefik.http.routers.artweel-app.tls.certresolver=mytlschallenge"

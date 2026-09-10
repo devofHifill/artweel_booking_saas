@@ -241,6 +241,9 @@ function comparisonRows(): string {
 
 export function renderLanding(page: Page): string {
   const canonical = config.PUBLIC_URL.replace(/\/$/, '');
+  // The mockup browser chrome shows the REAL dashboard host, so staging and
+  // live each advertise their own rather than a name that belongs to neither.
+  const appHost = new URL(config.APP_URL).host;
 
   return `<!doctype html>
 <html lang="en">
@@ -334,7 +337,7 @@ ${structuredData(page, canonical)}
         <div class="app-window" data-tilt>
           <div class="app-chrome">
             <span class="app-dots"><i></i><i></i><i></i></span>
-            <span class="app-url">app.artweel.com/schedule</span>
+            <span class="app-url">${escapeHtml(appHost)}/schedule</span>
             <span class="app-live"><span class="live-dot"></span>Live</span>
           </div>
           <div class="app-body">
