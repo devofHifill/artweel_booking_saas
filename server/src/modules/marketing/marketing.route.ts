@@ -5,6 +5,7 @@ import { logger } from '../../lib/logger';
 import { asyncHandler } from '../../lib/async-handler';
 import { rateLimit } from '../../middleware/rate-limit';
 import { ALL_PAGES, type Page } from './content';
+import { VERTICAL_BY_SLUG } from './verticals';
 import { renderMarketingPage, renderRobots, renderSitemap } from './render';
 import { renderLanding } from './landing';
 
@@ -104,11 +105,13 @@ marketingRouter.get(
   '/',
   readLimit,
   asyncHandler(async (req, res) => {
-    const page = BY_SLUG.get('')!;
+    const vertical = VERTICAL_BY_SLUG.get('')!;
     recordView('/', req.get('referer'), String(req.query.utm_source ?? '') || undefined);
     // The home page is a designed landing page rather than the document
-    // template the other seven share, so it renders from its own module.
-    res.type('html').send(renderLanding(page));
+    // template the guides and comparisons share, so it renders from its own
+    // module — as do the ten /for/<trade> pages, which are the same page
+    // arguing the same thing in a different trade's nouns.
+    res.type('html').send(renderLanding(vertical.page, vertical));
   }),
 );
 
@@ -124,6 +127,25 @@ marketingRouter.get(
   readLimit,
   asyncHandler(async (req, res, next) => {
     const slug = [req.params.a, req.params.b].filter(Boolean).join('/');
+
+    /**
+     * A trade page gets the designed landing template, not the document one.
+     *
+     * Checked BEFORE `BY_SLUG` because a vertical's page is in both maps: it
+     * belongs in ALL_PAGES so the sitemap lists it, and it belongs here so it
+     * renders as a landing page rather than as an article.
+     */
+    const vertical = slug ? VERTICAL_BY_SLUG.get(slug) : undefined;
+    if (vertical) {
+      recordView(
+        `/${slug}`,
+        req.get('referer'),
+        String(req.query.utm_source ?? '') || undefined,
+      );
+      res.type('html').send(renderLanding(vertical.page, vertical));
+      return;
+    }
+
     const page = BY_SLUG.get(slug);
 
     // Not ours — hand it to whatever is mounted after (public pages, API).

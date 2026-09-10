@@ -1,6 +1,7 @@
 import { config } from '../../config';
 import { PLANS } from '../billing/plan';
-import { COMING_SOON, SHIPPING_FEATURES, type Page } from './content';
+import { BRAND, COMING_SOON, SHIPPING_FEATURES, type Page } from './content';
+import { GENERAL, VERTICALS, type Vertical } from './verticals';
 import { escapeHtml, structuredData } from './render';
 import { LANDING_CSS } from './landing-css';
 import { LANDING_JS } from './landing-js';
@@ -45,14 +46,18 @@ const FEATURE_ICONS = [
 const CHECK =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4 4 10-10"/></svg>';
 
-const WHEEL_MARK = (size: number) => `<svg viewBox="0 0 32 32" width="${size}" height="${size}" fill="none">
+/**
+ * The mark: concentric rings around a centre.
+ *
+ * It had four spokes, which made it a potter's wheel seen from above. That was
+ * right when the only page was the pottery one and wrong on a page sold to a
+ * dive centre. The rings survive — they read as a dial or a target, and they
+ * match the favicon in render.ts, which was always spokeless.
+ */
+const BRAND_MARK = (size: number) => `<svg viewBox="0 0 32 32" width="${size}" height="${size}" fill="none">
 <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="1.5" opacity="0.55"/>
 <circle cx="16" cy="16" r="8.5" stroke="currentColor" stroke-width="1.5" opacity="0.8"/>
-<circle cx="16" cy="16" r="2.6" fill="currentColor"/>
-<line x1="16" y1="2" x2="16" y2="7.5" stroke="currentColor" stroke-width="1.5"/>
-<line x1="16" y1="24.5" x2="16" y2="30" stroke="currentColor" stroke-width="1.5"/>
-<line x1="2" y1="16" x2="7.5" y2="16" stroke="currentColor" stroke-width="1.5"/>
-<line x1="24.5" y1="16" x2="30" y2="16" stroke="currentColor" stroke-width="1.5"/></svg>`;
+<circle cx="16" cy="16" r="2.6" fill="currentColor"/></svg>`;
 
 /**
  * Figures that are true by construction rather than measured.
@@ -66,7 +71,7 @@ const STATS = [
   { num: 0, suffix: '%', label: 'Commission taken on bookings' },
   { num: 100, suffix: '%', label: 'Of payments to your own Stripe' },
   { num: 14, suffix: '', label: 'Day free trial · no card needed' },
-  { num: 1, suffix: '', label: 'Schedule for studio &amp; mobile' },
+  { num: 1, suffix: '', label: 'Schedule for on-site &amp; mobile' },
 ];
 
 /** Only what actually ships. Zapier, Outlook and CSV import do not. */
@@ -77,14 +82,14 @@ const INTEGRATIONS = [
   { mark: '#', name: 'Instagram', note: 'Bio booking link' },
 ];
 
+/**
+ * The rows that are true for every trade. The FIRST row — the capacity claim —
+ * is not here: it is the one that has to speak in the reader's own nouns, so
+ * each vertical supplies its own and `comparisonRows` puts it on top.
+ */
 const COMPARISON = [
   {
-    need: 'Capacity that means wheels',
-    them: 'A seat count you type in and hope is right',
-    us: 'Classes are capped by the wheels in the room',
-  },
-  {
-    need: 'Mobile parties at an address',
+    need: 'Travelling work at an address',
     them: 'A second calendar, or a note in the booking',
     us: 'Travel zone checked before a time is offered',
   },
@@ -105,7 +110,7 @@ const COMPARISON = [
   },
   {
     need: 'Taking the register',
-    them: 'A printed list, or a laptop by the kiln',
+    them: 'A printed list, or a laptop by the door',
     us: 'One tap per class from your phone',
   },
   {
@@ -152,12 +157,41 @@ margin:26px 0 0;padding:0;list-style:none}
 @media(max-width:560px){.plan-card{padding:26px 20px 22px}}
 `;
 
+/**
+ * The footer's trade column.
+ *
+ * Four of the ten, chosen for spread rather than by rank — a maker, two kinds
+ * of tour operator and a makerspace — with the full set one click away in the
+ * picker. Ten links in a footer column is a list nobody reads.
+ */
+const FOOTER_VERTICALS = ['for/pottery', 'for/kayak-tours', 'for/walking-tours', 'for/woodworking']
+  .map((slug) => VERTICALS.find((vertical) => vertical.slug === slug))
+  .filter((vertical): vertical is Vertical => Boolean(vertical))
+  .map(
+    (vertical) =>
+      `<a href="/${vertical.slug}">${escapeHtml(vertical.navLabel)}</a>`,
+  )
+  .join('\n        ');
+
 function money(cents: number): string {
   return `$${Math.round(cents / 100)}`;
 }
 
-function featureGrid(): string {
-  return SHIPPING_FEATURES.map(
+/**
+ * The eight feature cards.
+ *
+ * Seven are true in the same words for every trade. The first one is the
+ * capacity argument, which is the whole point of the page and has to be said
+ * in the reader's own nouns, so the vertical replaces it.
+ */
+function featureGrid(vertical: Vertical): string {
+  const features = SHIPPING_FEATURES.map((feature, i) =>
+    i === 0
+      ? { title: vertical.capacity.headline, body: vertical.capacity.body }
+      : feature,
+  );
+
+  return features.map(
     (feature, i) => `<article class="feature-card reveal">
 <span class="feature-icon" aria-hidden="true">${FEATURE_ICONS[i] ?? FEATURE_ICONS[0]}</span>
 <h3>${escapeHtml(feature.title)}</h3>
@@ -172,8 +206,8 @@ function statsBand(): string {
   ).join('');
 }
 
-function roadmapList(): string {
-  return COMING_SOON.map(
+function roadmapList(vertical: Vertical): string {
+  return (vertical.comingSoon ?? COMING_SOON).map(
     (item) => `<li><span class="check" aria-hidden="true">${CHECK}</span><span>${escapeHtml(item)}</span></li>`,
   ).join('');
 }
@@ -229,18 +263,160 @@ function faqList(page: Page): string {
     .join('');
 }
 
-function comparisonRows(): string {
-  return COMPARISON.map(
+function comparisonRows(vertical: Vertical): string {
+  return [vertical.compare, ...COMPARISON].map(
     (row) => `<tr role="row">
 <th scope="row" role="rowheader">${row.need}</th>
 <td role="cell" data-label="Generic booking tools"><span class="cmp-x" aria-hidden="true"></span><span class="sr-only">No. </span>${row.them}</td>
-<td class="cmp-us" role="cell" data-label="Artweel"><span class="cmp-v" aria-hidden="true"></span><span class="sr-only">Yes. </span>${row.us}</td>
+<td class="cmp-us" role="cell" data-label="${BRAND}"><span class="cmp-v" aria-hidden="true"></span><span class="sr-only">Yes. </span>${row.us}</td>
 </tr>`,
   ).join('');
 }
 
-export function renderLanding(page: Page): string {
-  const canonical = config.PUBLIC_URL.replace(/\/$/, '');
+
+const VERTICAL_CSS = `
+/* Additive, in the same spirit as PLAN_CSS: it borrows the card vocabulary
+   already defined for .plan-card rather than inventing a second one, and adds
+   only what a dense two-line link grid needs. */
+.vert-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));
+gap:12px;margin:0;padding:0;list-style:none}
+.vert-card{display:flex;flex-direction:column;gap:5px;height:100%;
+padding:18px 18px 16px;border:1px solid rgba(255,255,255,.10);border-radius:16px;
+background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));
+text-decoration:none;color:inherit;
+transition:border-color var(--motion-base) var(--ease),
+transform var(--motion-base) var(--ease),background var(--motion-base) var(--ease)}
+a.vert-card:hover{border-color:rgba(224,127,74,.45);transform:translateY(-2px);
+background:linear-gradient(180deg,rgba(224,127,74,.10),rgba(255,255,255,.02))}
+a.vert-card:focus-visible{outline:2px solid #e07f4a;outline-offset:3px}
+.vert-card b{font-size:1rem;letter-spacing:-.015em}
+.vert-card em{font-style:normal;font-size:.88rem;line-height:1.45;opacity:.66}
+.vert-card .vert-go{margin-top:auto;padding-top:10px;font-size:.78rem;
+letter-spacing:.06em;text-transform:uppercase;opacity:.5}
+a.vert-card:hover .vert-go{opacity:.9;color:#e07f4a}
+.vert-card.is-current{border-color:rgba(224,127,74,.4);
+background:linear-gradient(180deg,rgba(224,127,74,.09),rgba(255,255,255,.02))}
+.vert-card.is-current .vert-go{color:#e07f4a;opacity:.85}
+@media(prefers-reduced-motion:reduce){a.vert-card:hover{transform:none}}
+`;
+
+/**
+ * Percentage for a capacity bar.
+ *
+ * Derived from the event's state rather than carried on it: a full booking is
+ * 100 by definition and a dimmed one is the half-empty case the design exists
+ * to show. Only the ordinary row needs the vertical's real ratio.
+ */
+function eventPct(vertical: Vertical, state?: 'dim' | 'full'): number {
+  if (state === 'full') return 100;
+  if (state === 'dim') return 50;
+  const { used, total } = vertical.capacity;
+  return total > 0 ? Math.round((used / total) * 100) : 0;
+}
+
+/** The week grid inside the dashboard mock in the hero. */
+function weekPreview(vertical: Vertical): string {
+  return vertical.week
+    .map(
+      (day) => `<div class="app-day">
+<span class="app-dow">${escapeHtml(day.dow)}</span>
+${day.events
+  .map(
+    (event) =>
+      `<div class="app-ev ev-${event.kind}${event.state ? ` ${event.state}` : ''}">${escapeHtml(event.title)}<em>${escapeHtml(event.meta)}</em></div>`,
+  )
+  .join('')}
+</div>`,
+    )
+    .join('');
+}
+
+/**
+ * The larger schedule card beside the "how it runs" copy.
+ *
+ * Same three days as the hero preview, drawn wider and with capacity bars.
+ * Rendering both from one `week` is what stops the two mocks drifting into
+ * describing different businesses on the same page.
+ */
+function scheduleCard(vertical: Vertical): string {
+  return vertical.week
+    .slice(0, 3)
+    .map(
+      (day) => `<div class="schedule-col">
+<span class="schedule-day">${escapeHtml(day.dow)}</span>
+${day.events
+  .map((event) => {
+    const pct = eventPct(vertical, event.state);
+    const bar =
+      event.kind === 'studio'
+        ? `<div class="capbar${event.state === 'full' ? ' full' : ''}"><i style="width:${pct}%"></i></div>`
+        : '';
+    const pill = event.state === 'full' ? '<span class="pill">Full</span>' : '';
+
+    return `<div class="event ev-${event.kind}${event.state === 'dim' ? ' faint' : ''}"><strong>${escapeHtml(event.title)}</strong><span>${escapeHtml(event.meta)}</span>${bar}${pill}</div>`;
+  })
+  .join('')}
+</div>`,
+    )
+    .join('');
+}
+
+/** The three slots on the booking-page card. The last one is always sold out. */
+function bookingSlots(vertical: Vertical): string {
+  return vertical.bookingCard.slots
+    .map(([label, note], i) => {
+      const sold = i === vertical.bookingCard.slots.length - 1;
+      const active = i === 1;
+
+      return `<button class="slot${active ? ' slot-active' : ''}" type="button" aria-pressed="${active}"${sold ? ' disabled' : ''}>${escapeHtml(label)} <em>${escapeHtml(note)}</em></button>`;
+    })
+    .join('');
+}
+
+/**
+ * The picker.
+ *
+ * The honest reason this section exists: one page cannot argue the capacity
+ * case in ten trades' vocabulary at once, and a page that tries reads as
+ * written for nobody. So the home page makes the general argument and hands
+ * the reader a page that makes it in their own nouns. On a vertical page the
+ * grid still renders, with that trade marked, so a visitor who landed on the
+ * wrong one can move without going back to the root.
+ */
+function verticalPicker(current: Vertical): string {
+  const cards = VERTICALS.map((vertical) => {
+    const active = vertical.slug === current.slug;
+    const inner = `<b>${escapeHtml(vertical.navLabel)}</b><em>${escapeHtml(vertical.blurb)}</em>`;
+
+    return active
+      ? `<li class="reveal"><span class="vert-card is-current" aria-current="page">${inner}<span class="vert-go" aria-hidden="true">You are here</span></span></li>`
+      : `<li class="reveal"><a class="vert-card" href="/${vertical.slug}">${inner}<span class="vert-go" aria-hidden="true">→</span></a></li>`;
+  }).join('');
+
+  return `<section class="section verticals" id="verticals" aria-labelledby="vertTitle">
+    <div class="container">
+      <div class="section-head center reveal">
+        <p class="eyebrow">One schedule, your vocabulary</p>
+        <h2 class="section-title" id="vertTitle">Written for <em>what you actually run</em></h2>
+        <p class="lede center-lede">The same engine underneath every one of these. What changes is whether it counts wheels, hulls, benches or guides — and which of those the page in front of you talks about.</p>
+      </div>
+      <ul class="vert-grid" data-stagger>${cards}</ul>
+    </div>
+  </section>`;
+}
+
+export function renderLanding(page: Page, vertical: Vertical = GENERAL): string {
+  /**
+   * Per PAGE, not per site.
+   *
+   * This was `PUBLIC_URL` alone, which was correct while the home page was the
+   * only thing rendered through here. It stopped being correct the moment ten
+   * more pages started using this template: every one of them would have
+   * declared the home page as its canonical URL and asked to be dropped from
+   * the index.
+   */
+  const canonical =
+    `${config.PUBLIC_URL}/${page.slug}`.replace(/\/$/, '') || config.PUBLIC_URL;
   // The mockup browser chrome shows the REAL dashboard host, so staging and
   // live each advertise their own rather than a name that belongs to neither.
   const appHost = new URL(config.APP_URL).host;
@@ -257,7 +433,7 @@ export function renderLanding(page: Page): string {
 <link rel="canonical" href="${escapeHtml(canonical)}">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Artweel">
+<meta property="og:site_name" content="${escapeHtml(BRAND)}">
 <meta property="og:url" content="${escapeHtml(canonical)}">
 <meta property="og:title" content="${escapeHtml(page.title)}">
 <meta property="og:description" content="${escapeHtml(page.description)}">
@@ -269,7 +445,7 @@ export function renderLanding(page: Page): string {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
 ${structuredData(page, canonical)}
-<style>${LANDING_CSS}${PLAN_CSS}</style>
+<style>${LANDING_CSS}${PLAN_CSS}${VERTICAL_CSS}</style>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -277,14 +453,15 @@ ${structuredData(page, canonical)}
 
 <header class="site-header" id="siteHeader">
   <div class="container header-inner">
-    <a href="/" class="brand" aria-label="Artweel home">
-      <span class="brand-mark" aria-hidden="true">${WHEEL_MARK(28)}</span>
-      <span class="brand-name">Artweel</span>
+    <a href="/" class="brand" aria-label="${escapeHtml(BRAND)} home">
+      <span class="brand-mark" aria-hidden="true">${BRAND_MARK(28)}</span>
+      <span class="brand-name">${escapeHtml(BRAND)}</span>
     </a>
 
     <nav class="nav-desktop" aria-label="Primary">
       <a href="#how" data-spy>How it works</a>
       <a href="#features" data-spy>Features</a>
+      <a href="#verticals" data-spy>Who it is for</a>
       <a href="#pricing" data-spy>Pricing</a>
       <a href="#guides" data-spy>FAQ</a>
       <!-- TEMPORARY demo link — remove with the /demo mount in app.ts -->
@@ -302,6 +479,7 @@ ${structuredData(page, canonical)}
     <nav class="mobile-menu-inner container" aria-label="Mobile">
       <a href="#how">How it works</a>
       <a href="#features">Features</a>
+      <a href="#verticals">Who it is for</a>
       <a href="#pricing">Pricing</a>
       <a href="#guides">FAQ</a>
       <!-- TEMPORARY demo link — remove with the /demo mount in app.ts -->
@@ -324,7 +502,7 @@ ${structuredData(page, canonical)}
     </div>
 
     <div class="container hero-inner">
-      <a href="/app?signup=1" class="badge reveal"><span class="badge-dot"></span> For ceramics studios</a>
+      <a href="/app?signup=1" class="badge reveal"><span class="badge-dot"></span> ${escapeHtml(vertical.badge)}</a>
       <div class="reveal"><h1>${escapeHtml(page.h1)}</h1></div>
       <p class="hero-sub reveal">${escapeHtml(page.intro)}</p>
       <div class="hero-cta reveal">
@@ -333,7 +511,7 @@ ${structuredData(page, canonical)}
       </div>
       <p class="hero-note reveal">No card needed. Nothing to install.</p>
 
-      <div class="hero-preview reveal" role="img" aria-label="Artweel scheduling dashboard preview">
+      <div class="hero-preview reveal" role="img" aria-label="${escapeHtml(BRAND)} scheduling dashboard preview">
         <div class="app-window" data-tilt>
           <div class="app-chrome">
             <span class="app-dots"><i></i><i></i><i></i></span>
@@ -344,7 +522,7 @@ ${structuredData(page, canonical)}
             <aside class="app-side">
               <div class="app-brand">
                 <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="18" height="18" fill="none"><circle cx="16" cy="16" r="13" stroke="currentColor" stroke-width="1.8" opacity="0.6"/><circle cx="16" cy="16" r="2.6" fill="currentColor"/></svg></span>
-                Artweel
+                ${escapeHtml(BRAND)}
               </div>
               <nav class="app-nav">
                 <span class="app-nav-item active"><i class="ico ico-cal"></i>Schedule</span>
@@ -353,8 +531,8 @@ ${structuredData(page, canonical)}
                 <span class="app-nav-item"><i class="ico ico-pay"></i>Payments</span>
               </nav>
               <div class="app-cap">
-                <span class="app-cap-label">Wheels in use</span>
-                <div class="app-cap-ring" style="--pct:75"><b>6<span>/8</span></b></div>
+                <span class="app-cap-label">${escapeHtml(vertical.capacity.label)}</span>
+                <div class="app-cap-ring" style="--pct:${eventPct(vertical)}"><b>${vertical.capacity.used}<span>/${vertical.capacity.total}</span></b></div>
               </div>
             </aside>
             <div class="app-main">
@@ -362,25 +540,7 @@ ${structuredData(page, canonical)}
                 <strong>This week</strong>
                 <span class="app-tabs"><i class="active">Week</i><i>Day</i><i>List</i></span>
               </div>
-              <div class="app-week">
-                <div class="app-day">
-                  <span class="app-dow">Mon</span>
-                  <div class="app-ev ev-studio">Wheel throwing<em>6/8 · studio</em></div>
-                  <div class="app-ev ev-private">Hen party<em>10 seats</em></div>
-                </div>
-                <div class="app-day">
-                  <span class="app-dow">Tue</span>
-                  <div class="app-ev ev-mobile">Mobile party<em>12 km away</em></div>
-                  <div class="app-ev ev-studio dim">Handbuilding<em>4/8 · studio</em></div>
-                </div>
-                <div class="app-day">
-                  <span class="app-dow">Wed</span>
-                  <div class="app-ev ev-studio full">Beginners<em>Full · 8/8</em></div>
-                </div>
-                <div class="app-day">
-                  <span class="app-dow">Thu</span>
-                  <div class="app-ev ev-course">Course · wk 3<em>12 enrolled</em></div>
-                </div>
+              <div class="app-week">${weekPreview(vertical)}
               </div>
             </div>
           </div>
@@ -407,8 +567,8 @@ ${structuredData(page, canonical)}
       <ol class="steps" data-stagger>
         <li class="step reveal">
           <span class="step-n" aria-hidden="true">01</span>
-          <h3>Describe your studio once</h3>
-          <p>How many wheels you own, which classes you run, what deposit you take, and how far you will travel for a party. That is the entire setup.</p>
+          <h3>Describe your business once</h3>
+          <p>${escapeHtml(vertical.setupStep)}</p>
           <span class="step-tag">About 20 minutes</span>
         </li>
         <li class="step reveal">
@@ -419,7 +579,7 @@ ${structuredData(page, canonical)}
         </li>
         <li class="step reveal">
           <span class="step-n" aria-hidden="true">03</span>
-          <h3>Turn up and teach</h3>
+          <h3>Turn up and run it</h3>
           <p>Reminders go out on their own, the register is on your phone, and the money lands in your Stripe account. Nobody messages you to ask what time it starts.</p>
           <span class="step-tag">Every week after</span>
         </li>
@@ -430,10 +590,10 @@ ${structuredData(page, canonical)}
   <section class="features section" id="features" aria-labelledby="featTitle">
     <div class="container">
       <div class="section-head reveal">
-        <p class="eyebrow">Everything a studio needs</p>
-        <h2 class="section-title" id="featTitle">Built around <em>wheels, kilns and people</em> — not appointments</h2>
+        <p class="eyebrow">Everything you need, nothing you do not</p>
+        <h2 class="section-title" id="featTitle">Built around <em>what you own</em> — not appointments</h2>
       </div>
-      <div class="feature-grid" id="featureGrid" data-stagger>${featureGrid()}</div>
+      <div class="feature-grid" id="featureGrid" data-stagger>${featureGrid(vertical)}</div>
     </div>
   </section>
 
@@ -441,9 +601,9 @@ ${structuredData(page, canonical)}
     <div class="container split-grid">
       <div class="split-copy reveal">
         <p class="eyebrow">How it runs</p>
-        <h2 class="section-title" id="opsTitle">Built for how a ceramics studio <em>actually</em> runs</h2>
-        <p class="lede">Most booking software was built for hair salons, gyms, and massage therapists. It treats a studio as a list of appointments. A pottery studio is a number of wheels, kilns, and people.</p>
-        <p class="body-muted">This one starts from the constraints you actually have: the wheels in the room, the kiln that is running overnight, and the fact that half your work happens at somebody's address.</p>
+        <h2 class="section-title" id="opsTitle">Built for how it <em>actually</em> runs</h2>
+        <p class="lede">Most booking software was built for hair salons, gyms and massage therapists. It treats a business as a list of appointments. ${escapeHtml(vertical.capacity.headline)}.</p>
+        <p class="body-muted">${escapeHtml(vertical.capacity.body)}</p>
       </div>
 
       <div class="split-visual reveal">
@@ -453,20 +613,7 @@ ${structuredData(page, canonical)}
             <span class="schedule-legend"><i class="dot dot-studio"></i>Studio<i class="dot dot-mobile"></i>Mobile<i class="dot dot-private"></i>Private</span>
           </div>
           <div class="schedule-body">
-            <div class="schedule-col">
-              <span class="schedule-day">Mon</span>
-              <div class="event ev-studio"><strong>Studio class</strong><span>Wheel throwing · 6/8 wheels</span><div class="capbar"><i style="width:75%"></i></div></div>
-              <div class="event ev-private"><strong>Private event</strong><span>Hen party · 10 seats</span></div>
-            </div>
-            <div class="schedule-col">
-              <span class="schedule-day">Tue</span>
-              <div class="event ev-mobile"><strong>Mobile party</strong><span>On-site · 12 km away</span></div>
-              <div class="event ev-studio faint"><strong>Studio class</strong><span>Handbuilding · 4/8 wheels</span><div class="capbar"><i style="width:50%"></i></div></div>
-            </div>
-            <div class="schedule-col">
-              <span class="schedule-day">Wed</span>
-              <div class="event ev-studio"><strong>Studio class</strong><span>Beginners · 8/8 wheels</span><div class="capbar full"><i style="width:100%"></i></div><span class="pill">Full</span></div>
-            </div>
+            ${scheduleCard(vertical)}
           </div>
         </div>
       </div>
@@ -487,20 +634,16 @@ ${structuredData(page, canonical)}
           <div class="ig-head">
             <span class="ig-avatar" aria-hidden="true"><svg viewBox="0 0 32 32" width="26" height="26" fill="none"><circle cx="16" cy="16" r="10" stroke="currentColor" stroke-width="1.5"/><circle cx="16" cy="16" r="3" fill="currentColor"/></svg></span>
             <div class="ig-meta">
-              <strong>Pottery Workshop</strong>
-              <span>@your.studio · Ceramics studio</span>
+              <strong>${escapeHtml(vertical.bookingCard.name)}</strong>
+              <span>${escapeHtml(vertical.bookingCard.handle)} · ${escapeHtml(vertical.bookingCard.kind)}</span>
             </div>
             <span class="ig-badge">Live</span>
           </div>
-          <p class="ig-bio">Hand-thrown classes &amp; mobile parties · Book below ↓</p>
-          <div class="ig-slots">
-            <button class="slot" type="button" aria-pressed="false">Thu 18:00 <em>2 left</em></button>
-            <button class="slot slot-active" type="button" aria-pressed="true">Sat 10:30 <em>5 left</em></button>
-            <button class="slot" type="button" aria-pressed="false" disabled>Sun 14:00 <em>Full</em></button>
-          </div>
+          <p class="ig-bio">${vertical.bookingCard.bio}</p>
+          <div class="ig-slots">${bookingSlots(vertical)}</div>
           <div class="ig-cta">
-            <span>Deposit $15 · balance on the day</span>
-            <span class="ig-book">Book a class</span>
+            <span>${escapeHtml(vertical.bookingCard.deposit)}</span>
+            <span class="ig-book">${escapeHtml(vertical.bookingCard.cta)}</span>
           </div>
         </div>
       </div>
@@ -510,10 +653,10 @@ ${structuredData(page, canonical)}
   <section class="section split" id="mobile-parties" aria-labelledby="mobileTitle">
     <div class="container split-grid">
       <div class="split-copy reveal">
-        <p class="eyebrow">Mobile parties</p>
-        <h2 class="section-title" id="mobileTitle">Mobile parties are a <em>first-class</em> booking, not a workaround</h2>
-        <p class="lede">Set the area you travel to and what you charge by distance. Customers enter their address before they choose a time, so an out-of-range booking never gets made in the first place.</p>
-        <p class="body-muted">Travel time is subtracted from your day, so the system will not sell you a studio class forty minutes after a party across town.</p>
+        <p class="eyebrow">${escapeHtml(vertical.travel.eyebrow)}</p>
+        <h2 class="section-title" id="mobileTitle">${vertical.travel.title}</h2>
+        <p class="lede">${escapeHtml(vertical.travel.lede)}</p>
+        <p class="body-muted">${escapeHtml(vertical.travel.body)}</p>
       </div>
 
       <div class="split-visual reveal">
@@ -526,9 +669,9 @@ ${structuredData(page, canonical)}
             <div class="map-route"></div>
           </div>
           <div class="map-flow">
-            <div class="flow-step done"><span class="flow-i">1</span>Address entered</div>
-            <div class="flow-step done"><span class="flow-i">2</span>Inside travel zone · 12 km</div>
-            <div class="flow-step"><span class="flow-i">3</span>Pick a date &amp; time</div>
+            <div class="flow-step done"><span class="flow-i">1</span>${escapeHtml(vertical.travel.flow[0])}</div>
+            <div class="flow-step done"><span class="flow-i">2</span>${escapeHtml(vertical.travel.flow[1])}</div>
+            <div class="flow-step"><span class="flow-i">3</span>${escapeHtml(vertical.travel.flow[2])}</div>
           </div>
         </div>
       </div>
@@ -541,7 +684,7 @@ ${structuredData(page, canonical)}
         <div class="int-copy">
           <p class="eyebrow">Works with your stack</p>
           <h2 class="section-title" id="intTitle">Nothing to rip out</h2>
-          <p class="body-muted">Your payments, your calendar and your inbox stay exactly where they are. Artweel plugs into them rather than replacing them.</p>
+          <p class="body-muted">Your payments, your calendar and your inbox stay exactly where they are. ${escapeHtml(BRAND)} plugs into them rather than replacing them.</p>
         </div>
         <ul class="int-list" data-stagger>${INTEGRATIONS.map(
           (item) => `<li class="reveal"><span class="int-ico" aria-hidden="true">${item.mark}</span><b>${item.name}</b><em>${item.note}</em></li>`,
@@ -555,20 +698,20 @@ ${structuredData(page, canonical)}
       <div class="section-head center reveal">
         <p class="eyebrow">The difference</p>
         <h2 class="section-title" id="cmpTitle">What a <em>generic</em> booking tool makes you fake</h2>
-        <p class="lede center-lede">Everything below is something studio owners already work around by hand, every week.</p>
+        <p class="lede center-lede">Everything below is something owners already work around by hand, every week.</p>
       </div>
 
       <div class="cmp-wrap reveal">
         <table class="cmp-table" role="table">
-          <caption class="sr-only">Feature comparison between generic booking tools and Artweel</caption>
+          <caption class="sr-only">Feature comparison between generic booking tools and ${escapeHtml(BRAND)}</caption>
           <thead role="rowgroup">
             <tr role="row">
               <th scope="col" role="columnheader">What you need</th>
               <th scope="col" role="columnheader">Generic booking tools</th>
-              <th scope="col" class="cmp-us" role="columnheader"><span class="cmp-us-tag">Artweel</span></th>
+              <th scope="col" class="cmp-us" role="columnheader"><span class="cmp-us-tag">${escapeHtml(BRAND)}</span></th>
             </tr>
           </thead>
-          <tbody role="rowgroup">${comparisonRows()}</tbody>
+          <tbody role="rowgroup">${comparisonRows(vertical)}</tbody>
         </table>
       </div>
     </div>
@@ -584,7 +727,7 @@ ${structuredData(page, canonical)}
             <h2 class="section-title" id="roadmapTitle">Being built next</h2>
             <p class="lede lede-on-dark">Listed so you know where this is going before you commit to it. None of it is available today.</p>
           </div>
-          <ul class="roadmap-list" id="roadmapList">${roadmapList()}</ul>
+          <ul class="roadmap-list" id="roadmapList">${roadmapList(vertical)}</ul>
         </div>
       </div>
     </div>
@@ -619,6 +762,8 @@ ${structuredData(page, canonical)}
     </div>
   </section>
 
+  ${verticalPicker(vertical)}
+
   <section class="section final-cta" id="start" aria-labelledby="ctaTitle">
     <div class="cta-bg" aria-hidden="true">
       <div class="cta-rings"></div>
@@ -627,10 +772,10 @@ ${structuredData(page, canonical)}
     </div>
     <div class="container cta-inner reveal">
       <p class="eyebrow eyebrow-on-dark">Start today</p>
-      <h2 class="cta-title" id="ctaTitle">Try it on your own studio</h2>
+      <h2 class="cta-title" id="ctaTitle">Try it on your own bookings</h2>
       <p class="cta-sub">${escapeHtml(page.cta ?? 'Start free for 14 days. No card needed.')}</p>
       <a href="/app?signup=1" class="btn btn-primary btn-lg btn-shine">Start free for 14 days</a>
-      <p class="cta-fine">Set up in an afternoon · keep 100% of your bookings</p>
+      <p class="cta-fine">Set up in an afternoon · keep 100% of what you take</p>
     </div>
   </section>
 </main>
@@ -639,11 +784,11 @@ ${structuredData(page, canonical)}
   <div class="container">
     <div class="footer-top">
       <div class="footer-brand">
-        <a href="/" class="brand" aria-label="Artweel home">
-          <span class="brand-mark" aria-hidden="true">${WHEEL_MARK(24)}</span>
-          <span class="brand-name">Artweel</span>
+        <a href="/" class="brand" aria-label="${escapeHtml(BRAND)} home">
+          <span class="brand-mark" aria-hidden="true">${BRAND_MARK(24)}</span>
+          <span class="brand-name">${escapeHtml(BRAND)}</span>
         </a>
-        <p class="footer-blurb">Booking software for pottery and ceramics studios. Built around wheels, kilns and people — not appointments.</p>
+        <p class="footer-blurb">${escapeHtml(vertical.footerBlurb)}</p>
         <p class="footer-flag"><span class="footer-dot" aria-hidden="true"></span>No commission on any booking</p>
       </div>
 
@@ -653,14 +798,16 @@ ${structuredData(page, canonical)}
         <a href="#features">Features</a>
         <a href="/pricing">Pricing</a>
         <a href="#roadmap">Being built next</a>
+        <!-- The guides are the only long-form pages on the site and the only
+             ones that earn links. They lost their footer slot when this column
+             became the trade index; they belong here instead of nowhere. -->
+        <a href="/guides/how-many-wheels-can-you-fill">Guides</a>
       </nav>
 
       <nav class="footer-col" aria-labelledby="fcol2">
-        <h2 class="footer-h" id="fcol2">For studios</h2>
-        <a href="#ops">Studio capacity</a>
-        <a href="#booking-page">Your booking page</a>
-        <a href="#mobile-parties">Mobile parties</a>
-        <a href="/guides/pricing-mobile-pottery-parties">Guides</a>
+        <h2 class="footer-h" id="fcol2">Who it is for</h2>
+        ${FOOTER_VERTICALS}
+        <a href="#verticals">All ten &rarr;</a>
       </nav>
 
       <nav class="footer-col" aria-labelledby="fcol3">
@@ -673,7 +820,7 @@ ${structuredData(page, canonical)}
     </div>
 
     <div class="footer-bottom">
-      <p class="footer-copy">© Artweel ${new Date().getFullYear()} · Made for studios that keep 100% of what they take</p>
+      <p class="footer-copy">© ${escapeHtml(BRAND)} ${new Date().getFullYear()} · Made for studios that keep 100% of what they take</p>
       <p class="footer-built">Set up in an afternoon · nothing to install</p>
     </div>
   </div>

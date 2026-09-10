@@ -10,7 +10,7 @@
  * Do not hand-edit for content changes — it is design only.
  */
 export const LANDING_CSS = `/* =========================================================
-   Artweel — premium dark SaaS landing page
+   BookAIHub — premium dark SaaS landing page
    ========================================================= */
 
 :root {
@@ -708,7 +708,7 @@ em { font-style: normal; }
 .cmp-table tbody tr + tr th, .cmp-table tbody tr + tr td { border-top: 1px solid var(--line); }
 .cmp-table tbody tr:hover th, .cmp-table tbody tr:hover td { background: rgba(255,255,255,.018); }
 
-/* highlighted Artweel column */
+/* highlighted brand column */
 .cmp-table .cmp-us { background: rgba(224,127,74,.055); }
 .cmp-table tbody td.cmp-us { color: var(--text-2); }
 .cmp-table thead th.cmp-us { background: rgba(224,127,74,.09); border-bottom-color: var(--accent-line); }

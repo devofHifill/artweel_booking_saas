@@ -2,6 +2,7 @@ import { config } from '../../config';
 import { tokensCss } from '../../lib/design-tokens';
 import { PLANS } from '../billing/plan';
 import {
+  BRAND,
   COMING_SOON,
   SHIPPING_FEATURES,
   type Page,
@@ -224,9 +225,10 @@ footer nav{margin-left:0}
 const NAV = `
 <header class="site">
   <div class="wrap">
-    <a class="logo" href="/">${MARK}Artweel</a>
+    <a class="logo" href="/">${MARK}${escapeHtml(BRAND)}</a>
     <nav>
       <a href="/pricing">Pricing</a>
+      <a href="/#verticals">Who it is for</a>
       <a href="/guides/pricing-mobile-pottery-parties">Guides</a>
       <!-- TEMPORARY demo link — remove with the /demo mount in app.ts -->
       <a href="/demo">Demo</a>
@@ -240,7 +242,7 @@ function footer(): string {
   return `
 <footer>
   <div class="wrap">
-    <a class="logo" href="/">${MARK}Artweel</a>
+    <a class="logo" href="/">${MARK}${escapeHtml(BRAND)}</a>
     <span>&copy; ${new Date().getFullYear()}</span>
     <nav>
       <a href="/pricing">Pricing</a>
@@ -314,11 +316,19 @@ function eyebrow(page: Page): string {
 export function structuredData(page: Page, canonical: string): string {
   const blocks: unknown[] = [];
 
-  if (page.slug === '' || page.slug === 'pricing') {
+  /*
+    The pages that actually quote a price.
+
+    The trade pages joined this list when they started rendering the plan grid:
+    a landing page that shows three prices and declares no Offer is asking to
+    be summarised without them. Guides and comparison pages stay out — they
+    link to pricing rather than stating it.
+  */
+  if (page.slug === '' || page.slug === 'pricing' || page.slug.startsWith('for/')) {
     blocks.push({
       '@context': 'https://schema.org',
       '@type': 'SoftwareApplication',
-      name: 'Artweel',
+      name: BRAND,
       applicationCategory: 'BusinessApplication',
       operatingSystem: 'Web',
       description: page.description,
@@ -339,7 +349,7 @@ export function structuredData(page: Page, canonical: string): string {
       description: page.description,
       datePublished: page.article.published,
       mainEntityOfPage: canonical,
-      author: { '@type': 'Organization', name: 'Artweel' },
+      author: { '@type': 'Organization', name: BRAND },
     });
   }
 
@@ -396,7 +406,7 @@ export function renderMarketingPage(page: Page): string {
   const head = isHome
     ? `<div class="hero dark">
   <div class="wrap">
-    <p class="eyebrow">For ceramics studios</p>
+    <p class="eyebrow">For studios, tours and workshops</p>
     <h1>${escapeHtml(page.h1)}</h1>
     <p class="lede">${escapeHtml(page.intro)}</p>
     <div class="hero-cta">

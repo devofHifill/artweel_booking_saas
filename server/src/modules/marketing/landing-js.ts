@@ -16,7 +16,7 @@
  * FAQ accordion wiring.
  */
 export const LANDING_JS = `/* =========================================================
-   Artweel — landing page interactions
+   BookAIHub — landing page interactions
    ========================================================= */
 (function () {
   "use strict";

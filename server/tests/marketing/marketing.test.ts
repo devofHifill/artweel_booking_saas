@@ -6,6 +6,7 @@ import { resetDb } from '../helpers/fixtures';
 import { signUpStudio } from '../helpers/api';
 import { resetRateLimits } from '../../src/middleware/rate-limit';
 import { ALL_PAGES, COMING_SOON } from '../../src/modules/marketing/content';
+import { VERTICALS } from '../../src/modules/marketing/verticals';
 
 /**
  * The marketing site.
@@ -36,9 +37,37 @@ describe('pages', () => {
 
     expect(res.status).toBe(200);
     expect(res.type).toBe('text/html');
-    expect(res.text).toContain('<h1>Booking software built for pottery studios');
+    expect(res.text).toContain('<h1>Booking software built around what you actually own');
     // Content in the first response, not an empty div for a bundle to fill.
+    expect(res.text).toContain('whatever you own, that is the number');
+  });
+
+  /**
+   * The home page stopped being the pottery page on 2026-09-10. Pottery did
+   * not lose anything — the copy moved to /for/pottery word for word — and
+   * this asserts that, because the one way to get a multi-vertical site wrong
+   * is to dilute the page that already converts.
+   */
+  it('keeps the pottery pitch intact at its own URL', async () => {
+    const res = await request(app).get('/for/pottery');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('<h1>Booking software built for pottery studios');
     expect(res.text).toContain('Eight wheels means eight students');
+  });
+
+  it('gives every trade a landing page in its own nouns', async () => {
+    for (const vertical of VERTICALS) {
+      const res = await request(app).get(`/${vertical.slug}`);
+
+      expect(res.status, vertical.slug).toBe(200);
+      // The designed landing template, not the document one the guides use.
+      expect(res.text, vertical.slug).toContain('class="hero-inner"');
+      // The capacity claim is the whole argument of the page.
+      expect(res.text, vertical.slug).toContain(vertical.capacity.label);
+      // And every page can reach the others.
+      expect(res.text, vertical.slug).toContain('id="verticals"');
+    }
   });
 
   it('serves every declared page', async () => {
@@ -126,6 +155,27 @@ describe('technical SEO', () => {
     for (const page of ALL_PAGES) {
       const res = await request(app).get(`/${page.slug}`);
       expect(res.text, page.slug).toContain('rel="canonical"');
+    }
+  });
+
+  /**
+   * The canonical must name THIS page.
+   *
+   * renderLanding built its canonical from PUBLIC_URL alone, which was right
+   * while it rendered one page and became a self-inflicted deindexing the
+   * moment ten more used it: every trade page would have pointed at the home
+   * page and asked to be dropped. Asserting containment of the slug is what
+   * makes that regression impossible to reintroduce quietly.
+   */
+  it('points each canonical at its own URL, not the site root', async () => {
+    for (const page of ALL_PAGES) {
+      if (!page.slug) continue;
+
+      const res = await request(app).get(`/${page.slug}`);
+      const canonical = /<link rel="canonical" href="([^"]+)"/.exec(res.text)?.[1];
+
+      expect(canonical, page.slug).toBeDefined();
+      expect(canonical, page.slug).toContain(`/${page.slug}`);
     }
   });
 
