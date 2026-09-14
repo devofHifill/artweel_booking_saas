@@ -6,7 +6,8 @@ import { resetDb } from '../helpers/fixtures';
 import { signUpStudio } from '../helpers/api';
 import { resetRateLimits } from '../../src/middleware/rate-limit';
 import { ALL_PAGES, COMING_SOON } from '../../src/modules/marketing/content';
-import { VERTICALS } from '../../src/modules/marketing/verticals';
+import { escapeHtml } from '../../src/modules/marketing/render';
+import { GENERAL, VERTICALS } from '../../src/modules/marketing/verticals';
 
 /**
  * The marketing site.
@@ -62,7 +63,10 @@ describe('pages', () => {
 
       expect(res.status, vertical.slug).toBe(200);
       // The designed landing template, not the document one the guides use.
-      expect(res.text, vertical.slug).toContain('class="hero-inner"');
+      // The class list is asserted whole: `hero-inner` on its own also matches
+      // the stylesheet, so a landing template that stopped emitting the hero
+      // would still pass on the CSS rule that styles it.
+      expect(res.text, vertical.slug).toContain('class="container hero-inner"');
       // The capacity claim is the whole argument of the page.
       expect(res.text, vertical.slug).toContain(vertical.capacity.label);
       // And every page can reach the others.
@@ -74,7 +78,12 @@ describe('pages', () => {
     for (const page of ALL_PAGES) {
       const res = await request(app).get(`/${page.slug}`);
       expect(res.status, `page /${page.slug}`).toBe(200);
-      expect(res.text).toContain(page.h1);
+      // Escaped, because the h1 is escaped on the way out and `paint & sip`
+      // reaches the page as `paint &amp; sip`. Comparing the raw string would
+      // fail every page whose title contains an ampersand while the page is
+      // in fact correct — and, worse, would pass a page that emitted the raw
+      // `&`, which is the actual bug worth catching here.
+      expect(res.text, `page /${page.slug}`).toContain(escapeHtml(page.h1));
     }
   });
 
@@ -265,8 +274,21 @@ describe('honesty of the copy', () => {
     expect(res.text).toContain('Being built next');
     expect(res.text).toContain('Not available yet');
 
+    // The home page stopped being the pottery page on 2026-09-10, and with it
+    // the roadmap stopped being worded in pottery's nouns: GENERAL overrides
+    // COMING_SOON with a trade-neutral list, and the pottery wording lives on
+    // at /for/pottery. Asserting the override rather than the default is what
+    // keeps this honest for whichever list the page actually renders.
+    for (const item of GENERAL.comingSoon ?? COMING_SOON) {
+      expect(res.text).toContain(escapeHtml(item.slice(0, 30)));
+    }
+  });
+
+  it('keeps the pottery roadmap honest at its own URL', async () => {
+    const res = await request(app).get('/for/pottery');
+
     for (const item of COMING_SOON) {
-      expect(res.text).toContain(item.slice(0, 30));
+      expect(res.text).toContain(escapeHtml(item.slice(0, 30)));
     }
   });
 
