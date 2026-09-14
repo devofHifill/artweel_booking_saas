@@ -219,7 +219,7 @@ describe('the studios list header and filters', () => {
   it('reports MRR only for studios that actually pay', async () => {
     const paying = await signUpStudio(app, { organizationName: 'Kiln House' });
     await prisma.organization.update({
-      where: { id: paying.organization?.id ?? paying.organizationId },
+      where: { id: paying.organizationId },
       data: {
         subscriptionStatus: 'ACTIVE',
         plan: 'STUDIO',
