@@ -2041,7 +2041,8 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
   line-height: 1.4;
 }
 .bell-item:hover { background: var(--clay-lt); }
-a.bell-item { text-decoration: none; align-items: center; }
+a.bell-item { text-decoration: none; }
+.menu-sep .bell-item { align-items: center; }
 /* A rule between groups in a dropdown panel, e.g. the account menu. */
 .menu-sep {
   border-top: 1px solid var(--line);
