@@ -370,7 +370,8 @@ export default function App() {
                 {/* Plan is hidden with the ceramics three — the demo has no
                     billing screen. `/billing` still works, and the trial and
                     payment banners still appear on every page, so a studio is
-                    not cut off from paying. */}
+                    not cut off from paying. The way in is the account menu
+                    (avatar, top right) — not here, so there is one entry. */}
               </>
             )}
           </nav>
