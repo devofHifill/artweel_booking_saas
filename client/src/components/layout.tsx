@@ -1,0 +1,505 @@
+import { useEffect, useRef, type ReactNode } from 'react';
+import { Icon, type IconName } from './Icon';
+
+/**
+ * Page-level layout primitives.
+ *
+ * These are extraction, not invention. `.page-head`, `.toolbar`, `.stats`,
+ * `table`/`th` and `.tag` all already existed in styles.css — what did not exist
+ * was one way to write them, so every page wrote its own. Customers opened with
+ * a `<div class="page-head">` wrapping a nested `<div>`; Classes used a
+ * `<header>` with the toolbar inside it and no subtitle at all. Both render, and
+ * the vertical rhythm differs by a few pixels between them for no reason anybody
+ * chose.
+ *
+ * Loading, empty and skeleton states live in `states.tsx` and are NOT duplicated
+ * here.
+ */
+
+/**
+ * The heading block every page opens with.
+ *
+ * `actions` is a separate slot rather than something callers append to
+ * `children`, because the two behave differently when the screen narrows: the
+ * title wraps, the actions drop to their own row and stay on one line.
+ */
+export function PageHead({
+  title,
+  lede,
+  actions,
+}: {
+  title: ReactNode;
+  /** One line on what this page is for. Optional — most pages need none. */
+  lede?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="page-head">
+      <div className="ph-text">
+        <h1>{title}</h1>
+        {lede && <p className="lede">{lede}</p>}
+      </div>
+      {actions && <div className="ph-actions">{actions}</div>}
+    </header>
+  );
+}
+
+/** Filters and controls that act on the page below them. */
+export function Toolbar({ children }: { children: ReactNode }) {
+  return <div className="toolbar">{children}</div>;
+}
+
+export function StatGrid({
+  children,
+  className = 'stats',
+}: {
+  children: ReactNode;
+  /** Today's figure row is not an even grid, so it passes its own class. */
+  className?: string;
+}) {
+  return <div className={className}>{children}</div>;
+}
+
+/**
+ * One figure.
+ *
+ * The label comes first in the DOM and reads first on screen, which is the
+ * opposite of how these are usually built. A number with no label is not
+ * information, and a screen reader announcing "6" before "classes today" makes
+ * somebody wait for the meaning.
+ */
+export function Stat({
+  label,
+  value,
+  hint,
+}: {
+  label: ReactNode;
+  value: ReactNode;
+  hint?: ReactNode;
+}) {
+  return (
+    <div className="card stat">
+      <div className="label">{label}</div>
+      <div className="value">{value}</div>
+      {hint && <p className="sub">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * A table that survives a narrow screen.
+ *
+ * The wrapper is the whole point. A wide table with no scroll container makes
+ * the PAGE scroll sideways, which moves the navigation off screen and is
+ * indistinguishable from a broken layout. Scrolling the table alone is a
+ * recognised gesture; scrolling the document sideways is a bug report.
+ */
+export function DataTable({
+  head,
+  children,
+  caption,
+}: {
+  head: ReactNode;
+  children: ReactNode;
+  /** Announced to screen readers; visually hidden. */
+  caption?: string;
+}) {
+  return (
+    <div className="table-wrap">
+      <table>
+        {caption && <caption className="sr-only">{caption}</caption>}
+        <thead>{head}</thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * The foot of a paged table.
+ *
+ * Prints the RANGE and the total — "26–50 of 312" — rather than "page 2 of
+ * 13". A page number is a fact about the pager; the range is a fact about the
+ * customers, and it is the one that tells somebody scanning for a name
+ * whether they have already passed it.
+ *
+ * Renders even on a single page, deliberately: the count is worth having, and
+ * a footer that appears only sometimes makes the table jump when a search
+ * narrows it.
+ */
+export function Pager({
+  page,
+  pageSize,
+  total,
+  onPage,
+  noun = 'rows',
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPage: (page: number) => void;
+  /** Plural. "customers", "bookings". */
+  noun?: string;
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const first = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const last = Math.min(page * pageSize, total);
+
+  return (
+    <div className="pager">
+      <span className="tiny muted">
+        {total === 0
+          ? `No ${noun}`
+          : `${first}–${last} of ${total} ${noun}`}
+      </span>
+
+      {pages > 1 && (
+        <div className="pager-actions">
+          <button
+            type="button"
+            className="ghost"
+            disabled={page <= 1}
+            onClick={() => onPage(page - 1)}
+          >
+            Previous
+          </button>
+          {/* The page number is small print between two buttons rather than a
+              row of numbered links: a studio pages through this looking for a
+              name, and never jumps to page nine on purpose. */}
+          <span className="tiny muted">
+            Page {page} of {pages}
+          </span>
+          <button
+            type="button"
+            className="ghost"
+            disabled={page >= pages}
+            onClick={() => onPage(page + 1)}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A KPI tile.
+ *
+ * Lived in Dashboard.tsx until D5, when Customers wanted the same row of
+ * figures. `foot` is optional because not every figure has a comparison to
+ * make — the dashboard's tiles carry a trend against yesterday, the customer
+ * tiles are simply four numbers.
+ */
+export function Kpi({
+  label,
+  value,
+  foot,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: string;
+  foot?: ReactNode;
+  tone?: 'green' | 'violet' | 'amber' | 'red';
+  /**
+   * The glyph in the tinted chip. Decorative — the label beside it already
+   * says what the number is, so it is `aria-hidden` via `Icon`'s default and
+   * adds nothing to the accessibility tree.
+   *
+   * Optional since D8. Reports puts five and six tiles in a row and has no
+   * meaningful glyph for most of them; the prototype's report tiles are this
+   * same shell with the chip left off, and inventing an icon per figure would
+   * have given six tiles six shrugs. Where a screen has real icons — the
+   * dashboard, Payments — they still carry.
+   */
+  icon?: IconName;
+}) {
+  return (
+    <div className={`card kpi ${tone ?? ''}`.trim()}>
+      <div className="k-top">
+        <span className="kpi-label">{label}</span>
+        {icon && (
+          <span className="k-icon">
+            <Icon name={icon} size={16} />
+          </span>
+        )}
+      </div>
+      <span className="kpi-value">{value}</span>
+      {foot && <span className="kpi-foot">{foot}</span>}
+    </div>
+  );
+}
+
+/**
+ * Whether a booking is paid, part paid, or not paid at all.
+ *
+ * Derived from the two numbers rather than stored, so it cannot disagree with
+ * the money. Exported because three screens ask the same question and the
+ * answer must be the same on all of them.
+ */
+export function paymentState(
+  totalCents: number,
+  outstandingCents: number,
+): 'PAID' | 'PART_PAID' | 'UNPAID' {
+  if (outstandingCents <= 0) return 'PAID';
+  if (outstandingCents < totalCents) return 'PART_PAID';
+  return 'UNPAID';
+}
+
+/**
+ * Paid / part paid / unpaid, as a pill.
+ *
+ * Mapped onto the existing status-pill vocabulary instead of inventing three
+ * more classes: paid reads like a confirmation, part-paid like something
+ * pending, unpaid like a no-show. Same colours the rest of the product already
+ * uses for those meanings.
+ *
+ * Lived in Dashboard.tsx until D2, when Bookings needed the same column. Two
+ * copies of "is this paid" is how two screens end up disagreeing about one
+ * booking.
+ */
+export function PaymentPill({
+  state,
+}: {
+  state: 'PAID' | 'PART_PAID' | 'UNPAID';
+}) {
+  if (state === 'PAID') return <StatusPill status="CONFIRMED">Paid</StatusPill>;
+  if (state === 'PART_PAID')
+    return <StatusPill status="PENDING">Part paid</StatusPill>;
+  return <StatusPill status="NO_SHOW">Unpaid</StatusPill>;
+}
+
+/**
+ * A status pill.
+ *
+ * The colour comes from the status class already defined in styles.css — there
+ * are twenty-nine of them, covering bookings, waitlists, pieces and firings, and
+ * this deliberately does not add a thirtieth vocabulary of its own.
+ *
+ * Colour is never the only carrier: the status is also spelled out in the label.
+ */
+export function StatusPill({
+  status,
+  children,
+}: {
+  /** An UPPER_SNAKE status, matching the `.tag.X` classes. */
+  status: string;
+  /** Overrides the humanised status when the page has better words for it. */
+  children?: ReactNode;
+}) {
+  return (
+    <span className={`tag ${status}`}>{children ?? humanise(status)}</span>
+  );
+}
+
+/** NO_SHOW → "No show". Shouting at the user is not a design decision. */
+function humanise(status: string): string {
+  const lower = status.replace(/_/g, ' ').toLowerCase();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+export type TabItem = { id: string; label: ReactNode; count?: number };
+
+/**
+ * Tabs over one page's content.
+ *
+ * Buttons in a `tablist`, not links. These switch what is shown within a screen
+ * and do not deserve their own history entries — a reader who tabbed through
+ * four views and pressed Back expects to leave the page, not to walk back
+ * through the tabs.
+ */
+export function Tabs({
+  items,
+  active,
+  onChange,
+  label,
+}: {
+  items: TabItem[];
+  active: string;
+  onChange: (id: string) => void;
+  /** Names the group for screen readers, e.g. "Report sections". */
+  label: string;
+}) {
+  return (
+    <div className="tabs" role="tablist" aria-label={label}>
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          role="tab"
+          aria-selected={item.id === active}
+          className={`tab ${item.id === active ? 'on' : ''}`}
+          onClick={() => onChange(item.id)}
+        >
+          {item.label}
+          {item.count !== undefined && item.count > 0 && (
+            <span className="tab-count">{item.count}</span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A segmented control, for a small set of mutually exclusive choices.
+ *
+ * Distinct from Tabs, which switch what is displayed. This changes a PARAMETER
+ * of what is displayed — a date range, a theme — and the two look similar enough
+ * that using one for the other's job teaches people the wrong thing about both.
+ *
+ * The styles arrived with the Appearance screen, which was the first place a
+ * three-way choice needed to sit beside its label.
+ */
+export function SegRange<T extends string | number>({
+  options,
+  value,
+  onChange,
+  label,
+}: {
+  options: { value: T; label: ReactNode }[];
+  value: T;
+  onChange: (value: T) => void;
+  label: string;
+}) {
+  return (
+    <div className="seg" role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={String(option.value)}
+          type="button"
+          aria-pressed={option.value === value}
+          className={option.value === value ? 'on' : ''}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A modal dialog.
+ *
+ * The first one in the product — `.modal` and `.modal-backdrop` have been
+ * sitting in styles.css with no consumer, from a screen that was reworked
+ * before it shipped. Payments is where one is genuinely right: a transaction
+ * detail is a DIGRESSION from a list somebody is scanning, and they expect to
+ * come back to the same scroll position with the same filters, which a route
+ * change cannot promise.
+ *
+ * It carries the things a hand-rolled overlay always forgets, because doing
+ * them per screen is how a product ends up with three dialogs that behave
+ * differently:
+ *
+ * - **Escape closes it.** An overlay you cannot dismiss from the keyboard is a
+ *   trap, and it is always the person who cannot use a mouse who is caught.
+ * - **Focus moves in, and comes back out** to whatever opened it. Without the
+ *   return, closing drops a keyboard user at the top of the document and they
+ *   tab through the whole page again to get back to the row they were on.
+ * - **The backdrop closes it, the panel does not.** The click handler is on
+ *   the backdrop element itself and checks the target, so a drag that starts
+ *   inside the panel and ends outside does not dismiss the thing being read.
+ *
+ * Not focus-TRAPPED, deliberately. A real trap means intercepting Tab and
+ * maintaining the tabbable set as content changes, and a half-built one is
+ * worse than none: it either lets focus escape anyway or strands it. Escape,
+ * the return, and `aria-modal` cover what this dialog actually needs.
+ */
+export function Modal({
+  title,
+  subtitle,
+  onClose,
+  children,
+  footer,
+  size = 'default',
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+  /**
+   * 'wide' is for a dialog holding a FORM with side-by-side fields. At the
+   * default width `.form-row` wraps to one column and a twenty-field form
+   * becomes a single scrolling ribbon, which is how the inline version read
+   * before it was a dialog at all.
+   */
+  size?: 'default' | 'wide';
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const returnTo = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      /* `isConnected` because the trigger is often a row that the reload
+         behind the dialog has since replaced — focusing a detached node
+         silently sends focus to <body>, which is the bug this exists to
+         avoid. */
+      if (returnTo?.isConnected) returnTo.focus();
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className={size === 'wide' ? 'modal wide' : 'modal'}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+        tabIndex={-1}
+        ref={panelRef}
+      >
+        <div className="modal-head">
+          <div>
+            <h2 id="modal-title">{title}</h2>
+            {subtitle && <p className="sub">{subtitle}</p>}
+          </div>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <Icon name="close" size={18} />
+          </button>
+        </div>
+
+        <div className="modal-body">{children}</div>
+
+        {footer && <div className="modal-foot">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Jane Potter" → "JP".
+ *
+ * Lived in Dashboard.tsx until D7, when the payments table wanted the same
+ * avatar. Two implementations of somebody's initials is a small thing to get
+ * inconsistent and a strange one to see on two screens at once.
+ */
+export function initials(name: string): string {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]!.toUpperCase())
+    .join('');
+}

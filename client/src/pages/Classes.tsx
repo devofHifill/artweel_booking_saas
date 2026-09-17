@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, dateIn, timeIn } from '../lib/api';
+import { api, dateIn, money, plusDays, timeIn, todayIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import {
+  DataTable,
+  initials,
+  Kpi,
+  PageHead,
+  SegRange,
+  StatGrid,
+  StatusPill,
+} from '../components/layout';
+import { Icon } from '../components/Icon';
+import { EmptyState } from '../components/states';
+import { ServiceForm, type ServiceDraft } from '../components/ServiceForm';
 
 /**
  * Scheduling classes.
@@ -14,9 +26,46 @@ import { useActiveOrg, useOrgBase } from '../lib/auth';
 type ServiceOption = {
   id: string;
   name: string;
+  description?: string | null;
   bookingMode: string;
   capacityMax: number;
   durationMinutes: number;
+  priceCents?: number;
+  color?: string;
+  isActive?: boolean;
+  /**
+   * Carried through to the edit form. They must be READ here even though this
+   * screen never displays them: the form sends whatever it holds, so a field
+   * this type forgets is a field the next save quietly resets to its default.
+   */
+  minNoticeMinutes?: number;
+  maxHorizonDays?: number;
+  depositType?: 'none' | 'percent' | 'fixed';
+  depositValue?: number;
+  highlights?: string | null;
+  preparationNotes?: string | null;
+  shortDescription?: string | null;
+  childPriceCents?: number;
+  colorAccent?: string | null;
+  emoji?: string | null;
+  meetingPoint?: string | null;
+  bookingInstructions?: string | null;
+  capacityMin?: number;
+  cancellationPolicyId?: string | null;
+  /**
+   * Both already come back from `/services` and were being discarded.
+   *
+   * `_count.staffServices` is the useful one: a class with no instructor
+   * assigned cannot be booked by anybody, silently — the same shape as the
+   * fault the parity pass found, where anyone hired after signup was
+   * permanently unbookable. The card says so rather than leaving it to be
+   * discovered by a customer.
+   */
+  category?: { id: string; name: string } | null;
+  serviceLocations?: { locationId: string }[];
+  /** Lifetime, and only present when the list was asked for `withStats`. */
+  stats?: { bookings: number; seats: number; revenueCents: number };
+  _count?: { staffServices: number; serviceLocations: number };
 };
 
 type SessionRow = {
@@ -83,26 +132,115 @@ function orderedQueue(entries: WaitlistEntry[]): WaitlistEntry[] {
   });
 }
 
-function todayIn(timezone: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
-
-function plusDays(localDate: string, days: number): string {
-  const d = new Date(`${localDate}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 export default function Classes() {
   const base = useOrgBase();
   const org = useActiveOrg();
   const timezone = org?.organization.timezone ?? 'UTC';
+  const currency = org?.organization.currency ?? 'USD';
   const isAdmin = org?.role === 'OWNER' || org?.role === 'ADMIN';
+
+  /** Cards or table over the same catalogue. See the toggle for why both. */
+  const [view, setView] = useState<'cards' | 'table'>('cards');
+
+  /** The catalogue filter bar. Both are held here so the two views share them. */
+  const [query, setQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+
+
+  /**
+   * Opens the editor on one service.
+   *
+   * A function rather than the object literal it replaced, because two views
+   * now offer Edit and this draft is where G3 already caught a foot-gun: the
+   * form sends whatever it holds, so a field this builder forgets is a field
+   * the next save silently resets to its default. One copy can be wrong; two
+   * copies drift, and only one of them gets fixed.
+   */
+  function edit(svc: ServiceOption) {
+    setEditing({
+      id: svc.id,
+      name: svc.name,
+      description: svc.description,
+      bookingMode: svc.bookingMode as never,
+      durationMinutes: svc.durationMinutes,
+      capacityMax: svc.capacityMax,
+      priceCents: svc.priceCents ?? 0,
+      color: svc.color ?? '#4f46e5',
+      minNoticeMinutes: svc.minNoticeMinutes,
+      maxHorizonDays: svc.maxHorizonDays,
+      depositType: svc.depositType,
+      depositValue: svc.depositValue,
+      highlights: svc.highlights,
+      preparationNotes: svc.preparationNotes,
+      /* Every field the form can send has to be READ back here. One this
+         object forgets is one the next save silently resets to its default,
+         which is the quietest way to lose a studio's copy. */
+      shortDescription: svc.shortDescription,
+      childPriceCents: svc.childPriceCents ?? 0,
+      colorAccent: svc.colorAccent,
+      emoji: svc.emoji,
+      meetingPoint: svc.meetingPoint,
+      bookingInstructions: svc.bookingInstructions,
+      capacityMin: svc.capacityMin ?? 1,
+      categoryId: svc.category?.id ?? null,
+      cancellationPolicyId: svc.cancellationPolicyId,
+      /* The join is many-to-many and the form offers one, so the first is the
+         one it edits. Without this the form opens blank and the next save
+         sends null, clearing a location the studio never touched. */
+      locationId: svc.serviceLocations?.[0]?.locationId ?? null,
+    });
+    setShowForm(true);
+  }
+
+  /**
+   * The calendar icon on a card.
+   *
+   * Preselects the class in the schedule form below and takes you to it. The
+   * prototype's equivalent navigates to its Calendar page instead, and this
+   * will too once scheduling lives there — at which point this becomes a
+   * route change and the form it scrolls to is gone.
+   */
+  function scheduleFor(svc: ServiceOption) {
+    setServiceTypeId(svc.id);
+    /* Capacity follows the class, because that is the answer the owner would
+       have typed. They can still overrule it before submitting. */
+    setCapacity(svc.capacityMax);
+    document
+      .getElementById('scheduleForm')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /**
+   * Deleting a class, which usually means deactivating it.
+   *
+   * The server refuses to delete anything with a booking or a session against
+   * it and says to deactivate instead — a booking references the service that
+   * produced it, and removing the row would orphan a customer's receipt. That
+   * refusal is the common case, so it is shown as guidance rather than an
+   * error the owner has to decode.
+   */
+  async function remove(svc: ServiceOption) {
+    if (
+      !window.confirm(
+        `Delete "${svc.name}"? This cannot be undone. If it has ever been ` +
+          'booked, switch it off instead — its history has to stay.',
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await api.del(`${base}/services/${svc.id}`);
+      await loadServices();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete.');
+    }
+  }
+
+  /** The catalogue editor. Null `editing` means creating a new one. */
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<ServiceDraft | null>(null);
 
   const [from, setFrom] = useState(() => todayIn(timezone));
   const [to, setTo] = useState(() => plusDays(todayIn(timezone), 30));
@@ -110,6 +248,76 @@ export default function Classes() {
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [staff, setStaff] = useState<{ id: string; name: string }[]>([]);
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+
+  /** What a studio can actually schedule today. */
+  const bookable = services.filter((s) => s.isActive !== false);
+  const inactive = services.length - bookable.length;
+
+  /**
+   * The categories actually in use, for the filter's dropdown.
+   *
+   * Derived from the catalogue rather than fetched from /services/categories.
+   * A studio that has defined "Kids" and used it on nothing would otherwise
+   * get an option that always returns an empty list, which reads as a broken
+   * filter rather than an empty category.
+   */
+  const usedCategories = [
+    ...new Map(
+      services
+        .filter((svc) => svc.category)
+        .map((svc) => [svc.category!.id, svc.category!]),
+    ).values(),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+
+  /**
+   * What the catalogue shows after the filter bar.
+   *
+   * Matches name, category and the short line — the same fields the prototype
+   * searches, minus its `location`, which is a join here rather than a string
+   * on the row. An owner hunting "wheel" is looking at names anyway.
+   */
+  const needle = query.trim().toLowerCase();
+  const visible = services.filter((svc) => {
+    if (categoryFilter && svc.category?.id !== categoryFilter) return false;
+    if (!needle) return true;
+    /*
+      Only what the card actually SHOWS.
+
+      The long description was in here and matched "wheel" against "we bring
+      the wheels to you" on a class with no wheel in its name — a correct hit
+      the owner cannot see the reason for, which reads as the filter being
+      broken. Searching the visible text means every result explains itself.
+    */
+    return [svc.name, svc.category?.name, svc.shortDescription]
+      .filter(Boolean)
+      .some((field) => field!.toLowerCase().includes(needle));
+  });
+
+  const filtering = needle !== '' || categoryFilter !== '';
+
+  /**
+   * The average of what a studio charges, over its LIVE classes only.
+   *
+   * Including switched-off ones would let a class nobody can book drag the
+   * figure an owner reads as "what I charge". Free classes count — a taster at
+   * zero is a real price and pretending otherwise flatters the average.
+   */
+  const averageCents = bookable.length
+    ? Math.round(
+        bookable.reduce((sum, s) => sum + (s.priceCents ?? 0), 0) / bookable.length,
+      )
+    : 0;
+
+  /**
+   * Seats put on sale in the range below, and how many have gone.
+   *
+   * Computed from the sessions already loaded rather than fetched: the demo
+   * fixes this at 30 days, but ours is whatever range the picker holds, so the
+   * figure follows it and the foot says so instead of naming a window that
+   * might not be the one on screen.
+   */
+  const seatsScheduled = sessions.reduce((sum, s) => sum + s.capacity, 0);
+  const seatsTaken = sessions.reduce((sum, s) => sum + s.seatsTaken, 0);
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -144,20 +352,52 @@ export default function Classes() {
     void load();
   }, [load]);
 
+  /**
+   * The catalogue, on its own so saving an activity can refresh it.
+   *
+   * `load` above fetches SESSIONS; creating a service changes neither the
+   * sessions nor the date range, so calling that after a save would leave the
+   * new activity invisible until a reload.
+   */
+  const loadServices = useCallback(async () => {
+    try {
+      /*
+        `includeInactive` because this is the CATALOGUE, and an owner who
+        switched a class off still needs to find it to switch it back on.
+
+        Without it the endpoint returns only active services, which meant the
+        status pill on every card could say nothing but "Active" and an
+        inactive count would always have been zero. The scheduling form below
+        filters them back out — see `bookable`.
+      */
+      /* `withStats` is opt-in and this is the one screen that prints the
+         numbers. Every other caller of /services — the booking form's class
+         picker, onboarding — leaves it off and does not pay for the read. */
+      const s = await api.get<{ services: ServiceOption[] }>(
+        `${base}/services?includeInactive=true&withStats=true`,
+      );
+      // A course service cannot take a loose class, so it is not offered.
+      setServices(s.services.filter((x) => x.bookingMode !== 'COURSE_SERIES'));
+    } catch {
+      // The form simply stays empty; the list above is still useful.
+    }
+  }, [base]);
+
+  useEffect(() => {
+    void loadServices();
+  }, [loadServices]);
+
   useEffect(() => {
     void (async () => {
       try {
-        const [s, st, loc] = await Promise.all([
-          api.get<{ services: ServiceOption[] }>(`${base}/services`),
+        const [st, loc] = await Promise.all([
           api.get<{ staff: { id: string; name: string }[] }>(`${base}/staff`),
           api.get<{ locations: { id: string; name: string }[] }>(`${base}/locations`),
         ]);
-        // A course service cannot take a loose class, so it is not offered.
-        setServices(s.services.filter((x) => x.bookingMode !== 'COURSE_SERIES'));
         setStaff(st.staff);
         setLocations(loc.locations);
       } catch {
-        // The form simply stays empty; the list above is still useful.
+        /* Same reasoning as above. */
       }
     })();
   }, [base]);
@@ -326,28 +566,378 @@ export default function Classes() {
 
   return (
     <div>
-      <header className="page-head">
-        <h1>Classes</h1>
-        <div className="toolbar">
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            aria-label="From"
-          />
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            aria-label="To"
-          />
-        </div>
-      </header>
+      {/* "Activities", matching the nav item and the 2026-08-20 decision that
+          TourFlow's label wins here. The routes stay /classes. */}
+      <PageHead
+        title="Activities"
+        lede="What you offer, and when it runs."
+        actions={
+          <>
+            {/*
+              The view toggle belongs to the whole page, so it sits in the page
+              head beside the primary action — the prototype's arrangement.
+
+              The two date inputs used to live here and have moved down to the
+              schedule, which is the only thing they filter. In the header they
+              read as page-wide controls and crowded out the two that are.
+            */}
+            <SegRange
+              label="How to show the catalogue"
+              options={[
+                { value: 'cards', label: 'Cards' },
+                { value: 'table', label: 'Table' },
+              ]}
+              value={view}
+              onChange={setView}
+            />
+            {isAdmin && (
+              <button
+                className="primary"
+                onClick={() => {
+                  setEditing(null);
+                  setShowForm(true);
+                }}
+              >
+                <Icon name="plus" size={16} />
+                Create activity
+              </button>
+            )}
+          </>
+        }
+      />
 
       {error && <div className="err">{error}</div>}
 
+      {/*
+        The four figures, matching the prototype's row.
+
+        "Drafts" is "Switched off" here: a service has an isActive flag and no
+        draft state, and calling a deactivated class a draft would invent a
+        workflow the product does not have.
+
+        There is no "seats sold" equivalent to the prototype's revenue figures
+        on this screen — those live behind Reports, and a second request on a
+        page that needs none is a poor trade for a number Reports already
+        answers better.
+      */}
+      <StatGrid>
+        <Kpi
+          label="Live activities"
+          value={String(bookable.length)}
+          icon="classes"
+          foot={
+            services.length === 0 ? 'Nothing set up yet' : 'Bookable right now'
+          }
+        />
+        <Kpi
+          label="Switched off"
+          value={String(inactive)}
+          icon="classes"
+          tone={inactive > 0 ? 'amber' : undefined}
+          foot={inactive > 0 ? 'Not on your booking page' : 'All of them are live'}
+        />
+        <Kpi
+          label="Average price"
+          value={money(averageCents, currency)}
+          icon="money"
+          foot="Across your live classes"
+        />
+        <Kpi
+          label="Seats scheduled"
+          value={String(seatsScheduled)}
+          icon="today"
+          foot={
+            seatsScheduled > 0
+              ? `${seatsTaken} taken · in the range below`
+              : 'Nothing scheduled in the range below'
+          }
+        />
+      </StatGrid>
+
+      {/*
+        THE CATALOGUE.
+
+        Until D4 this page could only schedule sessions of services that
+        already existed, and nothing anywhere could create one — while
+        onboarding carried a required "Add a class" step that completes when
+        `services > 0`. A studio signing up could not finish setup.
+      */}
+      {showForm && isAdmin && (
+        <ServiceForm
+          base={base}
+          existing={editing ?? undefined}
+          onSaved={() => {
+            setShowForm(false);
+            setEditing(null);
+            void loadServices();
+          }}
+          onCancel={() => {
+            setShowForm(false);
+            setEditing(null);
+          }}
+        />
+      )}
+
+      {/* No longer gated on `!showForm`. The editor was an inline card that
+          replaced this section; as a dialog it floats over it, and blanking
+          the page behind a dialog loses the very list the studio is editing
+          against. */}
+      {(
+        <section className="card" style={{ marginBottom: 'var(--space-5)' }}>
+          <div className="panel-head" style={{ margin: '-14px -16px 16px' }}>
+            <h2>What you offer</h2>
+            <div className="right tiny muted">
+              {/* The count follows the filter, and says so when one is on.
+                  "3 activities" under a search box that is hiding nine is a
+                  number the owner will misread as their whole catalogue. */}
+              {filtering
+                ? `${visible.length} of ${services.length}`
+                : `${services.length} ${services.length === 1 ? 'activity' : 'activities'}`}
+            </div>
+          </div>
+
+          {/* The filter bar. Hidden below three activities, where a search box
+              costs a row of screen and saves nobody a scroll. */}
+          {services.length > 3 && (
+            <div className="filter-bar">
+              <input
+                type="search"
+                className="grow"
+                value={query}
+                placeholder="Search activities…"
+                aria-label="Search activities"
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <select
+                value={categoryFilter}
+                aria-label="Filter by category"
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <option value="">All categories</option>
+                {usedCategories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {services.length === 0 ? (
+            <EmptyState hint={isAdmin ? 'Create one to start taking bookings.' : undefined}>
+              Nothing set up yet.
+            </EmptyState>
+          ) : visible.length === 0 ? (
+            /* Distinct from the empty catalogue above. "Nothing set up yet" in
+               front of a studio with nine classes and a stray search term is a
+               small heart attack. */
+            <EmptyState hint="Try a different search, or clear the category.">
+              No activities match.
+            </EmptyState>
+          ) : view === 'cards' ? (
+            <div className="catalogue">
+              {visible.map((svc) => {
+                const colour = svc.color ?? 'var(--clay)';
+                /* The chosen second stop when there is one, and a darker shade
+                   of the first when there is not — so a service created before
+                   the gradient picker existed still gets a coherent card
+                   rather than a flat block. */
+                const accent =
+                  svc.colorAccent ?? `color-mix(in srgb, ${colour} 65%, #000)`;
+                const unstaffed = svc._count?.staffServices === 0;
+
+                return (
+                  <article className="cat-card" key={svc.id}>
+                    {/*
+                      The icon the studio picked, over the gradient it picked.
+
+                      This used to read "there is no emoji anywhere in this
+                      schema and inventing a field for one is a poor trade, so
+                      the initials carry it" — true when it was written, and no
+                      longer: the Create-activity form asks for both. The
+                      initials stay as the fallback, because every service
+                      created before that form existed has neither.
+                    */}
+                    <div
+                      className="cat-head"
+                      style={{
+                        background: `linear-gradient(135deg, ${colour}, ${accent})`,
+                      }}
+                    >
+                      <span className="cat-initials" aria-hidden="true">
+                        {svc.emoji || initials(svc.name)}
+                      </span>
+                      <span className="cat-pins">
+                        <StatusPill
+                          status={svc.isActive === false ? 'INACTIVE' : 'ACTIVE'}
+                        />
+                        {svc.category && (
+                          <span className="cat-tag">{svc.category.name}</span>
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="cat-body">
+                      <div className="cat-title">
+                        <strong>{svc.name}</strong>
+                        {svc.priceCents !== undefined && (
+                          <span className="strong">
+                            {money(svc.priceCents, currency)}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* The short line is written FOR this spot; the long one
+                          is the detail panel's and gets truncated to nonsense
+                          here. Falls back to it only when there is no short. */}
+                      {(svc.shortDescription || svc.description) && (
+                        <p className="tiny muted cat-desc">
+                          {svc.shortDescription || svc.description}
+                        </p>
+                      )}
+
+                      <div className="cat-meta tiny muted">
+                        <span>{svc.durationMinutes} min</span>
+                        <span>
+                          {svc.bookingMode === 'APPOINTMENT'
+                            ? 'One to one'
+                            : `Up to ${svc.capacityMax}`}
+                        </span>
+                        {svc._count && (
+                          <span>
+                            {svc._count.serviceLocations || 'no'}{' '}
+                            {svc._count.serviceLocations === 1
+                              ? 'location'
+                              : 'locations'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="cat-foot">
+                        {/*
+                          The unstaffed warning WINS over the sales figures.
+
+                          Not a decoration: a class nobody can teach takes no
+                          bookings and says nothing about it — the silent fault
+                          the parity pass found with instructor hours. "0
+                          bookings" beside it would look like a marketing
+                          problem, which is the wrong thing to go and fix.
+                        */}
+                        {unstaffed ? (
+                          <span className="tiny warn">No instructor assigned</span>
+                        ) : (
+                          <span className="tiny muted">
+                            {svc.stats
+                              ? `${svc.stats.bookings} ${
+                                  svc.stats.bookings === 1 ? 'booking' : 'bookings'
+                                } · ${money(svc.stats.revenueCents, currency)}`
+                              : `${svc._count?.staffServices ?? 0} ${
+                                  svc._count?.staffServices === 1
+                                    ? 'instructor'
+                                    : 'instructors'
+                                }`}
+                          </span>
+                        )}
+
+                        {isAdmin && (
+                          <span className="cat-actions">
+                            <button
+                              className="icon-btn"
+                              title={`Schedule ${svc.name}`}
+                              aria-label={`Schedule ${svc.name}`}
+                              onClick={() => scheduleFor(svc)}
+                            >
+                              <Icon name="calendar" size={15} />
+                            </button>
+                            <button
+                              className="icon-btn"
+                              title={`Edit ${svc.name}`}
+                              aria-label={`Edit ${svc.name}`}
+                              onClick={() => edit(svc)}
+                            >
+                              <Icon name="edit" size={15} />
+                            </button>
+                            <button
+                              className="icon-btn danger"
+                              title={`Delete ${svc.name}`}
+                              aria-label={`Delete ${svc.name}`}
+                              onClick={() => void remove(svc)}
+                            >
+                              <Icon name="trash" size={15} />
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <DataTable
+              caption="What you offer, with type, duration, capacity and price"
+              head={
+                <tr>
+                  <th>Activity</th>
+                  <th>Type</th>
+                  <th className="num">Duration</th>
+                  <th className="num">Capacity</th>
+                  <th className="num">Price</th>
+                  <th>Status</th>
+                  {isAdmin && <th style={{ width: 80 }} />}
+                </tr>
+              }
+            >
+              {visible.map((svc) => (
+                <tr key={svc.id}>
+                  <td>
+                    <span
+                      className="swatch"
+                      style={{ background: svc.color ?? 'var(--clay)' }}
+                    />
+                    {svc.name}
+                    {svc.description && (
+                      <div className="tiny muted">{svc.description}</div>
+                    )}
+                  </td>
+                  <td>
+                    {svc.bookingMode === 'APPOINTMENT' ? 'One to one' : 'Group class'}
+                  </td>
+                  <td className="num nowrap">{svc.durationMinutes} min</td>
+                  {/* An appointment is one-to-one by a schema rule, so a
+                      capacity column would read "1" down every such row and
+                      invite somebody to change it. */}
+                  <td className="num">
+                    {svc.bookingMode === 'APPOINTMENT' ? '—' : svc.capacityMax}
+                  </td>
+                  <td className="num">
+                    {svc.priceCents === undefined
+                      ? '—'
+                      : money(svc.priceCents, currency)}
+                  </td>
+                  <td>
+                    <StatusPill status={svc.isActive === false ? 'INACTIVE' : 'ACTIVE'} />
+                  </td>
+                  {isAdmin && (
+                    <td>
+                      <button className="link" onClick={() => edit(svc)}>
+                        Edit
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </DataTable>
+          )}
+        </section>
+      )}
+
       {isAdmin && (
-        <form className="card schedule" onSubmit={(e) => void schedule(e)}>
+        <form
+          id="scheduleForm"
+          className="card schedule"
+          onSubmit={(e) => void schedule(e)}
+        >
           <h2>Schedule a class</h2>
 
           <div className="fields">
@@ -363,7 +953,10 @@ export default function Classes() {
                 required
               >
                 <option value="">Choose…</option>
-                {services.map((s) => (
+                {/* Active only. Scheduling a class a studio has switched off
+                    would put a session on the calendar that its own booking
+                    page will not sell. */}
+                {bookable.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
@@ -498,8 +1091,33 @@ export default function Classes() {
         </form>
       )}
 
+      {/*
+        The date range sits with the list it filters, not in the page head.
+
+        It reads as a page-wide control up there, which it is not — it touches
+        nothing in the catalogue above. "In this range" in the empty state now
+        has the range it refers to next to it.
+      */}
+      <div className="panel-head" style={{ marginBottom: 'var(--space-3)' }}>
+        <h2>Scheduled classes</h2>
+        <div className="right row" style={{ gap: 'var(--space-2)' }}>
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            aria-label="From"
+          />
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            aria-label="To"
+          />
+        </div>
+      </div>
+
       {sessions.length === 0 && !error && (
-        <div className="card empty">No classes in this range.</div>
+        <EmptyState icon="◷">No classes in this range.</EmptyState>
       )}
 
       <div className="list">
@@ -581,11 +1199,11 @@ export default function Classes() {
                               {entry.seats > 1 ? ` · ${entry.seats} seats` : ''}
                             </span>
                           </span>
-                          <span className={`tag ${entry.status}`}>
+                          <StatusPill status={entry.status}>
                             {entry.status === 'OFFERED' && entry.offerExpiresAt
                               ? `held until ${timeIn(entry.offerExpiresAt, timezone)}`
-                              : entry.status.toLowerCase()}
-                          </span>
+                              : undefined}
+                          </StatusPill>
                           {isAdmin &&
                             (entry.status === 'WAITING' ||
                               entry.status === 'OFFERED') && (

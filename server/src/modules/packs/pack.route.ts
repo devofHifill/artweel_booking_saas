@@ -2,7 +2,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../lib/async-handler';
 import { validateBody, validateQuery } from '../../middleware/validate';
-import { requireAdmin, requireMember } from '../../middleware/authenticate';
+import {
+  requireAdmin,
+  requireFrontDesk,
+  requireMember,
+} from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import * as packs from './pack.service';
 
@@ -125,7 +129,10 @@ packRouter.get(
  */
 packRouter.post(
   '/:packId/sell',
-  requireMember,
+  // Front desk work, exactly as the header above has said since this module was
+  // written. `requireMember` could not express that until S13 split the roles,
+  // so the comment and the guard disagreed and the guard won.
+  requireFrontDesk,
   validateBody(z.object({ customerId: z.string().uuid() })),
   asyncHandler(async (req, res) => {
     const organizationId = req.tenant!.organizationId;

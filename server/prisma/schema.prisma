@@ -59,8 +59,39 @@ enum SubscriptionStatus {
 enum MembershipRole {
   OWNER
   ADMIN
+  /// Runs the day: everything an admin does except settings and billing.
+  MANAGER
   INSTRUCTOR
   FRONT_DESK
+}
+
+/**
+ * One studio's answer to "may this role do this thing".
+ *
+ * ABSENT MEANS THE DEFAULT, and the defaults in `permissions.ts` reproduce
+ * exactly what the middleware allowed before this table existed. So a studio
+ * that never opens the screen behaves identically, and the table only ever
+ * holds deliberate exceptions.
+ *
+ * OWNER is never stored: an owner can always do everything, and letting a row
+ * say otherwise is how somebody locks themselves out of their own studio.
+ */
+model RolePermission {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  role           MembershipRole
+  /// A key from PERMISSIONS in `lib/permissions.ts`.
+  permission     String
+  allowed        Boolean
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, role, permission])
+  @@index([organizationId])
+  @@map("role_permissions")
 }
 
 model Organization {
@@ -92,9 +123,246 @@ model Organization {
    */
   gracePeriodEndsAt DateTime? @map("grace_period_ends_at") @db.Timestamptz(3)
 
+  /**
+   * Set when an OPERATOR suspended this studio, as distinct from billing
+   * suspending it.
+   *
+   * Both reasons write the same `SUSPENDED` status, and billing clears that
+   * status on a successful payment — so without this column a suspension applied
+   * for abuse is silently reverted by the studio's next invoice, and nobody can
+   * tell afterwards which reason had set it. Every billing path that would clear
+   * SUSPENDED checks this first; see `platformSuspensionHolds` in
+   * billing.service.
+   */
+  suspendedByPlatformAt DateTime? @map("suspended_by_platform_at") @db.Timestamptz(3)
+  /// Operator-facing only. Never shown to the studio.
+  suspendedReason       String?   @map("suspended_reason")
+
+  /**
+   * Set when a studio is on a plan it is not paying for.
+   *
+   * Comping deliberately does NOT cancel the Stripe subscription, so a comped
+   * studio can have `subscriptionStatus = ACTIVE` here while Stripe keeps
+   * charging their card. The divergence is intended; being unable to see it is
+   * not, which is why this is a stored fact rather than something inferred. The
+   * platform studio detail response reports the conflict explicitly.
+   */
+  compedAt DateTime? @map("comped_at") @db.Timestamptz(3)
+
+  /// What this studio actually agreed to pay, in cents per month.
+  ///
+  /// Recorded when the subscription starts, and never rewritten by a later
+  /// price change. Without it, MRR is "today's list price times whoever is
+  /// active", so editing a plan's price would silently restate the revenue of
+  /// every existing subscriber while Stripe went on charging them the old
+  /// amount. Null means the studio predates this column or never subscribed;
+  /// the list price is the fallback.
+  subscribedPriceCents Int? @map("subscribed_price_cents")
+
   /// Which setup steps the studio has finished. Drives the wizard.
   onboardingSteps  Json?     @map("onboarding_steps")
   onboardingDoneAt DateTime? @map("onboarding_done_at") @db.Timestamptz(3)
+
+  // --- Studio branding ---------------------------------------------------
+  //
+  // A studio's accent, and nothing else. These two columns feed an override
+  // LAYER over the shared design tokens — see src/lib/brand.ts. They can move
+  // --clay, --clay-dk, --clay-lt and --clay-text; they can never move --ink,
+  // --bg, --card, --line or any scale, so no theme can make a studio's own
+  // dashboard unreadable.
+
+  /// Id of a curated preset from BRAND_PRESETS. Defaults to the clay values the
+  /// product already shipped, so an untouched studio looks exactly as before.
+  /// An unknown id resolves back to clay rather than failing: a theme is
+  /// decoration and must never be able to take a dashboard down.
+  brandPreset String @default("indigo") @map("brand_preset")
+
+  /// An owner-supplied accent, which WINS over brandPreset when set.
+  ///
+  /// Stored as the hex the owner chose, not as the derived palette. Derivation
+  /// enforces WCAG AA and may move the value; keeping the request means a later
+  /// change to the derivation rules reaches studios that already chose a colour,
+  /// instead of freezing them against whatever the rules were on the day.
+  brandAccent String? @map("brand_accent")
+
+  /// The header button on the public site. Label plus where it goes — either
+  /// the booking flow, or the `path` of one of this studio's own SitePages.
+  /// Null label means the default ("Book now"), so a studio that never opens
+  /// the Navigation screen still gets a working header.
+  navCtaLabel  String? @map("nav_cta_label")
+  navCtaTarget String? @map("nav_cta_target")
+
+  // --- Business identity ---------------------------------------------------
+  //
+  // `name` is the trading name customers see. These are the rest of what a
+  // receipt needs and a booking confirmation currently cannot say.
+
+  /// The registered entity, when it differs from the trading name. Printed on
+  /// receipts, which is the one place "Harbor Adventures LLC" matters and
+  /// "Harbor Adventures" is not enough.
+  legalName    String? @map("legal_name")
+  address      String?
+  website      String?
+  /// Free text. Not an enum: the list of things a studio calls itself is not
+  /// one anybody can finish, and nothing branches on it.
+  businessType String? @map("business_type")
+
+  // --- Transactional email -------------------------------------------------
+  //
+  // The FROM ADDRESS is deliberately absent. It stays platform-controlled
+  // because sending as a studio's own domain requires SPF and DKIM records
+  // they have to publish and we have to verify — offering the field without
+  // that machinery produces mail that silently lands in spam, which is worse
+  // than mail that visibly comes from us. `emailReplyTo` is the lever that
+  // gets a customer's reply into their inbox, and it needs no DNS at all.
+
+  emailFromName String? @map("email_from_name")
+
+  /**
+   * The address a studio wants mail to come from.
+   *
+   * STORED ALWAYS, USED ONLY WHEN `emailDomainStatus` is ACTIVE. Resend
+   * rejects a from-address on an unverified domain outright, so sending from
+   * one the moment it is typed would not "mostly work" — it would fail every
+   * confirmation the studio sends, with a 403 they never see.
+   */
+  emailFromAddress String? @map("email_from_address")
+
+  /// Whether this studio's sending domain has SPF and DKIM in place.
+  emailDomainStatus EmailDomainStatus @default(NOT_SET) @map("email_domain_status")
+
+  // --- Text messages -------------------------------------------------------
+
+  /// When false, SMS rows are marked SKIPPED at send time rather than sent.
+  smsEnabled Boolean @default(true) @map("sms_enabled")
+
+  /**
+   * The alphanumeric sender a studio wants their texts to come from.
+   *
+   * Stored, not yet used. The Twilio number is platform configuration and an
+   * alphanumeric sender has to be registered with the carriers per studio —
+   * which is the same 10DLC queue that has US SMS blocked altogether. Kept so
+   * a studio can tell us what they want registered.
+   */
+  smsSenderId String? @map("sms_sender_id")
+
+  /**
+   * QUIET hours, stored as the operator sets them: texts are NOT sent between
+   * `smsQuietFromHour` and `smsQuietToHour`.
+   *
+   * Note this is the inverse of `SMS_QUIET_START_HOUR` / `_END_HOUR` in config,
+   * which despite their names describe the SENDING window. `applyQuietHours`
+   * does the inversion in one place; nothing else should.
+   */
+  smsQuietFromHour Int @default(21) @map("sms_quiet_from_hour")
+  smsQuietToHour   Int @default(8)  @map("sms_quiet_to_hour")
+  emailReplyTo  String? @map("email_reply_to")
+  /// A copy of every outgoing message, for studios that want their own record.
+  emailBcc      String? @map("email_bcc")
+  /// Appended to every email. Address and phone, usually.
+  emailFooter   String? @map("email_footer")
+
+  // --- Display -------------------------------------------------------------
+
+  /// How dates render for the OPERATOR. Customers always get long, unambiguous
+  /// dates; this is the dashboard's preference only.
+  dateFormat String @default("MMM D, YYYY") @map("date_format")
+  timeFormat String @default("12h") @map("time_format")
+
+  // --- Defaults for new activities -----------------------------------------
+  //
+  // DEFAULTS, not rules. Notice and horizon are enforced per activity — those
+  // columns already exist on service_types and are what availability reads.
+  // These two are what the Create-activity form starts at, so a studio sets
+  // its house rule once instead of on every class. Changing them must never
+  // retroactively alter an activity somebody has already tuned.
+
+  defaultMinNoticeMinutes Int @default(0)   @map("default_min_notice_minutes")
+  defaultMaxHorizonDays   Int @default(120) @map("default_max_horizon_days")
+
+  // --- Booking rules, enforced studio-wide ---------------------------------
+
+  /// How long a seat is held while somebody is inside checkout.
+  seatHoldMinutes Int @default(15) @map("seat_hold_minutes")
+
+  /**
+   * Extra places sold beyond a class's real capacity, to cover no-shows.
+   *
+   * Applied when a SESSION IS CREATED — its capacity becomes the activity's
+   * plus this — and never by relaxing the seats_taken check. That constraint
+   * is one of Phase 0's settled guarantees and stays exactly as it is: the
+   * database keeps refusing to oversell a session, and this changes what the
+   * session's capacity IS rather than whether the limit holds.
+   */
+  overbookingBuffer Int @default(0) @map("overbooking_buffer")
+
+  /// When false, the public page stops offering classes starting today.
+  allowSameDayBookings Boolean @default(true) @map("allow_same_day_bookings")
+
+  /// When false, a paid booking stays PENDING for somebody to confirm by hand.
+  autoConfirmOnPayment Boolean @default(true) @map("auto_confirm_on_payment")
+
+  /**
+   * Flags bookings with no waiver on the register and the daily manifest.
+   *
+   * Does NOT block booking or check-in, and is not a waiver feature: nothing
+   * collects or stores a document. It surfaces which guests have not signed
+   * the paper the desk records on the booking, at the moment somebody is
+   * standing in front of you — which is what "before departure" means.
+   */
+  requireWaiver Boolean @default(false) @map("require_waiver")
+
+  /// When true, the public checkout refuses a booking with no phone number.
+  requirePhoneAtCheckout Boolean @default(false) @map("require_phone_at_checkout")
+
+  /// When false, child places are refused even on activities that price them.
+  allowChildTickets Boolean @default(true) @map("allow_child_tickets")
+
+  // --- Payments ------------------------------------------------------------
+
+  /// Studio-wide gate over the PER-ACTIVITY deposit terms. Off charges the
+  /// full amount everywhere, whatever an activity says.
+  depositsEnabled Boolean @default(true) @map("deposits_enabled")
+
+  /// What a NEW activity's percentage deposit starts at. Zero means no
+  /// deposit unless the activity sets one.
+  defaultDepositPercent Int @default(0) @map("default_deposit_percent")
+
+  /// Lets a customer book a chargeable class without paying now, settling on
+  /// the day. Refused server-side unless this is on.
+  allowPayOnArrival Boolean @default(false) @map("allow_pay_on_arrival")
+
+  /// Whether "cash" is offered as a method on a counter booking.
+  acceptCash Boolean @default(true) @map("accept_cash")
+
+  // --- Studio storefront copy -------------------------------------------
+  //
+  // Fields the studio owner writes and their customers read on the public
+  // booking page. Every one of these is optional and has a fallback in
+  // renderBookingPage — an untouched studio still gets a working page, just a
+  // generic one. Bounds mirror the CHECK constraints in the migration so a
+  // value the database would reject fails validation with a readable message
+  // rather than a 500.
+
+  /// One-line subhead under the studio's name. Falls back to a generic
+  /// prompt when unset.
+  tagline String? @map("tagline")
+
+  /// A paragraph or two shown below the class list. Plain text; HTML is
+  /// escaped on render, so a studio pasting bold from a Word doc gets no
+  /// formatting rather than a broken page.
+  about String? @map("about")
+
+  /// Surfaced in the page footer and when online bookings are switched off,
+  /// so somebody who lands on the page still has a way to reach the studio.
+  contactEmail String? @map("contact_email")
+  contactPhone String? @map("contact_phone")
+
+  /// Overrides the auto-generated <title> and meta description. Left null,
+  /// the page falls back to "Book a class at {name}" and a description
+  /// composed from the first few service names, which is what shipped in A0.
+  seoTitle       String? @map("seo_title")
+  seoDescription String? @map("seo_description")
 
   // --- Studio policy -----------------------------------------------------
   //
@@ -181,7 +449,13 @@ model Organization {
   webhookEvents        WebhookEvent[]
   notifications        Notification[]
   notificationTemplates NotificationTemplate[]
+  notificationRules     NotificationRule[]
+  sitePages             SitePage[]
+  rolePermissions       RolePermission[]
   calendarConnections  CalendarConnection[]
+  supportSessions      SupportSession[]
+  invitations          Invitation[]
+  mrrDaily             MrrDailyStudio[]
 
   @@map("organizations")
 }
@@ -196,6 +470,23 @@ model User {
 
   emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
 
+  /**
+   * Set when the platform disables the account (S8).
+   *
+   * A timestamp rather than an `isActive` boolean, for the same reason
+   * `revokedAt` and `endedAt` are timestamps elsewhere here: "when" is a
+   * question somebody will ask, and a boolean has already thrown the answer
+   * away by the time they do.
+   *
+   * Disabling REVOKES every refresh token as well as setting this. Without
+   * that the account keeps working until each one expires — the access token
+   * is stateless and short-lived, but a refresh token is fourteen days, and an
+   * account you disabled that keeps refreshing itself is not disabled.
+   */
+  disabledAt     DateTime? @map("disabled_at") @db.Timestamptz(3)
+  /// Operator-facing only. Never shown to the user it describes.
+  disabledReason String?   @map("disabled_reason")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -203,8 +494,165 @@ model User {
   staff              Staff[]
   refreshTokens      RefreshToken[]
   verificationTokens VerificationToken[]
+  platformAdmin      PlatformAdmin[]
+  platformGrants     PlatformAdmin[] @relation("PlatformAdminGrantedBy")
+  supportSessions    SupportSession[]
+  invitationsSent     Invitation[] @relation("InvitationInvitedBy")
+  invitationsAccepted Invitation[] @relation("InvitationAcceptedBy")
 
   @@map("users")
+}
+
+/// Platform-level (Artweel) authority. NOT a studio role.
+///
+/// `MembershipRole` answers "what may this person do inside that studio", and
+/// platform authority is a different question with a different blast radius, so
+/// it lives in a different table rather than as a fifth value on that enum.
+///
+/// A table rather than a boolean on `users` because "who has god mode" is a
+/// question that deserves an answer with history: a revoked row stays, so the
+/// grant and the removal are both recoverable facts rather than a flag that was
+/// once true and now is not.
+///
+/// Deliberately NOT reachable from the HTTP surface. The first grant has to come
+/// from somewhere, and an endpoint that mints platform admins is a permanent
+/// privilege-escalation route sitting in the table waiting to be found — so
+/// granting is a CLI script that requires shell access on the box
+/// (`npm run platform:grant`).
+model PlatformAdmin {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  /// Null for the bootstrap grant — there was nobody to grant it.
+  grantedBy String?  @map("granted_by") @db.Uuid
+  grantedAt DateTime @default(now()) @map("granted_at") @db.Timestamptz(3)
+
+  /// Set rather than deleted, so losing access is as recorded as gaining it.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  /// Why this person has it. Free text, for the human reading the table later.
+  note String?
+
+  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grantor User? @relation("PlatformAdminGrantedBy", fields: [grantedBy], references: [id], onDelete: SetNull)
+
+
+  /// "One LIVE grant per human, keep every revoked one" is enforced by a PARTIAL
+  /// unique index that Prisma cannot express here, so the migration creates it
+  /// by hand:
+  ///
+  ///   CREATE UNIQUE INDEX platform_admins_user_id_live_key
+  ///     ON platform_admins(user_id) WHERE revoked_at IS NULL;
+  ///
+  /// `@@unique([userId, revokedAt])` looks like it would do the job and does
+  /// not: Postgres treats NULLs as distinct in a unique index, so every live
+  /// grant carries revoked_at = NULL and the constraint would permit any number
+  /// of them — the exact rows it is supposed to forbid.
+  ///
+  /// BEWARE when next running `prisma migrate dev`. Because the index cannot be
+  /// expressed here, Prisma does not know it should exist, and a generated
+  /// migration may quietly include a DROP for it. `migrate diff` reports "no
+  /// difference" today, so this will not announce itself. If a generated
+  /// migration mentions platform_admins_user_id_live_key, delete that statement.
+  /// `tests/platform/gate.test.ts` asserts the constraint by attempting a direct
+  /// double-insert, so losing it fails the suite rather than going unnoticed.
+  @@index([userId])
+  @@map("platform_admins")
+}
+
+/// One row per background worker, stamped on every tick.
+///
+/// Exists because of C2.1: three sweeps were written, tested, and called by
+/// nothing outside the test suite for two days, while every health check stayed
+/// green. A queue that silently does nothing looks exactly like a quiet queue,
+/// and "the route returns 200" cannot tell them apart.
+///
+/// Note the contrast with [PlatformAuditLog]: the audit row must be atomic with
+/// the action it records, and a failure to write it rolls the action back. This
+/// is the opposite — a heartbeat is observability, so a failure to stamp it must
+/// never stop the work. See `recordWorkerRun`.
+model WorkerHeartbeat {
+  /// The worker's own name. One row per worker, upserted forever, never grows.
+  name String @id
+
+  lastStartedAt  DateTime? @map("last_started_at") @db.Timestamptz(3)
+  lastFinishedAt DateTime? @map("last_finished_at") @db.Timestamptz(3)
+
+  /// Retained after a later success, so a fault that has since cleared is still
+  /// visible rather than erased by the next quiet tick.
+  lastError   String?   @map("last_error")
+  lastErrorAt DateTime? @map("last_error_at") @db.Timestamptz(3)
+
+  runs     Int @default(0)
+  failures Int @default(0)
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("worker_heartbeats")
+}
+
+/// Every platform action, append-only.
+///
+/// This is the record that answers "what did that account touch?" after a
+/// phished password — which, for an account with cross-tenant write over every
+/// studio's customer PII, is the question that decides whether an incident is
+/// recoverable or terminal. It is written in the SAME TRANSACTION as the action
+/// it describes; see `withAudit` for why that is not optional.
+///
+/// Distinct from application logs (pino → stdout), which are ops telemetry and
+/// belong in a log service. This is product data: queryable, retained, and shown
+/// to the operator.
+///
+/// NO FOREIGN KEYS, deliberately — see the field notes below. An audit row must
+/// outlive the things it refers to, and a FK's job is to stop exactly that.
+model PlatformAuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  /**
+   * Who did it. No FK and no relation, plus a denormalised copy of the address.
+   *
+   * A FK with ON DELETE SET NULL would keep the row and erase the actor, which
+   * is the one field the row exists for. A FK with CASCADE would delete the
+   * evidence along with the account. Both are worse than no constraint. The
+   * email is snapshotted at write time so the record stays readable by a human
+   * years later, when the user row may be gone and a bare uuid means nothing.
+   */
+  actorUserId String @map("actor_user_id") @db.Uuid
+  actorEmail  String @map("actor_email")
+
+  /// Dotted and past-tense-free, e.g. `organization.suspend`, `trial.extend`.
+  action String
+
+  /// What was acted on. `targetId` is text, not uuid: not every target is a row.
+  targetType String  @map("target_type")
+  targetId   String? @map("target_id")
+
+  /**
+   * Which studio this was done to, if any. No FK for the same reason as the
+   * actor: S11 contemplates archiving and purging organizations, and "everything
+   * ever done to that studio" must remain answerable afterwards — especially
+   * then, since that is when someone asks.
+   */
+  organizationId String? @map("organization_id") @db.Uuid
+
+  /// Why. Required by the routes that take one; the log is worth far less
+  /// without it, because "who" and "what" are usually the easy parts.
+  reason String?
+
+  /// Before/after, and anything else the action wants to preserve.
+  metadata Json?
+
+  ip        String?
+  userAgent String? @map("user_agent")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  /// The two questions actually asked: everything done to one studio, and
+  /// everything done by one operator — both newest first.
+  @@index([organizationId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([createdAt])
+  @@map("platform_audit_log")
 }
 
 /// A refresh token, stored only as a hash.
@@ -324,6 +772,10 @@ model ServiceType {
   name           String
   slug           String
   description    String?
+
+  /// The one line that sells it on a card. `description` is the long form.
+  shortDescription String? @map("short_description")
+
   bookingMode    BookingMode  @default(APPOINTMENT) @map("booking_mode")
 
   durationMinutes Int @map("duration_minutes")
@@ -337,6 +789,10 @@ model ServiceType {
   capacityMax Int @default(1) @map("capacity_max")
 
   priceCents   Int    @default(0) @map("price_cents")
+
+  /// Per child seat. 0 means adults only — see the migration note.
+  childPriceCents Int @default(0) @map("child_price_cents")
+
   depositType  String @default("none") @map("deposit_type") // none | percent | fixed
   depositValue Int    @default(0) @map("deposit_value")
 
@@ -352,9 +808,34 @@ model ServiceType {
   skillLevel               String? @map("skill_level")
   prerequisiteServiceTypeId String? @map("prerequisite_service_type_id") @db.Uuid
 
+  /// G3 — what a customer needs to know BEFORE they book.
+  ///
+  /// Both plain text, and `highlights` is one bullet per line rather than a
+  /// text[] or a Json array. There is no array column anywhere in this schema,
+  /// and `organizations.about` already establishes the idiom: owner-authored
+  /// prose stored as text and split in the renderer. A line is also the
+  /// easiest thing for an owner to type into a textarea, which is what decides
+  /// whether these ever get filled in.
+  highlights       String? @db.Text
+  preparationNotes String? @map("preparation_notes") @db.Text
+
   cancellationPolicyId String? @map("cancellation_policy_id") @db.Uuid
 
-  color    String  @default("#A6522C")
+  /// Not the location's address — "Dock B, blue canopy" is the bit a map
+  /// cannot give you, and the bit that stops a phone call from the car park.
+  meetingPoint String? @map("meeting_point")
+
+  /// Sent WITH the confirmation, where `preparationNotes` is shown BEFORE
+  /// booking. Same medium, opposite moment.
+  bookingInstructions String? @map("booking_instructions") @db.Text
+
+  /// A picked glyph, not an upload. There is no asset pipeline here.
+  emoji String?
+
+  color String @default("#A6522C")
+  /// Second stop of the card gradient. Null falls back to a shade of `color`.
+  colorAccent String? @map("color_accent")
+
   isActive Boolean @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -400,7 +881,19 @@ model CancellationPolicy {
 
   tiers Json
 
+  /// Kept for the rows that carry one. Nothing has ever read it — the fee a
+  /// studio actually sets is `noShowFeePercent` below, because a percentage
+  /// of the booking is what a no-show costs and a flat amount is not.
   noShowFeeCents        Int     @default(0) @map("no_show_fee_cents")
+
+  /// What a no-show forfeits, as a percentage of what they paid. 100 means
+  /// they get nothing back, which is the default and what happened before
+  /// this column existed.
+  noShowFeePercent      Int     @default(100) @map("no_show_fee_percent")
+
+  /// The terms in the studio's own words, shown to a customer before they
+  /// book. Null falls back to a sentence generated from the ladder.
+  description           String?
   allowReschedule       Boolean @default(true) @map("allow_reschedule")
   rescheduleCutoffHours Int     @default(24) @map("reschedule_cutoff_hours")
 
@@ -426,6 +919,14 @@ model Staff {
   name           String
   email          String
   phone          String?
+
+  /// What they are, in two or three words — "Wheel instructor", "Studio
+  /// technician". Distinct from `bio`, which is prose for the booking page:
+  /// this is the line under a name on a card, and prose does not fit there.
+  /// Free text and unvalidated, because job titles are not an enum anybody
+  /// can finish writing.
+  role           String?
+
   bio            String?
   photoUrl       String? @map("photo_url")
   /// Authoritative for this person's working hours. Actually consulted by the
@@ -474,6 +975,18 @@ model StaffService {
   @@map("staff_services")
 }
 
+/// How the studio has labelled this customer.
+///
+/// Operator-set and decorative BY DESIGN: nothing in the booking paths reads
+/// it. BLOCKED is a note to whoever is on the desk, NOT an enforced refusal —
+/// a status that silently rejected a booking would be a very different
+/// feature, and one nobody could debug from this list.
+enum CustomerStatus {
+  ACTIVE
+  VIP
+  BLOCKED
+}
+
 model Customer {
   id             String  @id @default(uuid()) @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid
@@ -482,6 +995,13 @@ model Customer {
   phone          String?
   notes          String?
   timezone       String?
+
+  /// Free text, not an ISO code. The studio types what it wants to see in the
+  /// list; nothing routes, taxes or validates on it, so a code would buy
+  /// nothing and force a picker onto a field people want to type into.
+  country String?
+
+  status CustomerStatus @default(ACTIVE)
 
   /// TCPA: SMS consent must be recorded, timestamped and revocable.
   smsConsentAt       DateTime? @map("sms_consent_at") @db.Timestamptz(3)
@@ -804,6 +1324,18 @@ enum BookingStatus {
   ATTENDED
   NO_SHOW
   CANCELLED
+}
+
+/// The counter's claim about a manual booking's money.
+///
+/// Deliberately NOT `PaymentStatus`, which is the real per-payment lifecycle
+/// (SUCCEEDED, REFUNDED, …) and is derived from Stripe. Two enums because
+/// they answer different questions, and sharing one would invite code to read
+/// whichever was nearer to hand.
+enum BookingPaymentState {
+  PAID
+  PARTIALLY_PAID
+  PENDING
 }
 
 enum CourseSeriesStatus {
@@ -1429,7 +1961,36 @@ model Booking {
 
   seats Int @default(1)
 
+  /// How many of `seats` are children. Adults are seats - children, so the
+  /// two can never disagree the way separate counts would. See the migration.
+  children Int @default(0)
+
   status BookingStatus @default(PENDING)
+
+  /**
+   * What the person at the desk SAYS about the money. Not what was paid.
+   *
+   * The truth about money is the `payments` rows and `paidCentsOf` over them;
+   * this is a counter note, set by hand on a manual booking, and it CAN
+   * disagree with them. That is a known cost, accepted deliberately, not an
+   * oversight — read the migration before treating it as one.
+   *
+   * Null on every booking the system creates itself. Only the manual path
+   * writes it, so an absent value means "nobody claimed anything", which is
+   * different from PENDING and must not be collapsed into it.
+   */
+  paymentState BookingPaymentState? @map("payment_state")
+
+  /**
+   * When the waiver was signed, not whether. A timestamp answers "did they,
+   * and when" for the same storage as a boolean, and the studio asking about
+   * a waiver is usually asking about a date.
+   *
+   * This is the DESK'S record that paper was signed. It is not a waiver
+   * feature — nothing collects, stores or renders a document, and the public
+   * booking flow does not ask. That decision is still open.
+   */
+  waiverSignedAt DateTime? @map("waiver_signed_at") @db.Timestamptz(3)
 
   travelFeeCents Int @default(0) @map("travel_fee_cents")
   totalCents     Int @default(0) @map("total_cents")
@@ -1437,6 +1998,14 @@ model Booking {
   /// 32 random bytes. The plugin used md5(booking_id + email), which is
   /// guessable by anyone who knows the customer's email address.
   cancelToken Bytes  @unique @map("cancel_token")
+
+  /// G5 — the short handle a customer quotes on the phone.
+  ///
+  /// GENERATED ALWAYS in Postgres from this row's own id, so it is READ ONLY
+  /// here and writing it raises. Not to be confused with cancelToken, which is
+  /// the secret: this is the opposite, the part that is safe to print.
+  reference String? @db.Text
+
   source      String @default("web")
 
   notes String?
@@ -1738,6 +2307,116 @@ enum NotificationStatus {
 ///
 /// Workers claim rows with SELECT ... FOR UPDATE SKIP LOCKED, so several can
 /// run without ever handing the same message to two of them.
+/**
+ * An invitation to join a studio (S9).
+ *
+ * Its own table rather than a `VerificationToken`, because that model hangs off
+ * a `userId` and an invitee usually has no account yet. Creating a placeholder
+ * User to hold the token was the alternative and is worse in two ways: it
+ * leaves phantom rows for invitations nobody accepts, and `User.email` is
+ * globally unique — so inviting somebody who already works at another studio
+ * would collide with their real account.
+ *
+ * Modelling it properly also makes the questions an owner actually asks
+ * answerable: who have I invited, who has not replied, and can I take it back.
+ */
+model Invitation {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  /// Stored as given, matched case-insensitively — see the partial unique
+  /// index in the migration.
+  email          String
+  name           String
+  /// Never OWNER. Enforced by a CHECK constraint as well as by zod: ownership
+  /// is transferred between people who already have accounts, not handed to a
+  /// stranger who has not clicked a link yet.
+  role           MembershipRole
+
+  /// 32 random bytes, stored hashed — the same shape as every other token in
+  /// this codebase. The raw value exists only in the email.
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  invitedByUserId String    @map("invited_by_user_id") @db.Uuid
+  acceptedAt      DateTime? @map("accepted_at") @db.Timestamptz(3)
+  acceptedUserId  String?   @map("accepted_user_id") @db.Uuid
+  /// Taken back before it was used. Kept rather than deleted: "we invited the
+  /// wrong person and withdrew it" is a thing worth being able to show.
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InvitationInvitedBy", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+  acceptedUser User?        @relation("InvitationAcceptedBy", fields: [acceptedUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([expiresAt])
+  @@map("invitations")
+}
+
+/**
+ * A platform operator looking inside one studio, for a bounded window.
+ *
+ * The row exists so the session is a THING rather than just a token in
+ * somebody's clipboard: it can be listed, ended early, and answered for
+ * afterwards. A JWT alone would be none of those — stateless means
+ * unrevokable, and "we issued something 25 minutes ago" is not an answer to
+ * "who was in my studio".
+ *
+ * `authenticate` reads this row on every request carrying a support token, so
+ * ending a session takes effect immediately rather than at expiry.
+ */
+model SupportSession {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  /// The human at the keyboard — always a platform admin's user id, never the
+  /// studio's. This is the field the audit log must never lose.
+  actorUserId String @map("actor_user_id") @db.Uuid
+  actorEmail  String @map("actor_email")
+
+  /// Why. Required, minimum length enforced at the route: a reason that can be
+  /// satisfied with "x" records only that somebody typed a character.
+  reason String
+
+  /// Defaults to true. A write-enabled session is the unusual one and has to be
+  /// asked for explicitly.
+  readOnly Boolean @default(true) @map("read_only")
+
+  /// A hard wall. Nothing extends a session; you start another one, which is
+  /// another row and another reason.
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  /// Set when an operator ends it early, or when it is revoked.
+  endedAt   DateTime? @map("ended_at") @db.Timestamptz(3)
+
+  /**
+   * Reads are COUNTED, not logged.
+   *
+   * One audit row per read would bury the writes — a support session browsing a
+   * calendar makes dozens of GETs and perhaps one change, and the log exists to
+   * surface the change. So the reads accumulate here and the writes get their
+   * own rows in platform_audit_log.
+   */
+  readCount  Int   @default(0) @map("read_count")
+  writeCount Int   @default(0) @map("write_count")
+  /// Distinct route paths touched, capped. Enough to answer "what did they
+  /// look at" without reconstructing a session replay.
+  endpoints  Json? @map("endpoints")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User         @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  /// The banner query: "is anyone in this studio right now".
+  @@index([organizationId, expiresAt])
+  @@index([actorUserId, createdAt])
+  @@map("support_sessions")
+}
+
 model Notification {
   id             String  @id @default(uuid()) @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid
@@ -1802,6 +2481,102 @@ model NotificationTemplate {
 
   @@unique([organizationId, templateKey, channel])
   @@map("notification_templates")
+}
+
+/// SPF and DKIM for a studio's own sending domain.
+enum EmailDomainStatus {
+  /// No domain requested. Mail goes out from our address with their name.
+  NOT_SET
+  /// Records handed over, not yet seen in DNS.
+  PENDING
+  /// Verified. Only in this state is `emailFromAddress` actually used.
+  ACTIVE
+}
+
+enum SitePageStatus {
+  DRAFT
+  PUBLISHED
+}
+
+/**
+ * A page on a studio's public site, beyond the booking page itself.
+ *
+ * The booking page is NOT one of these. It is rendered from the studio's
+ * services and availability by `booking-page.ts` and always exists; these are
+ * the pages around it — an About, a Contact, a policies page. Modelling the
+ * booking page as a row would mean a studio could delete the thing the
+ * product is for.
+ *
+ * `path` is the segment after /p/, and the /p/ prefix is not cosmetic:
+ * `/public/:slug/data`, `/availability` and `/services/:id/staff` are existing
+ * routes, so an unprefixed page path would shadow the API its own booking page
+ * calls. Namespacing costs a URL segment and removes the whole class of
+ * collision, including from paths a studio invents later.
+ *
+ * `body` is plain text, escaped on render. No HTML, deliberately: a studio
+ * owner pasting markup into a textarea is a stored-XSS hole on a page their
+ * own customers visit, and this product has no reason to accept markup.
+ */
+model SitePage {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  /// Lower-case, hyphenated, no slashes. Unique within the studio.
+  path  String
+  title String
+  body  String
+
+  status SitePageStatus @default(DRAFT)
+
+  /// Whether it appears in the site's header navigation, and where.
+  showInNav Boolean @default(true) @map("show_in_nav")
+  navOrder  Int     @default(0) @map("nav_order")
+
+  seoTitle       String? @map("seo_title")
+  seoDescription String? @map("seo_description")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, path])
+  @@index([organizationId, status])
+  @@map("site_pages")
+}
+
+/**
+ * Whether a studio wants a given automated message sent AT ALL.
+ *
+ * NOT `NotificationTemplate.isActive`, which is next door and looks like it
+ * would do. That flag chooses between the studio's own wording and the
+ * built-in text: turning it off still SENDS, it just sends the default. Two
+ * fields because they answer different questions, and one of them is the
+ * difference between a customer getting the wrong words and getting nothing.
+ *
+ * Per template key, not per channel, because that is the question an owner
+ * asks — "do we send a 2-hour reminder" rather than "do we send it by SMS".
+ *
+ * ABSENT MEANS ON. No row is written until somebody turns something off, so
+ * there is no backfill, and a template key added in a later release is live
+ * for every existing studio without a migration remembering to enable it.
+ */
+model NotificationRule {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  templateKey    String @map("template_key")
+
+  enabled Boolean @default(true)
+
+  /// Who switched it, and when. An owner asking why guests stopped getting
+  /// reminders is asking this, and the delivery log alone cannot answer it.
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, templateKey])
+  @@map("notification_rules")
 }
 
 enum PaymentKind {
@@ -1938,4 +2713,61 @@ model IdempotencyKey {
   @@unique([organizationId, key])
   @@index([expiresAt])
   @@map("idempotency_keys")
+}
+
+/// One row per paying studio per day — the MRR history the platform never kept.
+///
+/// Recorded rather than derived, because it cannot be derived. Nothing in the
+/// system records what a studio's plan WAS: `organizations.plan` holds only the
+/// current value, and the Stripe webhook log is not a substitute because
+/// comping and platform `setPlan` deliberately never touch Stripe. So MRR a
+/// month ago is unrecoverable, and the only honest fix is to start writing it
+/// down.
+///
+/// ABSENCE IS THE SIGNAL. A row exists only while a studio is ACTIVE, matching
+/// how the headline MRR is computed, so the movement between two days falls
+/// straight out of the diff: a row that appears is new, one that vanishes is
+/// churn, and one whose amount moved is expansion or contraction.
+model MrrDailyStudio {
+  /// The UTC day. DATE, not a timestamp: two snapshots on the same day are the
+  /// same fact, and the primary key makes the writer idempotent.
+  date           DateTime @db.Date
+  organizationId String   @map("organization_id") @db.Uuid
+
+  /// Snapshotted alongside the amount so a later price change cannot silently
+  /// rewrite history — `PLANS` is read at write time and never again.
+  plan     Plan
+  mrrCents Int  @map("mrr_cents")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([date, organizationId])
+  @@index([date])
+  @@map("mrr_daily_studio")
+}
+
+/// The editable half of a plan: what it costs and what it allows.
+///
+/// Plans began as a TypeScript constant, which is right for anything the code
+/// must branch on and wrong for anything a human should be able to change
+/// without a deploy. Price and the two capacity limits moved here; the feature
+/// flags did NOT, because a feature is only real when something calls
+/// `requireFeature` with it, and a toggle that flips a flag nothing reads is a
+/// control that does nothing.
+///
+/// Read through an in-process cache — see `plan.ts` — so every existing
+/// synchronous `PLANS[id]` call site keeps working.
+model PlanSetting {
+  id Plan @id
+
+  priceCentsMonthly Int  @map("price_cents_monthly")
+  /// null means unlimited, matching the constant this replaced.
+  maxStaff          Int? @map("max_staff")
+  maxLocations      Int? @map("max_locations")
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("plan_settings")
 }

@@ -1,7 +1,10 @@
 import { logger } from '../lib/logger';
+import { recordWorkerRun } from '../lib/heartbeat';
 import { sweepExpiredOffers } from '../modules/waitlists/waitlist.service';
 import { sweepExpiredSubscriptions } from '../modules/billing/billing.service';
 import { sweepExpiredHolds } from '../scheduling/hold.service';
+import { takeMrrSnapshot } from '../modules/platform/mrr.service';
+import { refreshPlans } from '../modules/billing/plan';
 
 /**
  * The state changes that happen because time passed, and for no other reason.
@@ -69,6 +72,17 @@ export async function processSweepBatch(opts: { billing?: boolean } = {}) {
 let timer: NodeJS.Timeout | null = null;
 
 /**
+ * The tick currently running, if one is.
+ *
+ * `clearInterval` stops the NEXT tick; it says nothing about the transaction
+ * the current one is inside. Stopping therefore has to wait for it, or the
+ * caller gets control back while a sweep still holds row locks — which under
+ * test is a `TRUNCATE` deadlocking against locks nobody can see, and in
+ * production is the shutdown path closing the pool underneath a live write.
+ */
+let inFlight: Promise<void> | null = null;
+
+/**
  * A minute is the right cadence for the two that matter.
  *
  * Booking holds live ten minutes and waitlist offers twelve hours, so a
@@ -84,13 +98,51 @@ export function startSweepWorker(intervalMs = 60_000) {
   if (timer) return;
 
   let billingCounter = 0;
+  /*
+    The MRR snapshot also runs on the first tick after start, not only on the
+    hourly branch. A process that restarts more often than once an hour would
+    otherwise never reach the branch, and every restart would cost a day of
+    history that cannot be reconstructed afterwards.
+  */
+  let snapshotPending = true;
 
   const tick = async () => {
     // Roughly hourly at the default interval.
     const billing = ++billingCounter >= 60;
     if (billing) billingCounter = 0;
 
-    const result = await processSweepBatch({ billing });
+    // Wrapped so that "this worker has not run" is a visible state rather than
+    // an absence of log lines. `processSweepBatch` swallows each sweep's own
+    // errors by design, so the heartbeat records the TICK happening; per-sweep
+    // failures stay in the log.
+    const result = await recordWorkerRun('sweeps', () =>
+      processSweepBatch({ billing }),
+    );
+
+    /*
+      Plan price and limits are cached in-process, so a second API container
+      would otherwise serve stale prices until it restarted. Re-read on the
+      same hourly beat as the billing sweep: bounded staleness, one query.
+    */
+    if (billing) await refreshPlans();
+
+    /*
+      Its own heartbeat, not folded into the sweeps one: this is the sole
+      writer of a table that cannot be backfilled, so "did it run" has to be
+      answerable about this job specifically rather than about the timer that
+      happens to carry it.
+
+      Isolated like each sweep above — a snapshot failure must not stop the
+      expiry work, which is the part with seats and trials riding on it.
+    */
+    if (billing || snapshotPending) {
+      snapshotPending = false;
+      try {
+        await recordWorkerRun('mrrSnapshot', () => takeMrrSnapshot());
+      } catch (err) {
+        logger.error({ err }, 'MRR snapshot failed');
+      }
+    }
 
     // Quiet when there is nothing to do, which is most ticks. A sweep that
     // logged every minute would bury the one line that matters.
@@ -104,14 +156,22 @@ export function startSweepWorker(intervalMs = 60_000) {
     }
   };
 
-  timer = setInterval(() => void tick(), intervalMs);
+  timer = setInterval(() => {
+    inFlight = tick();
+  }, intervalMs);
   timer.unref();
   logger.info({ intervalMs }, 'Sweep worker started');
 }
 
-export function stopSweepWorker() {
+export async function stopSweepWorker() {
   if (timer) {
     clearInterval(timer);
     timer = null;
   }
+
+  // A tick that threw is the tick's own business — it has already been logged
+  // where it happened. Stopping must not inherit that failure, or shutdown
+  // turns into a second error about the first one.
+  await inFlight?.catch(() => {});
+  inFlight = null;
 }

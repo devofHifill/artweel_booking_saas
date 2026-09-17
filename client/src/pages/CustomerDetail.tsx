@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, dateIn, expiryIn, money, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { DataTable, PageHead, Stat, StatGrid } from '../components/layout';
+import { EmptyState } from '../components/states';
+import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 type Credit = {
   id: string;
@@ -34,6 +37,14 @@ type Pack = {
   creditCount: number;
   priceCents: number;
   isActive: boolean;
+};
+
+type UpcomingSession = {
+  id: string;
+  startsAt: string;
+  capacity: number;
+  seatsTaken: number;
+  serviceType: { name: string };
 };
 
 /** Where a credit came from, in words a studio would use. */
@@ -133,6 +144,8 @@ export default function CustomerDetail() {
   const [entError, setEntError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selling, setSelling] = useState('');
+  const [redeeming, setRedeeming] = useState<Credit | null>(null);
+  const [upcoming, setUpcoming] = useState<UpcomingSession[]>([]);
 
   const isAdmin = org?.role === 'OWNER' || org?.role === 'ADMIN';
 
@@ -216,6 +229,52 @@ export default function CustomerDetail() {
     }
   }
 
+  /**
+   * Spending a credit is the point of having one.
+   *
+   * The panel could show a make-up class owed and offer no way to book it,
+   * which is where this started: the studio could see the debt and not settle
+   * it. Sessions are loaded on demand rather than with the page, since most
+   * visits to a customer are not about redeeming anything.
+   */
+  async function openRedeem(credit: Credit) {
+    setRedeeming(credit);
+    setEntError(null);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const to = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+      const res = await api.get<{ sessions: UpcomingSession[] }>(
+        `${base}/sessions?from=${today}&to=${to}`,
+      );
+      setUpcoming(res.sessions.filter((s) => s.seatsTaken < s.capacity));
+    } catch (err) {
+      setEntError(err instanceof Error ? err.message : 'Could not load classes.');
+    }
+  }
+
+  async function redeem(sessionId: string) {
+    if (!redeeming) return;
+
+    setBusy(true);
+    try {
+      await api.post(`${base}/credits/${redeeming.id}/redeem`, { sessionId });
+      setRedeeming(null);
+      setUpcoming([]);
+      await loadEntitlements();
+      // The booking is real, so the history above is now out of date too.
+      const res = await api.get<CustomerDetailResponse>(
+        `${base}/customers/${customerId}`,
+      );
+      setData(res.customer);
+    } catch (err) {
+      // Says which rule refused it — a full class, one that has started, or a
+      // credit the studio keeps inside its own cohort.
+      setEntError(err instanceof Error ? err.message : 'Could not book it.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function cancelCredit(credit: Credit) {
     if (!confirm('Withdraw this credit? The customer loses the free class.'))
       return;
@@ -254,44 +313,44 @@ export default function CustomerDetail() {
   }
 
   if (error) return <div className="err">{error}</div>;
-  if (!data) return <div className="empty">Loading…</div>;
+  if (!data) return (
+      <LoadingRegion label="Loading this customer">
+        <SkeletonStats />
+        <SkeletonList count={3} lines={3} />
+      </LoadingRegion>
+    );
 
   const liveCredits = credits.filter((c) => c.status === 'AVAILABLE');
   const spentCredits = credits.filter((c) => c.status !== 'AVAILABLE');
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <Link to="/customers" className="sub">
-            ← Customers
-          </Link>
-          <h1 style={{ marginTop: 6 }}>{data.name}</h1>
-          <p className="sub">
+      {/* Above the head, not inside its title: nesting it in the <h1> would
+          make this page's heading read "← Customers Jane Potter" to anyone
+          navigating by headings. */}
+      <Link to="/customers" className="sub back-link">
+        ← Customers
+      </Link>
+
+      <PageHead
+        title={data.name}
+        lede={
+          <>
             {data.email}
             {data.phone && ` · ${data.phone}`}
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      <div className="stats">
-        <div className="card stat">
-          <div className="label">Bookings</div>
-          <div className="value">{data.stats.total}</div>
-        </div>
-        <div className="card stat">
-          <div className="label">Attended</div>
-          <div className="value">{data.stats.attended}</div>
-        </div>
-        <div className="card stat">
-          <div className="label">No shows</div>
-          <div className="value">{data.stats.noShows}</div>
-        </div>
-        <div className="card stat">
-          <div className="label">Lifetime</div>
-          <div className="value">{money(data.stats.lifetimeCents, currency)}</div>
-        </div>
-      </div>
+      <StatGrid>
+        <Stat label="Bookings" value={data.stats.total} />
+        <Stat label="Attended" value={data.stats.attended} />
+        <Stat label="No shows" value={data.stats.noShows} />
+        <Stat
+          label="Lifetime"
+          value={money(data.stats.lifetimeCents, currency)}
+        />
+      </StatGrid>
 
       {data.smsOptedOutAt && (
         <div className="alert warn">
@@ -371,6 +430,13 @@ export default function CustomerDetail() {
                   refund the purchase below — which withdraws what is unused
                   and leaves what has been spent alone.
                 */}
+                <button
+                  className="link"
+                  onClick={() => void openRedeem(group.credits[0]!)}
+                  disabled={busy}
+                >
+                  Book a class
+                </button>
                 {isAdmin && group.credits.length === 1 && (
                   <button
                     className="link danger"
@@ -383,6 +449,57 @@ export default function CustomerDetail() {
               </li>
             ))}
           </ul>
+        )}
+
+        {redeeming && (
+          <div className="pack">
+            <div className="row-head" style={{ cursor: 'default' }}>
+              <div className="sub">
+                Which class? The credit pays for one seat.
+              </div>
+              <button
+                className="link"
+                onClick={() => {
+                  setRedeeming(null);
+                  setUpcoming([]);
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+
+            {upcoming.length === 0 && (
+              <p className="sub">
+                Nothing with a free seat in the next 60 days.
+              </p>
+            )}
+
+            {upcoming.length > 0 && (
+              <ul className="queue">
+                {upcoming.map((session) => (
+                  <li key={session.id}>
+                    <span className="who">
+                      {session.serviceType.name}
+                      <span className="sub">
+                        {dateIn(session.startsAt, timezone)} ·{' '}
+                        {timeIn(session.startsAt, timezone)}
+                      </span>
+                    </span>
+                    <span className="counts">
+                      {session.capacity - session.seatsTaken} free
+                    </span>
+                    <button
+                      className="link"
+                      onClick={() => void redeem(session.id)}
+                      disabled={busy}
+                    >
+                      Book
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
 
         {purchases.length > 0 && (
@@ -434,11 +551,12 @@ export default function CustomerDetail() {
       <h2>History</h2>
 
       {data.bookings.length === 0 ? (
-        <div className="card empty">No bookings yet.</div>
+        <EmptyState>No bookings yet.</EmptyState>
       ) : (
         <div className="card" style={{ padding: 0 }}>
-          <table>
-            <thead>
+          <DataTable
+            caption="This customer's booking history"
+            head={
               <tr>
                 <th>When</th>
                 <th>Class</th>
@@ -446,8 +564,8 @@ export default function CustomerDetail() {
                 <th>Status</th>
                 <th>Value</th>
               </tr>
-            </thead>
-            <tbody>
+            }
+          >
               {data.bookings.map((booking) => (
                 <tr key={booking.id}>
                   <td>
@@ -472,8 +590,7 @@ export default function CustomerDetail() {
                   <td>{money(booking.totalCents, currency)}</td>
                 </tr>
               ))}
-            </tbody>
-          </table>
+          </DataTable>
         </div>
       )}
     </>

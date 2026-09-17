@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { api, tokens, ApiError } from '../lib/api';
 import { clearAttribution, readAttribution } from '../lib/attribution';
+import { Icon } from '../components/Icon';
+import { AuthField, AuthLayout } from '../components/AuthLayout';
 
 /**
  * Self-serve signup.
@@ -12,7 +14,13 @@ import { clearAttribution, readAttribution } from '../lib/attribution';
  * The timezone is guessed from the browser rather than asked for. It is
  * almost always right, and every question removed is a person who finishes.
  */
-export default function SignUp({ onSignedUp }: { onSignedUp: () => void }) {
+export default function SignUp({
+  onSignedUp,
+  onSwitch,
+}: {
+  onSignedUp: () => void;
+  onSwitch?: () => void;
+}) {
   const [name, setName] = useState('');
   const [organizationName, setOrganizationName] = useState('');
   const [email, setEmail] = useState('');
@@ -58,70 +66,58 @@ export default function SignUp({ onSignedUp }: { onSignedUp: () => void }) {
   }
 
   return (
-    <div className="login">
-      <h1>Start your studio</h1>
-      <p className="sub" style={{ marginBottom: 18 }}>
-        14 days free. No card needed.
-      </p>
+    <AuthLayout
+      title="Start your studio"
+      intro="14 days free. No card needed."
+      switchLabel="I already have an account"
+      onSwitch={onSwitch}
+    >
+      <form className="auth-form" onSubmit={submit}>
+        <div aria-live="polite">
+          {error && <div className="err auth-err">{error}</div>}
+        </div>
 
-      <form className="card" onSubmit={submit}>
-        {error && <div className="err">{error}</div>}
-
-        <label htmlFor="studio">Studio name</label>
-        <input
-          id="studio"
+        <AuthField
+          label="Studio name"
           value={organizationName}
-          onChange={(e) => setOrganizationName(e.target.value)}
-          placeholder="Clay & Co"
+          onChange={setOrganizationName}
           required
         />
 
-        <label htmlFor="name">Your name</label>
-        <input
-          id="name"
+        <AuthField
+          label="Your name"
           autoComplete="name"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={setName}
           required
         />
 
-        <label htmlFor="email">Email</label>
-        <input
-          id="email"
+        <AuthField
+          label="Email"
           type="email"
           autoComplete="username"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={setEmail}
+          error={fieldErrors.email}
           required
         />
-        {fieldErrors.email && (
-          <div className="sub" style={{ color: 'var(--danger)' }}>
-            {fieldErrors.email}
-          </div>
-        )}
 
-        <label htmlFor="password">Password</label>
-        <input
-          id="password"
+        <AuthField
+          label="Password"
           type="password"
           autoComplete="new-password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={setPassword}
+          error={fieldErrors.password}
+          hint="At least 12 characters. Length beats symbols."
           required
         />
-        {fieldErrors.password && (
-          <div className="sub" style={{ color: 'var(--danger)' }}>
-            {fieldErrors.password}
-          </div>
-        )}
-        <div className="sub" style={{ fontSize: '.8rem', marginTop: 4 }}>
-          At least 12 characters. Length beats symbols.
-        </div>
 
-        <button className="primary" type="submit" disabled={busy}>
+        <button className="auth-submit" type="submit" disabled={busy}>
+          <Icon name="signin" size={18} />
           {busy ? 'Creating…' : 'Create my studio'}
         </button>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

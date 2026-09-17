@@ -20,19 +20,123 @@ have no concept of equipment.
 - Spec: `D:\Projects\2026\booking-saas-spec.md`
 - Phase plan: `D:\Projects\2026\booking-saas-phases.pdf`
 
-## Status
+## Status — 2026-09-03
 
-**Phases 0, 1 and 2 are all code-complete, and every workstream is now deployed
-to staging.** 499 tests green in the default suite, plus an isolated performance
-gate under 200ms p95. Both typechecks clean.
+**Phases 0, 1 and 2 are code-complete. Since then: a design-system port,
+superadmin Stages 1 and 2, the thirteen-item TourFlow parity pass, the
+booking-page pass G0 to G5 on 2026-09-02, and on 2026-09-03 the
+Create-activity dialog with adult/child pricing.** Both typechecks clean.
 
-The dashboard now covers every Phase 2 module — waitlists, courses, pieces,
-firings, credits and packs all have screens. See `PHASE-2-CLOSEOUT.md` for what
-remains.
+**2026-09-03 — the Create-activity form matched to the prototype's.** It is
+now a DIALOG rather than an inline card, in the prototype's six sections, and
+it writes six new columns plus the `service_locations` join. Two things in it
+are worth knowing before touching that area:
 
-What is left is unfinished edges rather than missing features, and the plan for
-closing them is `PHASE-2-CLOSEOUT.md`. The largest item is that six Phase 2
-modules have no dashboard screens at all.
+- **`seats` is the whole party; `children` is how many of those are
+  children.** Adults are `seats - children`, derived, never stored. Two
+  independent counts would drift the first time any path touched seats
+  without knowing about the split, and then the manifest and the payment
+  would disagree with no way to tell which lied.
+- **A zero child price means ADULTS ONLY, and `priceBooking` ignores
+  `children` entirely when it is zero.** Without that guard every seat of
+  every service in the catalogue was free to anyone who sent `children`,
+  because zero is the default every service carries. It was written that way
+  first and caught by its own unit test.
+
+The day/time chips in that dialog GENERATE SESSIONS rather than storing a
+pattern — one source of truth for when a class runs. They also default the
+location when a studio has exactly one, because public availability filters
+sessions by location: a class scheduled with no location is scheduled
+invisibly, sitting on the calendar and countable on the dashboard while no
+customer can ever see it.
+
+**1023 tests, all passing.**
+
+`tests/admin/theme.test.ts` had been failing since D0 and was fixed on
+2026-09-03: it still asserted the default preset was `clay` after
+`20260824190000_default_brand_indigo` made it `indigo` and moved the existing
+clay rows across. The token assertion beside it was stale for the same reason
+— `--clay` is the NAME of the accent variable, not a claim about its colour,
+so on the indigo preset it holds `#4f46e5`.
+
+`tests/gate/seat-concurrency.test.ts` — the previously known failure — passed
+in the 2026-09-03 full run. It is load-dependent, not fixed; expect it to come
+and go with what else the machine is doing. The full suite takes about 46
+minutes, so run targeted files while working and the whole thing once.
+
+**Both date time-bombs are fixed.** `tests/public/course-enrollment.test.ts`
+and `tests/gate/course-enrollment.test.ts` each pinned a cohort to
+`startLocalDate: '2026-09-01'`, which stopped being in the future on 2026-09-02
+and failed nine tests between them on a date rather than a defect. Both now
+compute a Tuesday a fortnight out at module load, and the gate file derives its
+expected dates from the same value instead of listing them.
+
+**One date in that file stays literal on purpose** — the daylight-saving case
+asserts that particular weeks straddle the 2026-11-01 transition, and a
+floating start would drift off it and prove nothing. It is commented as such.
+Generating sessions in the past is allowed; only enrolling in a started cohort
+is refused, which is why that case never rotted.
+
+**The perf gate is marginal, not regressed.** Five consecutive runs on an idle
+machine: 200.9, 218.6, 186.5, 168.9, 198.4ms against a 200ms threshold. It
+straddles its own line. Availability reads `sessions`, `busy_blocks` and one
+`service_types` row — it never touches `bookings`, so the new `reference`
+column and index cannot reach it. Worth either more headroom or a less noisy
+measurement before it is trusted as a gate.
+
+Read `BOOKING-PAGE-PLAN.md` for the most recent work and
+`TOURFLOW-PARITY-PLAN.md` for the pass before it. `PHASE-2-CLOSEOUT.md` is
+history; everything in it landed.
+
+**What is actually left:**
+
+- **Staging is well behind**, at `e8824d4`. Everything from D12 onward exists
+  only in git, and since 2026-09-02 that includes the whole booking-page pass
+  (G0–G5, see `BOOKING-PAGE-PLAN.md`).
+
+  **FOUR MIGRATIONS ARE OWED. This is no longer a code-only deploy.**
+
+  - `20260902120000_service_detail_fields` — `highlights` and
+    `preparation_notes` on `service_types`
+  - `20260902140000_booking_reference` — `reference` on `bookings`, a
+    GENERATED column, plus its index
+  - `20260902160000_drop_booking_reference_index` — drops the speculative
+    index the one above added
+  - `20260903120000_activity_detail_and_child_pricing` — six columns on
+    `service_types` (`short_description`, `child_price_cents`,
+    `meeting_point`, `emoji`, `color_accent`, `booking_instructions`) and
+    `children` on `bookings`
+
+  All additive and either nullable or defaulted, so the order is forgiving,
+  but shipping the code without them gives an app querying columns that do
+  not exist.
+  Run `prisma migrate deploy` before the code goes out, not after.
+
+  If `THEME_PACK` is set, rebuild rather than restart, because Vite bakes the
+  client's half in at build time.
+- **The browser debt is paid.** D12, D13, the schedule surface and the new
+  topbar were all walked on 2026-09-01 — deposit round-trip, all four schedule
+  write paths, the "cannot be booked" empty state, both new menus.
+- **Since the thirteen:** the whole `/schedules` surface got a UI (working
+  hours, per-date exceptions, and `/my-schedule` for an instructor's own),
+  light + indigo became the default, the topbar was matched to the prototype,
+  and theme packs landed — `THEME_PACK` / `VITE_THEME_PACK`, product-wide shape
+  only, deliberately not a studio setting.
+- **D3 Calendar is partial** by decision — month and week shipped; day view and
+  the side panel were declined with reasons, and add-slot belongs to Classes,
+  which already has it.
+
+**What the parity pass turned up, which is the useful part.** Five of the
+thirteen items were not styling gaps at all but capabilities with no caller:
+a studio could not create an activity (D4), connect a calendar (D11), set a
+notice window, booking horizon or deposit (D13), or give an instructor working
+hours — which meant **anyone hired after signup was permanently unbookable**,
+silently. The onboarding wizard seeds hours for the FIRST instructor only. That
+pattern is the thing to keep looking for.
+
+Two harness faults were fixed the same day: worker stops that did not await the
+tick in flight, and a Prisma client shared across every test file. Together
+they were producing up to 47 phantom failures in a run.
 
 Deployed to staging on 2026-08-12: W2.1 (course cohorts + paid checkout),
 W2.2a (attendance registers) and W2.2c (drop-in class scheduling).
@@ -129,7 +233,9 @@ under "Being built next — not available yet". A test enforces this.
 | Migrations | `prisma migrate dev` needs a TTY and fails here. Use `prisma migrate diff --from-migrations … --script` into a temp file, write it to a new `prisma/migrations/<timestamp>_name/migration.sql`, then `prisma migrate deploy`. |
 | PowerShell + .NET | `[System.IO.File]::WriteAllText` uses the *process* CWD, not `Set-Location`. Always pass absolute paths. |
 | Perf suite | Must run **alone**: `npm run test:perf`. It is excluded from `npm test`. Running it alongside anything else inflates p95 and produces a false failure. |
-| Suite length vs edits | The suite now takes ~25 minutes, which is long enough that editing source while it runs is easy to do by accident — and the result then describes code that no longer exists. It happened once here and produced two false failures. **Never run two suites at once either**: they share `booking_test` and truncate tables between tests, so they corrupt each other. Kill a run you have invalidated rather than reading its output. |
+| Suite length vs edits | The suite now takes ~40 minutes, which is long enough that editing source while it runs is easy to do by accident — and the result then describes code that no longer exists. It happened once here and produced two false failures. Kill a run you have invalidated rather than reading its output. |
+| Two sessions, two databases | **Never run two suites against one database.** They truncate between tests and corrupt each other. On 2026-09-01 this produced 35 failures that were not real; the tell was `signUpStudio failed: 500` and, in the Postgres log, two backends hitting `organizations_slug_key` a second apart. `booking_test` and `booking_test_b` both exist and are migrated — the second session sets `TEST_DATABASE_URL`. |
+| A quiet machine, or a phantom gate failure | Five full-suite attempts on 2026-09-01: one killed by Docker Desktop restarting mid-run, one by concurrent runs, one by edits, one by the port proxy dropping connections under load. Only the fifth, on an otherwise idle machine, was clean. A gate test reporting a raw `PrismaClientKnownRequestError` where it expects the app's own error is almost always this, not the code. |
 | Test plan defaults | `signUpStudio` defaults orgs to plan `PRO` so plan limits don't interfere with unrelated suites. Billing tests pass `plan: 'SOLO'` explicitly. |
 
 ---
@@ -137,8 +243,8 @@ under "Being built next — not available yet". A test enforces this.
 ## COMMANDS
 
 ```
-cd server && npm test              # 475 tests, ~25 min — see the warning below
-cd server && npm run test:perf     # isolated timing gate — run alone
+cd server && npm test              # 990 tests, ~42 min — see the warning below
+cd server && npm run test:perf     # isolated timing gate — run alone (marginal, see Status)
 cd server && npm run typecheck
 cd server && npm run db:seed       # prints booking URL + login
 cd server && npm run dev           # API on 4000
@@ -156,7 +262,23 @@ cd client && npm run dev           # dashboard on 5173
 
 ## DEPLOYMENT (staging, live since 2026-08-12)
 
-Runbook: `DEPLOY.md`. Box: `root@fillforge`, code at `~/artweel`.
+Runbook: `DEPLOY.md`. Code at `~/artweel`.
+
+**`root@fillforge` does not resolve** — it is shorthand, not a hostname, and it
+sent a session hunting on 2026-09-01. The box is whatever
+`artweel.fillforge.cloud` resolves to; the local `my-vps` SSH alias is a
+DIFFERENT machine and does not answer.
+
+**Check the deployed commit after every pull.** `git log --oneline -1` in
+`~/artweel`. It was one behind what was expected once, and the only reason that
+cost nothing is that the missing commit touched test files, which never enter
+the image.
+
+Staging is currently at `e8824d4`, well behind the branch head.
+
+**That is no longer a code-only deploy.** Two migrations are owed — see the
+Status section at the top for their names. Run `prisma migrate deploy` before
+the code goes out.
 
 The VPS is **shared** — n8n and FDGSMS run there too, and **Traefik owns 80/443**.
 There is no host nginx and no certbot. Routing is container labels on the
@@ -199,10 +321,11 @@ Calendar (blank credentials fall back to the in-memory fake).
 
 ## OPEN DECISIONS
 
-1. **Product name.** Repo says "artweel"; code still says "Studio Bookings"
-   everywhere (marketing titles, JSON-LD, notification sender, package names).
-   Needs a decision then a find-and-replace. Matters because SEO bakes in
-   `PUBLIC_URL` and re-indexing later is costly.
+1. ~~**Product name.**~~ **Settled 2026-08-14: the product is Artweel.** The
+   repo, staging hostnames, WordPress plugin and embed protocol already said
+   so; only the marketing footer and two JSON-LD fields held out, and they were
+   moved to match. Nothing is indexed under any name while staging carries
+   `X-Robots-Tag: noindex`.
 2. **Talk to three US ceramics studios.** Still open, and now the binding
    constraint on Phase 2 rather than a nice-to-have. W2.1 was built ahead of it
    on the judgement that cohorts and enrolment are structurally obvious —
@@ -586,16 +709,32 @@ Every Phase 2 workstream is built. What remains is unfinished edges, not
 missing features. These are sequenced, with reasoning, in
 `PHASE-2-CLOSEOUT.md`; the list below is the raw inventory:
 
-- **Dashboard pages** for courses, credits, pieces, firings, waitlists and
-  packs. Only Classes and Register have screens; the rest is API-only. This is
-  now the largest gap in the product — a studio cannot use most of Phase 2
-  without curl.
+- ~~**Dashboard pages** for courses, credits, pieces, firings, waitlists and
+  packs.~~ **Done, and this was the largest gap.** Courses, Pieces, Firings and
+  Packs all have screens and routes. Credits and waitlists deliberately do not:
+  a credit belongs to a person and lives on `CustomerDetail`, and a waitlist
+  belongs to a class and lives on `Classes`. Nothing here needs curl any more.
 - **Refunds for a cancelled course enrolment.** `refundForCancellation` is
   booking-shaped and course money sits on the enrolment.
+- **Credits and class packs cannot be spent on the booking page.** They appear
+  nowhere in the public flow — grep finds zero references. This was harmless
+  while every public booking was free; since G1 the page takes card payment, so
+  "I already have a pack" now has nowhere to go.
+- **A studio cannot sell a course until Stripe onboarding completes.**
+  `enrollPublic` refuses any priced cohort, so unlike a class there is no
+  unpaid fallback. A decision made earlier; G2 is what made it visible to
+  customers. Waiting on OPEN DECISIONS item 3.
+- **The operator screens have not been swept** for the "capability with no
+  caller" fault. Seven instances turned up this week without looking
+  systematically — the Dashboard's dead button, checkout, deposits, courses,
+  manual booking, and the activity and instructor filters. Seven is unlikely to
+  be the total.
 - **The WordPress plugin has never been run.** No PHP on the Windows box, so
   it has not even been syntax-checked. It wants a real WordPress install
   before anyone trusts it.
-- **Deploying everything after W2.2c** — five workstreams, three migrations.
+- **Deploying everything since `e8824d4`** — the parity pass, the schedule
+  surface, theme packs and the whole booking-page pass. See the migrations
+  named at the top: this is not a code-only deploy.
 - **Phase 3**, which the spec scopes as public API + webhooks, Outlook/Apple
   calendar, reporting, gift cards, memberships and a second vertical.
 

@@ -4,6 +4,8 @@ import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
 import { logger } from '../../lib/logger';
 import { hashPassword, needsRehash, verifyPassword } from '../../lib/password';
+import { config } from '../../config';
+import { getEmailProvider } from '../notifications/registry';
 import { TRIAL_DAYS } from '../billing/billing.service';
 import {
   consumeVerificationToken,
@@ -166,6 +168,26 @@ export async function login(input: LoginInput) {
   const ok = await verifyPassword(input.password, user.passwordHash);
   if (!ok) throw invalid();
 
+  /**
+   * A disabled account (S8) is refused AFTER the password check, on purpose.
+   *
+   * Checking it first would make this endpoint an oracle: a wrong password on a
+   * disabled account would answer differently from a wrong password on a live
+   * one, and anyone could learn which addresses had been disabled by trying
+   * junk. The password comparison has already happened by the time we get here,
+   * so the timing matches too.
+   *
+   * The message is deliberately its own, not the generic one. Somebody whose
+   * account was disabled needs to know to ask rather than to keep trying
+   * passwords they know are right.
+   */
+  if (user.disabledAt) {
+    throw AppError.forbidden(
+      'This account has been disabled. Please contact support.',
+      'ACCOUNT_DISABLED',
+    );
+  }
+
   // Transparent upgrade when the cost parameters have been raised.
   if (needsRehash(user.passwordHash)) {
     const upgraded = await hashPassword(input.password);
@@ -224,6 +246,19 @@ export async function resendVerification(userId: string) {
  *
  * Always reports success. Reporting "no such account" turns this endpoint
  * into a free membership oracle for anyone with a list of email addresses.
+ *
+ * The email is sent through the account-level provider, NOT the studio outbox.
+ * The outbox is organization-scoped and gated by each studio's automation and
+ * SMS settings — none of which should touch an auth email. A user may belong
+ * to no studio (a fresh platform admin) or to several, and a studio that had
+ * switched its automations off must not be able to suppress a password reset.
+ *
+ * Sent fire-and-forget on purpose: a slow or unreachable provider must not
+ * turn a working reset into a 500, and awaiting it only for real accounts
+ * would widen the timing gap this endpoint already tries to keep narrow. When
+ * no provider is configured the console provider logs the whole email, link
+ * included — which is how the link is recovered on an environment without a
+ * mailer.
  */
 export async function requestPasswordReset(rawEmail: string) {
   const email = rawEmail.trim().toLowerCase();
@@ -235,6 +270,33 @@ export async function requestPasswordReset(rawEmail: string) {
   }
 
   const token = await issueVerificationToken(user.id, 'PASSWORD_RESET');
+
+  const resetUrl = `${config.APP_URL}/reset-password?token=${encodeURIComponent(
+    token,
+  )}`;
+
+  void getEmailProvider()
+    .send({
+      to: user.email,
+      subject: 'Reset your Artweel password',
+      fromName: 'Artweel',
+      text: [
+        `Hi ${user.name || 'there'},`,
+        '',
+        'Someone asked to reset the password on your Artweel account. If that ' +
+          'was you, open this link to choose a new one:',
+        '',
+        resetUrl,
+        '',
+        `The link works once and expires in ${config.PASSWORD_RESET_TTL_MINUTES} minutes.`,
+        'If you did not ask for this, ignore this email — your password will ' +
+          'not change.',
+      ].join('\n'),
+    })
+    .catch((err) => {
+      logger.error({ err, userId: user.id }, 'Password reset email not sent');
+    });
+
   return { token };
 }
 

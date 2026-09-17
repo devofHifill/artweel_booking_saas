@@ -120,6 +120,8 @@ export type StartCheckoutInput = {
   customerEmail: string;
   customerName: string;
   seats: number;
+  /** How many of `seats` are children, priced at the service's child rate. */
+  children?: number;
   travelFeeCents?: number;
   successUrl: string;
   cancelUrl: string;
@@ -185,6 +187,10 @@ export async function startCheckout(input: StartCheckoutInput) {
   const price = priceBooking({
     unitPriceCents: series ? series.priceCents : service.priceCents,
     seats: input.seats,
+    // Zero on a course, matching quoteBooking exactly. If these two ever
+    // disagree the customer is charged something other than what they read.
+    children: series ? 0 : input.children,
+    childPriceCents: service.childPriceCents,
     travelFeeCents: input.travelFeeCents,
     depositType: service.depositType as 'none' | 'percent' | 'fixed',
     depositValue: service.depositValue,
@@ -197,25 +203,29 @@ export async function startCheckout(input: StartCheckoutInput) {
     );
   }
 
+  /* The studio's own hold window, off the `org` already loaded above.
+     `createHold` has always taken a per-call override and never had a caller
+     that used one — until now every studio shared the environment default. */
+  const seatHoldMinutes = org.seatHoldMinutes;
+
   const hold = series
     ? await createSeriesHold({
         organizationId: input.organizationId,
         courseSeriesId: series.id,
         seats: input.seats,
+        ttlMinutes: seatHoldMinutes,
       })
     : await createHold({
         organizationId: input.organizationId,
         sessionId: input.sessionId!,
         seats: input.seats,
+        ttlMinutes: seatHoldMinutes,
       });
 
   // The Stripe session must die no later than the hold, or somebody could pay
   // for seats that had already been released back to the pool.
   const expiresAt = new Date(
-    Math.min(
-      hold!.expiresAt.getTime(),
-      Date.now() + config.BOOKING_HOLD_TTL_MINUTES * 60_000,
-    ),
+    Math.min(hold!.expiresAt.getTime(), Date.now() + seatHoldMinutes * 60_000),
   );
 
   try {
@@ -240,6 +250,7 @@ export async function startCheckout(input: StartCheckoutInput) {
         customerEmail: input.customerEmail,
         customerName: input.customerName,
         seats: String(input.seats),
+        children: String(price.children),
         totalCents: String(price.totalCents),
         travelFeeCents: String(price.travelFeeCents),
       },
@@ -540,9 +551,43 @@ async function onCheckoutCompleted(event: WebhookEvent) {
     source: 'web',
   });
 
+  /*
+    `children` comes off the metadata rather than being recomputed, because
+    the metadata is what the charged amount was derived from. Recomputing it
+    from the service's current rates would disagree with the receipt the
+    moment a studio edits its prices between checkout and webhook — a window
+    of seconds, but one that lands on a customer who has already paid.
+
+    Clamped to the seats the hold actually converted: the CHECK constraint
+    refuses children > seats, and a rejected write here would strand a paid
+    booking as PENDING.
+  */
+  const children = Math.min(
+    booking.seats,
+    Math.max(0, Number(metadata.children ?? 0) || 0),
+  );
+
+  /*
+    Whether paying confirms the place, or only pays for it.
+
+    A studio that switches this off wants to look at each booking before
+    committing — a mobile party it has to check the van for, say. The money is
+    still taken and the seat is still held; only the status differs, so
+    nothing here can lose a payment if the setting is misread.
+  */
+  const { autoConfirmOnPayment } = await prisma.organization.findUniqueOrThrow({
+    where: { id: booking.organizationId },
+    select: { autoConfirmOnPayment: true },
+  });
+
   await prisma.booking.update({
     where: { id: booking.id },
-    data: { totalCents, travelFeeCents, status: 'CONFIRMED' },
+    data: {
+      totalCents,
+      travelFeeCents,
+      children,
+      ...(autoConfirmOnPayment ? { status: 'CONFIRMED' as const } : {}),
+    },
   });
 
   await prisma.payment.updateMany({

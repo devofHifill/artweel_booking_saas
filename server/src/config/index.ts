@@ -72,6 +72,33 @@ const EnvSchema = z.object({
    */
   PASSWORD_COST_EXPONENT: z.coerce.number().int().min(12).max(20).default(16),
 
+  /**
+   * Rate limits on the auth routes a stranger can reach.
+   *
+   * Everything else in `auth.service` assumes attempts are scarce. The decoy
+   * hash burns real CPU so response time cannot reveal which addresses have
+   * accounts, and login returns one message for a wrong password and an unknown
+   * address so the response body cannot either. Both are defences against an
+   * attacker sampling the endpoint — and both are pointless if the endpoint can
+   * be sampled without limit, which is what it accepted until now.
+   *
+   * The maxima differ because the legitimate rates differ by orders of
+   * magnitude. A studio's whole staff signing in on a Monday morning shares one
+   * office IP and still logs in a handful of times, because refresh tokens last
+   * 30 days. Registrations and password resets from a single address are rare
+   * in normal use and are exactly what account-farming and reset-spam look like
+   * in abnormal use.
+   *
+   * The suite raises these far above any test's traffic (see tests/setup.ts) so
+   * the limiters stay mounted in every run without a test's own volume tripping
+   * them; `tests/auth/rate-limit.test.ts` lowers them deliberately to prove
+   * they bite.
+   */
+  AUTH_RATE_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),
+  AUTH_LOGIN_RATE_MAX: z.coerce.number().int().positive().default(20),
+  AUTH_REGISTER_RATE_MAX: z.coerce.number().int().positive().default(5),
+  AUTH_RESET_RATE_MAX: z.coerce.number().int().positive().default(5),
+
   APP_URL: z.string().url().default('http://localhost:5173'),
   /** Where the public booking page lives; used to build Stripe return URLs. */
   PUBLIC_URL: z.string().url().default('http://localhost:4000'),
@@ -88,6 +115,20 @@ const EnvSchema = z.object({
   // --- Notifications -----------------------------------------------------
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().email().default('bookings@example.test'),
+
+  /**
+   * How the product is SHAPED — radii and density — for every studio at once.
+   *
+   * Not a studio setting and not a per-person one: a studio moves its accent
+   * and nothing else, which is the boundary `brand.test.ts` guards. A pack can
+   * reach no colour at all, so choosing one cannot weaken a contrast guarantee.
+   *
+   * Must match `VITE_THEME_PACK` in the client build, or the marketing site and
+   * booking page will be a different shape from the dashboard. An enum rather
+   * than a string, so a typo fails at boot rather than silently rendering the
+   * default.
+   */
+  THEME_PACK: z.enum(['artweel', 'crisp']).default('artweel'),
 
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),

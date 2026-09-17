@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, dateIn, money, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
+import { PageHead, StatusPill } from '../components/layout';
+import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
 /**
  * One cohort: its weeks, and who is on it.
@@ -280,7 +282,12 @@ export default function CourseDetail() {
   }
 
   if (error && !series) return <div className="err">{error}</div>;
-  if (!series) return <div className="empty">Loading…</div>;
+  if (!series) return (
+      <LoadingRegion label="Loading this course">
+        <SkeletonStats />
+        <SkeletonList count={3} lines={3} />
+      </LoadingRegion>
+    );
 
   const weeks = series.sessions;
   const tightest = tightestWeek(weeks);
@@ -292,22 +299,20 @@ export default function CourseDetail() {
 
   return (
     <div>
-      <header className="page-head">
-        <div>
-          <h1>{series.name}</h1>
-          <p className="sub">
+      <PageHead
+        title={series.name}
+        lede={
+          <>
             <Link to="/courses">Courses</Link> · {series.serviceType.name} ·{' '}
             {series.sessionCount} week{series.sessionCount === 1 ? '' : 's'} ·{' '}
             {money(series.priceCents, currency)}
             {series.staff ? ` · ${series.staff.name}` : ''}
             {series.location ? ` · ${series.location.name}` : ''}
-          </p>
-        </div>
-
-        <div className="toolbar">
-          <span className={`tag ${series.status}`}>
-            {series.status.toLowerCase()}
-          </span>
+          </>
+        }
+        actions={
+          <>
+            <StatusPill status={series.status} />
           {isAdmin && series.status === 'DRAFT' && weeks.length > 0 && (
             <button onClick={() => void setStatus('PUBLISHED')} disabled={busy}>
               Publish
@@ -322,8 +327,9 @@ export default function CourseDetail() {
               Unpublish
             </button>
           )}
-        </div>
-      </header>
+          </>
+        }
+      />
 
       {error && <div className="err">{error}</div>}
       {notice && <div className="alert warn">{notice}</div>}
@@ -505,9 +511,7 @@ export default function CourseDetail() {
 
                 <span className="counts">{attendanceLine(entry.attendance)}</span>
 
-                <span className={`tag ${entry.status}`}>
-                  {entry.status.toLowerCase()}
-                </span>
+                <StatusPill status={entry.status} />
 
                 {isAdmin && entry.status !== 'CANCELLED' && (
                   <button

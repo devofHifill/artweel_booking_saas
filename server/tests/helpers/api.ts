@@ -1,5 +1,32 @@
 import request from 'supertest';
 import type { Express } from 'express';
+import { resetRateLimits } from '../../src/middleware/rate-limit';
+
+/**
+ * Fixture registrations must never be throttled.
+ *
+ * `tests/setup.ts` raises the auth limits far above anything a suite generates,
+ * which works right up until `tests/auth/rate-limit.test.ts` runs. That file
+ * lowers them deliberately — it is the one file that proves the limiters bite —
+ * and `src/config` validates the environment ONCE at import time, so the low
+ * values are frozen into config for the rest of the process. Every file that
+ * happens to run after it inherits a budget of three registrations.
+ *
+ * That is invisible until the file order changes. Adding four test files in
+ * Phase B moved `staff-delete` behind `rate-limit`, and it failed its fourth
+ * through seventh tests with 429s while passing perfectly on its own.
+ *
+ * Two files had already patched this for themselves with a `resetRateLimits()`
+ * in their own `beforeEach`. Doing it here instead fixes every file that exists
+ * and every file anyone writes later, none of which should have to know that a
+ * suite three directories away edits a global.
+ *
+ * Safe for the rate-limit suite itself: it does not use these helpers — it
+ * builds its requests directly and manages `resetRateLimits` on its own terms.
+ */
+function clearRateLimitBudget() {
+  resetRateLimits();
+}
 
 /**
  * A signed-in studio, ready to make authenticated calls.
@@ -9,6 +36,8 @@ import type { Express } from 'express';
  */
 export type Studio = {
   userId: string;
+  /** The owner's own address — what a "send it to me" endpoint must use. */
+  email: string;
   organizationId: string;
   accessToken: string;
   headers: { Authorization: string };
@@ -32,14 +61,28 @@ export async function signUpStudio(
      * suite opts into SOLO explicitly, because there the limit IS the subject.
      */
     plan?: 'SOLO' | 'STUDIO' | 'PRO';
+    /**
+     * The studio's timezone.
+     *
+     * Registration does not take one, so this is applied afterwards. Worth
+     * having as an option rather than leaning on the default: the manifest and
+     * analytics suites are specifically about the studio's day differing from
+     * UTC's, and a test that silently depends on whatever `createOrganization`
+     * defaults to would start passing for the wrong reason the day that
+     * default changed.
+     */
+    timezone?: string;
   } = {},
 ): Promise<Studio> {
+  clearRateLimitBudget();
+
   const suffix = Math.random().toString(36).slice(2, 10);
+  const email = opts.email ?? `owner-${suffix}@clay.test`;
 
   const res = await request(app)
     .post('/api/auth/register')
     .send({
-      email: opts.email ?? `owner-${suffix}@clay.test`,
+      email,
       password: TEST_PASSWORD,
       name: 'Studio Owner',
       organizationName: opts.organizationName ?? `Clay Studio ${suffix}`,
@@ -54,11 +97,15 @@ export async function signUpStudio(
   const { prisma } = await import('../../src/lib/prisma');
   await prisma.organization.update({
     where: { id: organizationId },
-    data: { plan: opts.plan ?? 'PRO' },
+    data: {
+      plan: opts.plan ?? 'PRO',
+      ...(opts.timezone ? { timezone: opts.timezone } : {}),
+    },
   });
 
   return {
     userId: res.body.user.id,
+    email,
     organizationId,
     accessToken: res.body.tokens.accessToken,
     headers: { Authorization: `Bearer ${res.body.tokens.accessToken}` },
@@ -72,11 +119,14 @@ export async function addMemberToStudio(
   organizationId: string,
   role: 'ADMIN' | 'INSTRUCTOR' | 'FRONT_DESK',
 ): Promise<Studio> {
+  clearRateLimitBudget();
+
   const { prisma } = await import('../../src/lib/prisma');
   const suffix = Math.random().toString(36).slice(2, 10);
+  const email = `member-${suffix}@clay.test`;
 
   const res = await request(app).post('/api/auth/register').send({
-    email: `member-${suffix}@clay.test`,
+    email,
     password: TEST_PASSWORD,
     name: `Member ${role}`,
   });
@@ -87,6 +137,7 @@ export async function addMemberToStudio(
 
   return {
     userId: res.body.user.id,
+    email,
     organizationId,
     accessToken: res.body.tokens.accessToken,
     headers: { Authorization: `Bearer ${res.body.tokens.accessToken}` },

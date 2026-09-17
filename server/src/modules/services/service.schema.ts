@@ -14,6 +14,14 @@ export const bookingModeSchema = z.enum([
 const baseService = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(4000).optional(),
+
+  /**
+   * The card line. Bounded well below `description` on purpose: this one has
+   * to survive next to nine others in a grid, and a studio given four
+   * thousand characters will use them.
+   */
+  shortDescription: z.string().max(200).optional().nullable(),
+
   categoryId: z.string().uuid().optional().nullable(),
   bookingMode: bookingModeSchema.default('APPOINTMENT'),
 
@@ -32,6 +40,18 @@ const baseService = z.object({
 
   priceCents: z.number().int().min(0).max(100_000_000).default(0),
 
+  /**
+   * Per child seat. 0 is "adults only" and is the default, so a studio that
+   * has not thought about children never accidentally offers them a free
+   * place.
+   *
+   * NOT refused when above the adult price. It looks like a typo and almost
+   * always is, but a studio running a kids' workshop with a discounted
+   * accompanying adult is a real thing, and the form warns rather than the
+   * API refusing.
+   */
+  childPriceCents: z.number().int().min(0).max(100_000_000).default(0),
+
   paddingBeforeMinutes: z.number().int().min(0).max(480).default(0),
   paddingAfterMinutes: z.number().int().min(0).max(480).default(0),
 
@@ -46,10 +66,41 @@ const baseService = z.object({
   prerequisiteServiceTypeId: z.string().uuid().optional().nullable(),
   cancellationPolicyId: z.string().uuid().optional().nullable(),
 
+  /**
+   * G3 — what a customer needs to know before booking.
+   *
+   * One bullet per line. The bounds match the CHECK constraints exactly, so
+   * the API refuses with a readable message rather than letting the database
+   * do it with a raw Postgres error — the same pairing as the storefront copy.
+   */
+  highlights: z.string().max(1200).optional().nullable(),
+  preparationNotes: z.string().max(2000).optional().nullable(),
+
+  /** Where it runs. Writes the service_locations join, replacing what is there. */
+  locationId: z.string().uuid().optional().nullable(),
+
+  meetingPoint: z.string().max(300).optional().nullable(),
+
+  /** Sent with the confirmation, not shown before booking. */
+  bookingInstructions: z.string().max(2000).optional().nullable(),
+
+  /**
+   * One glyph. Bounded by characters rather than code points so a flag or a
+   * skin-tone modifier fits, and a caption does not.
+   */
+  emoji: z.string().max(8).optional().nullable(),
+
   color: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #A6522C.')
     .default('#A6522C'),
+
+  /** Second stop of the card gradient. Null falls back to a shade of `color`. */
+  colorAccent: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #A6522C.')
+    .optional()
+    .nullable(),
 
   isActive: z.boolean().default(true),
 
@@ -74,7 +125,17 @@ export const createServiceSchema = baseService
   .refine(
     (s) => s.bookingMode !== 'APPOINTMENT' || s.capacityMax === 1,
     'Appointments are one-to-one; use EVENT for group classes.',
+  )
+  .refine(
+    (s) => countLines(s.highlights) <= 12,
+    'Twelve highlights is the most a booking page will show.',
   );
+
+/** Matches the CHECK constraint's newline count exactly. */
+function countLines(value: string | null | undefined): number {
+  if (!value) return 0;
+  return value.split('\n').length;
+}
 
 export const updateServiceSchema = baseService
   .partial()
@@ -84,6 +145,10 @@ export const updateServiceSchema = baseService
       s.capacityMax === undefined ||
       s.capacityMin <= s.capacityMax,
     'Minimum capacity cannot exceed maximum capacity.',
+  )
+  .refine(
+    (s) => countLines(s.highlights) <= 12,
+    'Twelve highlights is the most a booking page will show.',
   );
 
 export const createCategorySchema = z.object({
@@ -97,4 +162,17 @@ export const listServicesQuerySchema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
   bookingMode: bookingModeSchema.optional(),
+
+  /**
+   * Lifetime bookings and revenue per service.
+   *
+   * OPT IN, because it reads every live booking in the studio and this route
+   * is on the path of half the dashboard — the booking form's class picker,
+   * the schedule form, onboarding. Only the catalogue actually prints the
+   * numbers, so only the catalogue should pay for them.
+   */
+  withStats: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });

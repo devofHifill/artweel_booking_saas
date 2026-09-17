@@ -86,6 +86,8 @@ export async function createPolicy(
     tiers: PolicyTier[];
     isDefault?: boolean;
     noShowFeeCents?: number;
+    noShowFeePercent?: number;
+    description?: string | null;
     allowReschedule?: boolean;
     rescheduleCutoffHours?: number;
   },
@@ -109,6 +111,8 @@ export async function createPolicy(
         tiers: input.tiers as unknown as Prisma.InputJsonValue,
         isDefault: input.isDefault ?? false,
         noShowFeeCents: input.noShowFeeCents ?? 0,
+        noShowFeePercent: input.noShowFeePercent ?? 100,
+        description: input.description ?? null,
         allowReschedule: input.allowReschedule ?? true,
         rescheduleCutoffHours: input.rescheduleCutoffHours ?? 24,
       },
@@ -172,7 +176,31 @@ export function evaluatePolicy(
   tiers: PolicyTier[],
   amountCents: number,
   hoursOfNotice: number,
+  /**
+   * The no-show branch.
+   *
+   * Somebody who simply did not turn up gave no notice at all, so the ladder
+   * would put them in the zero-hour tier — which is often the right answer and
+   * sometimes not: a studio may refund half a late cancellation and nothing at
+   * all for silence. Passing the policy's percentage here answers that
+   * separately.
+   *
+   * OPTIONAL, so every existing caller behaves exactly as it did. Nothing
+   * triggers a refund automatically on a no-show; this is what a studio's
+   * refund is measured against when they issue one.
+   */
+  noShow?: { feePercent: number },
 ): { refundCents: number; creditCents: number; tier: PolicyTier | null } {
+  if (noShow) {
+    const keep = Math.min(100, Math.max(0, noShow.feePercent));
+    return {
+      // Round down, same as below: never refund more than was taken.
+      refundCents: Math.floor((amountCents * (100 - keep)) / 100),
+      creditCents: 0,
+      tier: null,
+    };
+  }
+
   const match = tiers.find((t) => hoursOfNotice >= t.hoursBefore) ?? null;
 
   if (!match) return { refundCents: 0, creditCents: 0, tier: null };

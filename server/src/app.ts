@@ -1,3 +1,4 @@
+import path from 'node:path';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -7,6 +8,7 @@ import { healthRouter } from './modules/health/health.route';
 import { authRouter } from './modules/auth/auth.route';
 import { organizationRouter } from './modules/organizations/organization.route';
 import { orgScopedRouter } from './routes/org-scoped';
+import { platformRouter } from './modules/platform/platform.route';
 import { publicRouter } from './modules/public/public.route';
 import { allowEmbedding, embedRouter } from './modules/public/embed';
 import { webhookRouter } from './modules/payments/webhook.route';
@@ -80,6 +82,14 @@ export function createApp() {
   // Everything a studio owns. Authentication and membership are enforced once,
   // inside this router, so no child module can forget them.
   app.use('/api/organizations/:organizationId', orgScopedRouter);
+  /**
+   * Artweel's own operator surface, mounted deliberately OUTSIDE the two
+   * organization routers above so that nothing here inherits `withOrganization`.
+   * These routes act on platform data and have no tenant to scope to; the
+   * capability that does reach inside one studio is a support session, and that
+   * keeps the choke point. Answers 404 to everyone without a live grant.
+   */
+  app.use('/api/platform', platformRouter);
   // Unauthenticated, rate limited, and the only surface a stranger can reach.
   /**
    * The booking page, and the only thing in this app that may be framed.
@@ -95,6 +105,29 @@ export function createApp() {
   // The widget loader. Served from the root because a studio pastes an
   // absolute URL into their own site.
   app.use(embedRouter);
+
+  /* ------------------------------------------------------------------ *
+   * TEMPORARY — product demos at /demo.
+   *
+   * Static prototypes (plain HTML/CSS/JS, no server involvement) served so
+   * they can be shown from this host. They share nothing with the app: no
+   * database, no session, no API. Nothing else imports this.
+   *
+   * TO REMOVE: delete this block, the `Demo` links in
+   * modules/marketing/landing.ts and modules/marketing/render.ts, the
+   * `COPY demos ./demos` line in the Dockerfile, and the server/demos
+   * directory. Nothing else references them.
+   *
+   * __dirname resolves to src/ in development and dist/ in the image, and
+   * demos/ sits beside both, hence the '..'.
+   * ------------------------------------------------------------------ */
+  app.use(
+    '/demo',
+    express.static(path.join(__dirname, '..', 'demos'), {
+      extensions: ['html'],
+      maxAge: '1h',
+    }),
+  );
 
   /**
    * The marketing site sits at the root and is mounted LAST.

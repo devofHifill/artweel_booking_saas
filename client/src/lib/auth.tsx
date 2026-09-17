@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { api, tokens, type Membership } from './api';
+import { clearBrand, loadBrand } from './brand';
 
 /**
  * Session and studio context.
@@ -88,8 +89,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('bsaas:signed-out', onSignedOut);
   }, []);
 
+  /**
+   * The active studio, remembered — and its accent, fetched.
+   *
+   * The theme load lives here rather than in a page because it has to follow the
+   * ACTIVE STUDIO, not the route. An instructor who works at two studios expects
+   * the whole dashboard to change colour when they switch, not on their next
+   * navigation; hanging it off a page would leave the previous studio's accent
+   * painted until something happened to remount.
+   */
   useEffect(() => {
-    if (activeOrgId) localStorage.setItem(ACTIVE_ORG_KEY, activeOrgId);
+    if (!activeOrgId) return;
+    localStorage.setItem(ACTIVE_ORG_KEY, activeOrgId);
+    void loadBrand(activeOrgId);
   }, [activeOrgId]);
 
   const signIn = useCallback(async (email: string, password: string) => {
@@ -114,6 +126,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     tokens.clear();
     localStorage.removeItem(ACTIVE_ORG_KEY);
+    // The login screen is Artweel's, not the last studio's — and on a shared
+    // machine the next person should not be shown the previous one's branding.
+    clearBrand();
     setUser(null);
     setMemberships([]);
     setActiveOrgId(null);

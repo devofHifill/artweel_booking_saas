@@ -13,6 +13,21 @@
  * Calendar sync, and the owner dashboard.
  */
 
+import { GENERAL, VERTICAL_PAGES } from './verticals';
+
+/**
+ * The name on the public site, in one place.
+ *
+ * It was written out nineteen times across four files, which is the shape a
+ * rename takes when nobody expects one. This is PUBLIC-SITE ONLY: the
+ * dashboard, the transactional emails, the booking pages, the calendar invites
+ * and the platform console all still say Artweel, deliberately, because a name
+ * that changes in one surface and not the others is worse than either name.
+ * When the rename is real, those follow — and so does the domain, the sender
+ * address and the Stripe statement descriptor, none of which live here.
+ */
+export const BRAND = 'BookAIHub';
+
 export type Page = {
   slug: string;
   title: string;
@@ -29,11 +44,12 @@ export type Page = {
 
 export const SHIPPING_FEATURES = [
   {
-    title: 'Your kiln and wheels are real constraints',
+    title: 'Your equipment is a real constraint',
     body:
-      'Eight wheels means eight students — not whatever number you typed into a ' +
-      'capacity box. A kiln firing blocks the kiln. The schedule reflects what ' +
-      'your studio can physically do, so you stop discovering conflicts on the day.',
+      'Eight wheels means eight students, twelve kayaks means twelve paddlers — ' +
+      'not whatever number you typed into a capacity box. Kit that cannot be ' +
+      'shared is blocked for the whole job, so you stop discovering conflicts ' +
+      'on the day.',
   },
   {
     title: 'Studio and mobile, in one schedule',
@@ -58,7 +74,7 @@ export const SHIPPING_FEATURES = [
   {
     title: 'Reminders that cut no-shows',
     body:
-      'Automatic email and text reminders before every class. Customers can ' +
+      'Automatic email and text reminders before every booking. Customers can ' +
       'cancel or move their own booking from the link, without messaging you.',
   },
   {
@@ -71,16 +87,16 @@ export const SHIPPING_FEATURES = [
   {
     title: 'Multi-week courses that sell as one thing',
     body:
-      'Publish a six-week course and students enrol once, for the whole run. ' +
+      'Publish a six-week course and people enrol once, for the whole run. ' +
       'A course is only sold while every week of it has room, so nobody pays ' +
       'for six weeks and finds week four was full.',
   },
   {
-    title: 'Take the register from the studio floor',
+    title: 'Take the register where the work happens',
     body:
-      'Mark a whole class present or absent in one tap, on the phone in your ' +
-      'apron pocket. Course rosters show who has missed which week, so you ' +
-      'know who is falling behind before they quietly stop coming.',
+      'Mark a whole group present or absent in one tap, from the phone in your ' +
+      'pocket. Course rosters show who has missed which week, so you know who ' +
+      'is falling behind before they quietly stop coming.',
   },
 ];
 
@@ -101,68 +117,19 @@ export const COMING_SOON = [
 
 const CTA = 'Start free for 14 days. No card needed.';
 
-export const HOME: Page = {
-  slug: '',
-  title: 'Booking software for pottery studios',
-  description:
-    'Take class and private lesson bookings online, run mobile pottery parties, and keep every penny your customers pay. Free for 14 days, no card.',
-  h1: 'Booking software built for pottery studios',
-  intro:
-    'Classes, private lessons and mobile parties in one schedule that knows how ' +
-    'many wheels you own. No booking fees and no commission.',
-  sections: [
-    {
-      heading: 'Built for how a ceramics studio actually runs',
-      body: [
-        'Most booking software was built for haircuts or gym classes and then ' +
-          'pointed at studios. It treats a location as a text label, capacity as ' +
-          'a number you type in, and has no idea a kiln exists.',
-        'This one starts from the constraints you actually have: the wheels in ' +
-          'the room, the kiln that is running overnight, and the fact that half ' +
-          'your work happens at somebody else’s address.',
-      ],
-    },
-    {
-      heading: 'Stop answering the same DM forty times a week',
-      body: [
-        'A booking page you can put in your Instagram bio, showing live ' +
-          'availability. Customers book, pay a deposit and get a confirmation ' +
-          'without you touching anything.',
-        'They can move or cancel their own booking from the link in that email, ' +
-          'under the terms you set.',
-      ],
-    },
-    {
-      heading: 'Mobile parties are a first-class booking, not a workaround',
-      body: [
-        'Set the area you travel to and what you charge by distance. Customers ' +
-          'enter their address before they choose a time, so an out-of-range ' +
-          'booking never gets made in the first place.',
-        'Travel time is subtracted from your day, so the system will not sell ' +
-          'you a studio class forty minutes after a party across town.',
-      ],
-    },
-  ],
-  faqs: [
-    {
-      q: 'Do you take a cut of my bookings?',
-      a: 'No. Payments go straight to your own Stripe account. You pay a flat monthly fee and nothing else — no booking fees, no percentage.',
-    },
-    {
-      q: 'What happens after the free trial?',
-      a: 'Nothing is deleted. If you do not subscribe, your account becomes read-only and your booking page stops taking new bookings. Everything is still there if you come back.',
-    },
-    {
-      q: 'Can I take bookings for both studio classes and mobile parties?',
-      a: 'Yes, and they share one schedule. Travel time between them is accounted for, so you cannot be double-booked across town.',
-    },
-    {
-      q: 'Do I need a card to try it?',
-      a: 'No. The 14-day trial takes no payment details at all.',
-    },
-  ],
-  cta: CTA,
-};
+/**
+ * The home page is the NEUTRAL landing page, and its copy lives in
+ * `verticals.ts` beside the nine trade-specific ones it introduces.
+ *
+ * It used to be the pottery page. Pottery did not lose its page — it moved to
+ * `/for/pottery`, word for word — but the root now has to speak to somebody
+ * running a dive centre or a woodshop, and the fastest way to get that wrong
+ * is to keep two copies of the same page in two files and edit one of them.
+ *
+ * Re-exported rather than moved outright because eight call sites, the sitemap
+ * and the route table all still ask `content` for it.
+ */
+export const HOME: Page = GENERAL.page;
 
 export const PRICING: Page = {
   slug: 'pricing',
@@ -513,4 +480,14 @@ export const GUIDES: Page[] = [
   },
 ];
 
-export const ALL_PAGES: Page[] = [HOME, PRICING, ...ALTERNATIVES, ...GUIDES];
+/**
+ * Everything with a URL. Order is the sitemap's order: the two landing pages,
+ * then the trade pages, then comparisons and guides.
+ */
+export const ALL_PAGES: Page[] = [
+  HOME,
+  PRICING,
+  ...VERTICAL_PAGES,
+  ...ALTERNATIVES,
+  ...GUIDES,
+];

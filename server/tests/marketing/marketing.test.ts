@@ -6,6 +6,8 @@ import { resetDb } from '../helpers/fixtures';
 import { signUpStudio } from '../helpers/api';
 import { resetRateLimits } from '../../src/middleware/rate-limit';
 import { ALL_PAGES, COMING_SOON } from '../../src/modules/marketing/content';
+import { escapeHtml } from '../../src/modules/marketing/render';
+import { GENERAL, VERTICALS } from '../../src/modules/marketing/verticals';
 
 /**
  * The marketing site.
@@ -36,16 +38,52 @@ describe('pages', () => {
 
     expect(res.status).toBe(200);
     expect(res.type).toBe('text/html');
-    expect(res.text).toContain('<h1>Booking software built for pottery studios');
+    expect(res.text).toContain('<h1>Booking software built around what you actually own');
     // Content in the first response, not an empty div for a bundle to fill.
+    expect(res.text).toContain('whatever you own, that is the number');
+  });
+
+  /**
+   * The home page stopped being the pottery page on 2026-09-10. Pottery did
+   * not lose anything — the copy moved to /for/pottery word for word — and
+   * this asserts that, because the one way to get a multi-vertical site wrong
+   * is to dilute the page that already converts.
+   */
+  it('keeps the pottery pitch intact at its own URL', async () => {
+    const res = await request(app).get('/for/pottery');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('<h1>Booking software built for pottery studios');
     expect(res.text).toContain('Eight wheels means eight students');
+  });
+
+  it('gives every trade a landing page in its own nouns', async () => {
+    for (const vertical of VERTICALS) {
+      const res = await request(app).get(`/${vertical.slug}`);
+
+      expect(res.status, vertical.slug).toBe(200);
+      // The designed landing template, not the document one the guides use.
+      // The class list is asserted whole: `hero-inner` on its own also matches
+      // the stylesheet, so a landing template that stopped emitting the hero
+      // would still pass on the CSS rule that styles it.
+      expect(res.text, vertical.slug).toContain('class="container hero-inner"');
+      // The capacity claim is the whole argument of the page.
+      expect(res.text, vertical.slug).toContain(vertical.capacity.label);
+      // And every page can reach the others.
+      expect(res.text, vertical.slug).toContain('id="verticals"');
+    }
   });
 
   it('serves every declared page', async () => {
     for (const page of ALL_PAGES) {
       const res = await request(app).get(`/${page.slug}`);
       expect(res.status, `page /${page.slug}`).toBe(200);
-      expect(res.text).toContain(page.h1);
+      // Escaped, because the h1 is escaped on the way out and `paint & sip`
+      // reaches the page as `paint &amp; sip`. Comparing the raw string would
+      // fail every page whose title contains an ampersand while the page is
+      // in fact correct — and, worse, would pass a page that emitted the raw
+      // `&`, which is the actual bug worth catching here.
+      expect(res.text, `page /${page.slug}`).toContain(escapeHtml(page.h1));
     }
   });
 
@@ -126,6 +164,27 @@ describe('technical SEO', () => {
     for (const page of ALL_PAGES) {
       const res = await request(app).get(`/${page.slug}`);
       expect(res.text, page.slug).toContain('rel="canonical"');
+    }
+  });
+
+  /**
+   * The canonical must name THIS page.
+   *
+   * renderLanding built its canonical from PUBLIC_URL alone, which was right
+   * while it rendered one page and became a self-inflicted deindexing the
+   * moment ten more used it: every trade page would have pointed at the home
+   * page and asked to be dropped. Asserting containment of the slug is what
+   * makes that regression impossible to reintroduce quietly.
+   */
+  it('points each canonical at its own URL, not the site root', async () => {
+    for (const page of ALL_PAGES) {
+      if (!page.slug) continue;
+
+      const res = await request(app).get(`/${page.slug}`);
+      const canonical = /<link rel="canonical" href="([^"]+)"/.exec(res.text)?.[1];
+
+      expect(canonical, page.slug).toBeDefined();
+      expect(canonical, page.slug).toContain(`/${page.slug}`);
     }
   });
 
@@ -215,8 +274,21 @@ describe('honesty of the copy', () => {
     expect(res.text).toContain('Being built next');
     expect(res.text).toContain('Not available yet');
 
+    // The home page stopped being the pottery page on 2026-09-10, and with it
+    // the roadmap stopped being worded in pottery's nouns: GENERAL overrides
+    // COMING_SOON with a trade-neutral list, and the pottery wording lives on
+    // at /for/pottery. Asserting the override rather than the default is what
+    // keeps this honest for whichever list the page actually renders.
+    for (const item of GENERAL.comingSoon ?? COMING_SOON) {
+      expect(res.text).toContain(escapeHtml(item.slice(0, 30)));
+    }
+  });
+
+  it('keeps the pottery roadmap honest at its own URL', async () => {
+    const res = await request(app).get('/for/pottery');
+
     for (const item of COMING_SOON) {
-      expect(res.text).toContain(item.slice(0, 30));
+      expect(res.text).toContain(escapeHtml(item.slice(0, 30)));
     }
   });
 
@@ -254,14 +326,51 @@ describe('honesty of the copy', () => {
   });
 });
 
+/**
+ * Waits for the fire-and-forget page-view write to land.
+ *
+ * The route records views with `void prisma.marketingEvent...` so a visitor never
+ * waits on analytics, which means a test has no promise to await and can only
+ * watch for the row. These cases used fixed 250–400ms sleeps, which is a bet that
+ * a real insert always completes in that time — and on 2026-08-17 it did not:
+ * one failure in an otherwise clean 592-test run, on a machine also running two
+ * dev servers, Docker and a browser. The code under test was correct.
+ *
+ * Same lesson as `tests/gate/sweeps.test.ts`: poll for the condition you actually
+ * mean. A test that fails for reasons unrelated to its subject teaches the next
+ * person to shrug at a red run.
+ *
+ * The budget went 5s -> 20s on 2026-08-25, after this timed out again at the
+ * tail of a 47-minute run. A generous deadline costs nothing when the write
+ * lands — the loop returns the moment it sees the row — and the only thing a
+ * short one buys is a faster red on a machine that was busy. If the insert
+ * genuinely never happens this still fails, twenty seconds later.
+ */
+async function eventually<T>(
+  read: () => Promise<T | null | undefined>,
+  what: string,
+  timeoutMs = 20_000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await read();
+    if (value) return value;
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out after ${timeoutMs}ms waiting for ${what}.`);
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 describe('analytics', () => {
   it('counts a page view without storing anything about the person', async () => {
     await request(app).get('/');
 
-    // Fire-and-forget write; give it a moment.
-    await new Promise((r) => setTimeout(r, 250));
+    const rows = await eventually(async () => {
+      const found = await prisma.marketingEvent.findMany();
+      return found.length > 0 ? found : null;
+    }, 'the page view to be recorded');
 
-    const rows = await prisma.marketingEvent.findMany();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.path).toBe('/');
     expect(rows[0]!.views).toBe(1);
@@ -276,11 +385,15 @@ describe('analytics', () => {
     // NULLs as distinct in a unique index, so nullable columns here would make
     // every direct visit its own row.
     for (let i = 0; i < 4; i++) await request(app).get('/pricing');
-    await new Promise((r) => setTimeout(r, 400));
 
-    const rows = await prisma.marketingEvent.findMany({
-      where: { path: '/pricing' },
-    });
+    // Waits for the fourth increment, not merely for the row to appear —
+    // otherwise the poll can win after the first view and assert views === 1.
+    const rows = await eventually(async () => {
+      const found = await prisma.marketingEvent.findMany({
+        where: { path: '/pricing' },
+      });
+      return found[0]?.views === 4 ? found : null;
+    }, 'all four views to be counted');
 
     expect(rows).toHaveLength(1);
     expect(rows[0]!.views).toBe(4);
@@ -292,9 +405,11 @@ describe('analytics', () => {
       .get('/')
       .set('referer', 'https://www.google.com/search?q=secret+personal+thing');
 
-    await new Promise((r) => setTimeout(r, 250));
+    const row = await eventually(
+      () => prisma.marketingEvent.findFirst({}),
+      'the referrer to be recorded',
+    );
 
-    const row = await prisma.marketingEvent.findFirstOrThrow({});
     expect(row.referrerHost).toBe('www.google.com');
     expect(JSON.stringify(row)).not.toContain('secret');
   });
@@ -341,7 +456,15 @@ describe('analytics', () => {
     await request(app).get('/');
     await request(app).get('/pricing');
     await request(app).get('/pricing');
-    await new Promise((r) => setTimeout(r, 400));
+
+    // Both pages must be counted before the report is asked for, or the
+    // assertion below races the writes rather than testing the report.
+    await eventually(async () => {
+      const rows = await prisma.marketingEvent.findMany();
+      const pricing = rows.find((r) => r.path === '/pricing');
+      const home = rows.find((r) => r.path === '/');
+      return pricing?.views === 2 && home ? rows : null;
+    }, 'both page views to be counted');
 
     const res = await request(app)
       .get(`${studio.base}/traffic`)

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demos</title>
+<meta name="description" content="Interactive product demos and prototypes.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>🎛️</text></svg>">
+<style>
+  :root {
+    --ink-900:#0f172a; --ink-600:#475569; --ink-500:#64748b; --ink-200:#e2e8f0;
+    --ink-100:#f1f5f9; --ink-50:#f8fafc; --border:#e6e8ef; --brand:#4f46e5;
+  }
+  *,*::before,*::after { box-sizing: border-box; }
+  body {
+    margin:0; background:#f6f7fb; color:var(--ink-900);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    line-height:1.55; -webkit-font-smoothing:antialiased;
+  }
+  a { color:inherit; text-decoration:none; }
+  .wrap { max-width:1040px; margin:0 auto; padding:64px 22px 80px; }
+  .eyebrow { font-size:11.5px; text-transform:uppercase; letter-spacing:.1em; font-weight:750; color:var(--brand); }
+  h1 { font-size:40px; letter-spacing:-.035em; margin:10px 0 12px; }
+  .lede { font-size:17px; color:var(--ink-500); max-width:62ch; }
+  .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; margin-top:38px; }
+  .demo-card {
+    display:flex; flex-direction:column; background:#fff; border:1px solid var(--border);
+    border-radius:18px; overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.07);
+    transition:transform .2s, box-shadow .2s;
+  }
+  .demo-card:hover { transform:translateY(-3px); box-shadow:0 16px 40px rgba(15,23,42,.12); }
+  .thumb {
+    height:150px; display:grid; place-items:center; font-size:52px; position:relative;
+    background:linear-gradient(135deg,#4f46e5,#0ea5e9);
+  }
+  .thumb .tag {
+    position:absolute; top:12px; left:12px; background:rgba(255,255,255,.92);
+    padding:3px 10px; border-radius:99px; font-size:11.5px; font-weight:700; color:var(--ink-900);
+  }
+  .body { padding:20px; display:flex; flex-direction:column; gap:9px; flex:1; }
+  .body h2 { font-size:19px; margin:0; letter-spacing:-.02em; }
+  .body p { margin:0; font-size:14px; color:var(--ink-500); flex:1; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { font-size:11.5px; font-weight:650; background:var(--ink-100); color:var(--ink-600); padding:3px 9px; border-radius:99px; }
+  .go {
+    display:inline-flex; align-items:center; gap:7px; align-self:flex-start; margin-top:4px;
+    background:var(--brand); color:#fff; font-weight:650; font-size:13.5px;
+    padding:9px 16px; border-radius:9px;
+  }
+  .soon { border-style:dashed; background:transparent; box-shadow:none; }
+  .soon:hover { transform:none; box-shadow:none; }
+  .soon .thumb { background:var(--ink-100); color:var(--ink-500); font-size:34px; }
+  .note {
+    margin-top:44px; padding-top:22px; border-top:1px solid var(--border);
+    font-size:13px; color:var(--ink-500); line-height:1.7;
+  }
+  .back { font-size:13.5px; color:var(--ink-500); }
+  .back:hover { color:var(--ink-900); }
+  @media (max-width:760px) { .grid { grid-template-columns:1fr; } h1 { font-size:30px; } .wrap { padding:40px 18px 60px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← Back to Artweel</a>
+  <div style="margin-top:24px">
+    <div class="eyebrow">Demos</div>
+    <h1>Interactive product prototypes</h1>
+    <p class="lede">Clickable front-end prototypes — no backend, no sign-up. Open one and use it exactly as a real
+    operator would, then reset it when you are done.</p>
+  </div>
+
+  <div class="grid">
+    <a class="demo-card" href="/demo/tourflow/">
+      <div class="thumb"><span class="tag">Booking SaaS</span>🧭</div>
+      <div class="body">
+        <h2>TourFlow</h2>
+        <p>All-in-one booking and management platform for tours, activities and experiences. Operator dashboard
+        plus the guest booking site, sharing one live dataset.</p>
+        <div class="chips">
+          <span class="chip">Dashboard</span><span class="chip">Calendar</span><span class="chip">Payments</span>
+          <span class="chip">Reports</span><span class="chip">Booking flow</span><span class="chip">Widget</span>
+        </div>
+        <span class="go">Open demo →</span>
+      </div>
+    </a>
+
+    <div class="demo-card soon">
+      <div class="thumb">＋</div>
+      <div class="body">
+        <h2>More coming</h2>
+        <p>This page is the shelf. Future prototypes drop in beside TourFlow as their own folder under
+        <code>server/demos/</code> and a card here.</p>
+        <div class="chips"><span class="chip">Placeholder</span></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="note"><b>These are prototypes.</b> Payments, emails, SMS and third-party integrations are simulated in the
+  browser. No API keys, no server calls, no real customer data. Every business, guest and review shown is fictional.</p>
+</div>
+</body>
+</html>

@@ -1,6 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
+import type {
+  BookingPaymentState,
+  CustomerStatus,
+  PaymentStatus,
+} from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { outstandingCentsOf, paidCentsOf } from '../analytics/analytics.service';
+import { priceBooking } from '../payments/money';
 import { AppError } from '../../lib/app-error';
 import { logger } from '../../lib/logger';
 import { bookAppointment, bookSeats, cancelBooking } from '../../scheduling/booking.service';
@@ -22,16 +29,69 @@ export type BookingListFilters = {
   status?: string[];
   staffId?: string;
   serviceTypeId?: string;
-  /** Matches customer name, email or phone. */
+  /** Matches the booking reference, or the customer's name, email or phone. */
   search?: string;
+  /** web | embed | admin. Where the booking came from. */
+  source?: string;
+  /**
+   * Derived from what is owed, not stored — see `paymentIdFilter`, which is
+   * the one filter here that cannot be expressed in Prisma's query API.
+   */
+  payment?: 'paid' | 'part' | 'unpaid';
   limit: number;
   cursor?: string;
 };
+
+/**
+ * Bookings in a given payment state, as a set of ids.
+ *
+ * The other filters are columns and Prisma expresses them directly. This one
+ * is not: `paidCents` is the sum of money-in payments net of refunds, computed
+ * per booking, and no `where` clause can sum a relation. So it is one raw
+ * query returning ids, fed back in as `id: { in: … }`.
+ *
+ * The definition is copied from nowhere — `MONEY_IN_STATUSES` is imported so
+ * this cannot drift from `paidCentsOf`, which is what the rows themselves are
+ * rendered with. If those two disagreed, a studio would filter to "unpaid" and
+ * read "Paid" beside every row.
+ *
+ * Returns null when there is nothing to filter on, so the caller can leave the
+ * clause out entirely rather than passing an unbounded id list.
+ */
+async function paymentIdFilter(
+  organizationId: string,
+  state: 'paid' | 'part' | 'unpaid',
+): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT b.id
+    FROM bookings b
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(p.amount_cents - p.refunded_cents), 0) AS paid
+      FROM payments p
+      WHERE p.booking_id = b.id
+        AND p.status IN ('SUCCEEDED', 'PARTIALLY_REFUNDED')
+    ) paid ON TRUE
+    WHERE b.organization_id = ${organizationId}::uuid
+      AND CASE ${state}
+        WHEN 'paid'   THEN paid.paid >= b.total_cents AND b.total_cents > 0
+        WHEN 'unpaid' THEN paid.paid <= 0 AND b.total_cents > 0
+        ELSE paid.paid > 0 AND paid.paid < b.total_cents
+      END
+  `;
+
+  return rows.map((r) => r.id);
+}
 
 export async function listBookings(
   organizationId: string,
   filters: BookingListFilters,
 ) {
+  /* Resolved before the where clause is built, because it is an id set rather
+     than a column and has to be spread in like one. */
+  const paymentIds = filters.payment
+    ? await paymentIdFilter(organizationId, filters.payment)
+    : null;
+
   const where = {
     organizationId,
     ...(filters.from || filters.to
@@ -45,15 +105,36 @@ export async function listBookings(
     ...(filters.status?.length ? { status: { in: filters.status as never } } : {}),
     ...(filters.staffId ? { staffId: filters.staffId } : {}),
     ...(filters.serviceTypeId ? { serviceTypeId: filters.serviceTypeId } : {}),
+    ...(filters.source ? { source: filters.source } : {}),
+    ...(paymentIds ? { id: { in: paymentIds } } : {}),
     ...(filters.search
       ? {
-          customer: {
-            OR: [
-              { name: { contains: filters.search, mode: 'insensitive' as const } },
-              { email: { contains: filters.search, mode: 'insensitive' as const } },
-              { phone: { contains: filters.search } },
-            ],
-          },
+          /*
+            The reference sits beside the customer fields rather than replacing
+            them: somebody ringing the studio has either the code from their
+            confirmation or their own name, and the operator should not have to
+            know which box to type it into.
+
+            `startsWith`, not `contains` — a reference is eight characters, and
+            a substring match on it would pull in unrelated bookings whose code
+            merely contained the same run of hex.
+          */
+          OR: [
+            {
+              reference: {
+                startsWith: filters.search.toUpperCase(),
+              },
+            },
+            {
+              customer: {
+                OR: [
+                  { name: { contains: filters.search, mode: 'insensitive' as const } },
+                  { email: { contains: filters.search, mode: 'insensitive' as const } },
+                  { phone: { contains: filters.search } },
+                ],
+              },
+            },
+          ],
         }
       : {}),
   };
@@ -77,14 +158,45 @@ export async function listBookings(
   const hasMore = rows.length > filters.limit;
   const page = hasMore ? rows.slice(0, filters.limit) : rows;
 
+  /**
+   * How many bookings sit behind each status tab.
+   *
+   * Counted with EVERY filter except `status` — which is the only shape that
+   * makes the tabs mean anything. A tab row that re-counted under its own
+   * filter would read "Cancelled 4" while showing four cancelled bookings and
+   * "Confirmed 0" beside it, which is worse than no counts at all.
+   *
+   * A `groupBy` rather than five counts: one query, and the statuses come back
+   * from the data instead of from a list here that could fall behind the enum.
+   */
+  const { status: _ignored, ...whereWithoutStatus } = where;
+
+  const grouped = await prisma.booking.groupBy({
+    by: ['status'],
+    where: whereWithoutStatus,
+    _count: { _all: true },
+  });
+
+  const counts: Record<string, number> = {};
+  let total = 0;
+  for (const row of grouped) {
+    counts[row.status] = row._count._all;
+    total += row._count._all;
+  }
+
   return {
     bookings: page.map(toListItem),
     nextCursor: hasMore ? page[page.length - 1]!.id : null,
+    counts: { total, ...counts },
   };
 }
 
 function toListItem(booking: {
   id: string;
+  /** G5's generated handle. The column an operator reads back on the phone. */
+  reference: string | null;
+  /** web | embed | admin — where the booking came from. */
+  source: string;
   startsAt: Date;
   endsAt: Date;
   timezone: string;
@@ -96,14 +208,22 @@ function toListItem(booking: {
   serviceType: { id: string; name: string; color: string; bookingMode: string };
   staff: { id: string; name: string } | null;
   location: { id: string; name: string } | null;
-  payments: { amountCents: number; refundedCents: number; status: string }[];
+  payments: {
+    amountCents: number;
+    refundedCents: number;
+    status: PaymentStatus;
+  }[];
 }) {
-  const paidCents = booking.payments
-    .filter((p) => p.status === 'SUCCEEDED' || p.status === 'PARTIALLY_REFUNDED')
-    .reduce((sum, p) => sum + p.amountCents - p.refundedCents, 0);
+  /* Was a fourth hand-copy of the money rule until D5. `paidCentsOf` is the
+     one definition — successful payments minus refunds — and it exists so the
+     dashboard, the manifest, this list and the customer list cannot disagree
+     about what a booking is worth. */
+  const paidCents = paidCentsOf(booking.payments);
 
   return {
     id: booking.id,
+    reference: booking.reference,
+    source: booking.source,
     startsAt: booking.startsAt,
     endsAt: booking.endsAt,
     timezone: booking.timezone,
@@ -216,12 +336,11 @@ export async function getToday(organizationId: string, now = new Date()) {
       }),
     ]);
 
-  const outstandingCents = unpaid.reduce((sum, booking) => {
-    const paid = booking.payments
-      .filter((p) => p.status === 'SUCCEEDED' || p.status === 'PARTIALLY_REFUNDED')
-      .reduce((s, p) => s + p.amountCents - p.refundedCents, 0);
-    return sum + Math.max(0, booking.totalCents - paid);
-  }, 0);
+  /* Was a fifth hand-copy of the money rule until D7 — this one had even
+     inlined the status list rather than calling `paidCentsOf`, so a change to
+     what counts as received would have moved every figure in the product
+     except this one. */
+  const outstandingCents = outstandingCentsOf(unpaid);
 
   return {
     timezone: org.timezone,
@@ -257,8 +376,43 @@ export async function createManualBooking(
     staffId?: string;
     startsAt?: Date;
     seats: number;
-    customer: { name: string; email: string; phone?: string };
+    /**
+     * How many of `seats` are children. Adults are the remainder.
+     *
+     * The desk form asks for adults and children separately because that is
+     * how somebody says it out loud; it adds them into `seats` before calling
+     * here, so this path keeps the same one-total rule as every other. Never
+     * store an adult count.
+     */
+    children?: number;
+    /** An existing customer. Wins over `customer` when both arrive. */
+    customerId?: string;
+    customer?: {
+      name: string;
+      email: string;
+      phone?: string;
+      country?: string;
+    };
     notes?: string;
+    /** The desk's claim about the money. See the column's own comment. */
+    paymentState?: BookingPaymentState;
+    /** Ticked when paper was signed at the counter. */
+    waiverSigned?: boolean;
+    /** A held place that is not paid for yet is PENDING, not CONFIRMED. */
+    status?: 'CONFIRMED' | 'PENDING';
+    /**
+     * What the studio is actually charging, when that is not the list price.
+     *
+     * The public checkout refuses a client-supplied total, and that rule is
+     * not weakened here: this path is `requireFrontDesk`, so the person naming
+     * the figure is the person who would otherwise be writing it in a book
+     * under the till. A friend rate, a comped place and a made-up discount are
+     * ordinary counter transactions, and a booking product that cannot record
+     * them sends the studio back to the book.
+     */
+    totalCents?: number;
+    /** Money taken at the counter, recorded against the booking. */
+    payment?: { method: string; amountCents: number };
   },
 ) {
   const service = await prisma.serviceType.findFirst({
@@ -266,18 +420,11 @@ export async function createManualBooking(
   });
   if (!service) throw AppError.notFound('Service not found.');
 
-  const email = input.customer.email.trim().toLowerCase();
-
-  const customer =
-    (await prisma.customer.findFirst({ where: { organizationId, email } })) ??
-    (await prisma.customer.create({
-      data: {
-        organizationId,
-        email,
-        name: input.customer.name.trim(),
-        phone: input.customer.phone,
-      },
-    }));
+  const customer = input.customerId
+    ? await prisma.customer.findFirstOrThrow({
+        where: { id: input.customerId, organizationId },
+      })
+    : await upsertCounterCustomer(organizationId, input.customer);
 
   let booking;
 
@@ -318,13 +465,145 @@ export async function createManualBooking(
     });
   }
 
+  /*
+    The list price unless the counter said otherwise. Bounded at zero so a
+    negative total cannot be talked into the ledger.
+
+    Priced through `priceBooking` rather than `priceCents * seats`, which is
+    what this line used to be. That multiplication was a SECOND implementation
+    of the price and, once child rates existed, a wrong one: a party of two
+    adults and two children came out at four adult seats. cd3cee9 removed the
+    same expression from the public path for the same reason.
+  */
+  const children = Math.min(
+    input.seats,
+    Math.max(0, Math.floor(input.children ?? 0)),
+  );
+
+  const totalCents =
+    input.totalCents !== undefined
+      ? Math.max(0, Math.round(input.totalCents))
+      : priceBooking({
+          seats: input.seats,
+          unitPriceCents: service.priceCents,
+          children,
+          childPriceCents: service.childPriceCents,
+        }).totalCents;
+
   const updated = await prisma.booking.update({
     where: { id: booking!.id },
-    data: { totalCents: service.priceCents * input.seats, notes: input.notes },
+    data: {
+      totalCents,
+      children,
+      notes: input.notes,
+      ...(input.status ? { status: input.status } : {}),
+      ...(input.paymentState ? { paymentState: input.paymentState } : {}),
+      /*
+        Only ever set here, never cleared to null by an absent checkbox — an
+        unticked box on a form that did not ask is not evidence the waiver was
+        unsigned. A booking that needs its waiver revoked is a different
+        action from editing one.
+      */
+      ...(input.waiverSigned ? { waiverSignedAt: new Date() } : {}),
+    },
   });
+
+  /**
+   * Money handed over at the counter.
+   *
+   * A real row in the payments ledger, not a status field on the booking —
+   * which is what makes the Paid pill, the payments screen, the reports and
+   * the outstanding figure all agree without any of them being told
+   * separately. `provider` records that this did not come through Stripe, so a
+   * later refund cannot be attempted against a processor that never saw it.
+   */
+  /*
+    Cash, when the studio still takes it.
+
+    Checked here rather than in the route's enum because the enum is the shape
+    of the request and this is a studio's policy — a studio that switches cash
+    off should get a refusal that says so, not a validation error listing
+    allowed values.
+  */
+  if (input.payment?.method === 'cash') {
+    const { acceptCash } = await prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { acceptCash: true },
+    });
+    if (!acceptCash) {
+      throw AppError.badRequest(
+        'This studio is not taking cash. Record it as card, transfer or other.',
+        'CASH_NOT_ACCEPTED',
+      );
+    }
+  }
+
+  if (input.payment && input.payment.amountCents > 0) {
+    const amountCents = Math.min(
+      Math.max(0, Math.round(input.payment.amountCents)),
+      totalCents,
+    );
+
+    if (amountCents > 0) {
+      await prisma.payment.create({
+        data: {
+          organizationId,
+          bookingId: updated.id,
+          amountCents,
+          currency: (
+            await prisma.organization.findUniqueOrThrow({
+              where: { id: organizationId },
+              select: { currency: true },
+            })
+          ).currency,
+          kind: amountCents >= totalCents ? 'FULL' : 'DEPOSIT',
+          status: 'SUCCEEDED',
+          provider: input.payment.method,
+          succeededAt: new Date(),
+        },
+      });
+    }
+  }
 
   await afterBookingChange(updated.id, 'UPSERT');
   return updated;
+}
+
+/**
+ * The customer a counter booking is for.
+ *
+ * Matched on a lowercased email so somebody who has booked before does not
+ * become a second record with a split history — the commonest way a studio
+ * ends up with two of the same person.
+ */
+async function upsertCounterCustomer(
+  organizationId: string,
+  customer?: { name: string; email: string; phone?: string; country?: string },
+) {
+  if (!customer) {
+    throw AppError.badRequest('Pick a customer, or enter a new one.');
+  }
+
+  const email = customer.email.trim().toLowerCase();
+
+  /*
+    Country is written only on CREATE. An existing customer keeps whatever the
+    studio last set: the desk form defaults this field, so letting it through
+    on the match would overwrite a hand-corrected country with a default
+    nobody typed, every time that customer booked again.
+  */
+  return (
+    (await prisma.customer.findFirst({ where: { organizationId, email } })) ??
+    (await prisma.customer.create({
+      data: {
+        organizationId,
+        email,
+        name: customer.name.trim(),
+        phone: customer.phone,
+        country: customer.country?.trim() || null,
+      },
+    }))
+  );
 }
 
 export async function cancelBookingAsStudio(
@@ -542,13 +821,37 @@ async function afterBookingChange(
 
 // --- Customers -------------------------------------------------------------
 
+export type CustomerSort = 'name' | 'spent' | 'bookings' | 'recent';
+
+/**
+ * The ceiling this list sorts within.
+ *
+ * Spend and last visit are DERIVED, so ordering by them means holding every
+ * customer in memory — the database cannot order by a number it did not
+ * compute. That is fine at the size a studio actually is and dishonest to
+ * pretend scales: past this many customers the answer is a materialised
+ * per-customer rollup, which is what the note on the select below says.
+ *
+ * Chosen so the failure is loud. Silently sorting the first N would put a
+ * page labelled "Highest spend" in front of somebody with the wrong names on
+ * it, which is the bug this constant exists to have already thought about.
+ */
+const CUSTOMER_SORT_CEILING = 5_000;
+
 export async function listCustomers(
   organizationId: string,
-  opts: { search?: string; limit: number },
+  opts: {
+    search?: string;
+    status?: CustomerStatus;
+    sort?: CustomerSort;
+    page: number;
+    pageSize: number;
+  },
 ) {
-  return prisma.customer.findMany({
+  const rows = await prisma.customer.findMany({
     where: {
       organizationId,
+      ...(opts.status ? { status: opts.status } : {}),
       ...(opts.search
         ? {
             OR: [
@@ -564,6 +867,9 @@ export async function listCustomers(
       name: true,
       email: true,
       phone: true,
+      country: true,
+      status: true,
+      notes: true,
       smsConsentAt: true,
       smsOptedOutAt: true,
       createdAt: true,
@@ -577,10 +883,139 @@ export async function listCustomers(
       _count: {
         select: { bookings: { where: { status: { not: 'CANCELLED' } } } },
       },
+      /**
+       * What they have spent, and when they were last in (D5).
+       *
+       * Selected alongside rather than aggregated in SQL because the money
+       * rule is `paidCentsOf` — successful payments minus refunds — and that
+       * lives in one place on purpose. A `_sum` here would be a second
+       * definition of "spent" that drifts from the dashboard the first time
+       * refund handling changes.
+       *
+       * The cost is real and bounded: this list is capped at 200 customers and
+       * a studio's payment rows are hundreds, not millions. If that stops
+       * being true the fix is a materialised per-customer rollup, not a
+       * cleverer query here.
+       */
+      bookings: {
+        where: { status: { not: 'CANCELLED' } },
+        select: {
+          startsAt: true,
+          payments: {
+            select: { amountCents: true, refundedCents: true, status: true },
+          },
+        },
+      },
     },
-    orderBy: { name: 'asc' },
-    take: opts.limit,
+    /*
+      No `take`, and that is the fix rather than an oversight.
+
+      It used to take the page size and THEN sort in JS, which meant "Highest
+      spend" ordered whichever rows Postgres happened to hand back first — not
+      the studio's biggest spenders. It looked right only because a studio with
+      fewer customers than the limit sees every row anyway. Paginating on top
+      of that would have made page two quietly wrong.
+    */
+    take: CUSTOMER_SORT_CEILING,
   });
+
+  const now = Date.now();
+
+  const projected = rows.map((customer) => {
+    const { bookings, ...rest } = customer;
+
+    const spentCents = bookings.reduce(
+      (sum, booking) => sum + paidCentsOf(booking.payments),
+      0,
+    );
+
+    /**
+     * Their most recent visit that has actually HAPPENED.
+     *
+     * A booking three weeks out is not a visit, and letting it win would sort
+     * somebody who booked ahead above somebody who was here yesterday — under
+     * a column labelled "last visit".
+     */
+    const past = bookings
+      .map((b) => b.startsAt)
+      .filter((at) => at.getTime() <= now);
+    const lastVisit =
+      past.length > 0
+        ? past.reduce((latest, at) => (at > latest ? at : latest))
+        : null;
+
+    /**
+     * Still to come, counted from the same rows.
+     *
+     * The complement of `past` rather than its own query: they are the two
+     * halves of one list, and computing them apart is how the two start
+     * disagreeing about a booking that begins in the next second.
+     */
+    const upcoming = bookings.filter((b) => b.startsAt.getTime() > now).length;
+
+    return { ...rest, spentCents, lastVisit, upcoming };
+  });
+
+  /*
+    Sorted in JS rather than by the database, because two of the four keys —
+    spend and last visit — are derived above and cannot be ordered by in the
+    query that produced them. Doing one in SQL and the others here would make
+    `limit` mean something different depending on which sort was chosen, which
+    is the kind of inconsistency nobody thinks to test.
+  */
+  const sorted = [...projected];
+  switch (opts.sort) {
+    case 'spent':
+      sorted.sort((a, b) => b.spentCents - a.spentCents);
+      break;
+    case 'bookings':
+      sorted.sort((a, b) => b._count.bookings - a._count.bookings);
+      break;
+    case 'recent':
+      sorted.sort(
+        (a, b) => (b.lastVisit?.getTime() ?? 0) - (a.lastVisit?.getTime() ?? 0),
+      );
+      break;
+    default:
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /*
+    Paginated AFTER sorting, which is the only order that means anything: a
+    page cut before the sort is a page of arbitrary rows wearing a sort's
+    label.
+
+    `total` counts the filtered set, not the studio — the pager sits under a
+    table that a search may have narrowed to three rows, and a footer claiming
+    four hundred would be describing a different list from the one above it.
+  */
+  const start = (opts.page - 1) * opts.pageSize;
+
+  return {
+    customers: sorted.slice(start, start + opts.pageSize),
+    total: sorted.length,
+    page: opts.page,
+    pageSize: opts.pageSize,
+    /** True when the studio has outgrown the in-memory sort above. */
+    truncated: rows.length === CUSTOMER_SORT_CEILING,
+    /**
+     * The figures above the table, over the WHOLE filtered set.
+     *
+     * They used to be summed in the client from the rows it had, which was
+     * defensible while the client had every row: the tiles narrowed with a
+     * search, which is what you want. Pagination broke that silently — the
+     * same code would have gone on adding up whatever was on screen and
+     * labelled twenty-five people's spending "Lifetime revenue".
+     *
+     * Computed here, from `sorted`, so they still follow the search and no
+     * longer follow the page.
+     */
+    totals: {
+      customers: sorted.length,
+      repeat: sorted.filter((c) => c._count.bookings > 1).length,
+      spentCents: sorted.reduce((sum, c) => sum + c.spentCents, 0),
+    },
+  };
 }
 
 export async function getCustomer(organizationId: string, customerId: string) {
@@ -616,6 +1051,200 @@ export async function getCustomer(organizationId: string, customerId: string) {
         .reduce((s, b) => s + b.totalCents, 0),
     },
   };
+}
+
+export type CustomerWrite = {
+  name: string;
+  email: string;
+  phone?: string | null;
+  country?: string | null;
+  status?: CustomerStatus;
+  notes?: string | null;
+};
+
+/**
+ * Add a customer from the desk.
+ *
+ * The studio has always been able to create one implicitly — taking a manual
+ * booking upserts whoever is standing there — but never on its own, which
+ * meant a walk-in enquiry that did not book yet could not be written down at
+ * all. Same fault the parity pass kept turning up: a capability with no caller.
+ */
+export async function createCustomer(
+  organizationId: string,
+  input: CustomerWrite,
+) {
+  const email = input.email.trim().toLowerCase();
+
+  /*
+    Checked before the insert AND caught after it. The check gives a message
+    naming the person; the catch is what actually holds, because two desks
+    adding the same email a millisecond apart both pass the check. Without the
+    catch that race surfaces as a raw Prisma P2002 and a 500.
+  */
+  const clash = await prisma.customer.findFirst({
+    where: { organizationId, email },
+    select: { id: true, name: true },
+  });
+  if (clash) {
+    throw AppError.conflict(
+      `${clash.name} already uses that email address.`,
+    );
+  }
+
+  try {
+    return await prisma.customer.create({
+      data: {
+        organizationId,
+        name: input.name.trim(),
+        email,
+        phone: input.phone?.trim() || null,
+        country: input.country?.trim() || null,
+        status: input.status ?? 'ACTIVE',
+        notes: input.notes?.trim() || null,
+      },
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw AppError.conflict('That email address is already on your list.');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Edit one.
+ *
+ * Consent is deliberately NOT writable here. smsConsentAt and smsOptedOutAt
+ * are a TCPA record of what the customer did, not a preference the studio
+ * gets to set — letting this form clear an opt-out would let a studio
+ * resubscribe someone who texted STOP by editing their phone number.
+ */
+export async function updateCustomer(
+  organizationId: string,
+  customerId: string,
+  input: Partial<CustomerWrite>,
+) {
+  const existing = await prisma.customer.findFirst({
+    where: { id: customerId, organizationId },
+    select: { id: true },
+  });
+  if (!existing) throw AppError.notFound('Customer not found.');
+
+  const email = input.email?.trim().toLowerCase();
+
+  if (email) {
+    const clash = await prisma.customer.findFirst({
+      where: { organizationId, email, id: { not: customerId } },
+      select: { name: true },
+    });
+    if (clash) {
+      throw AppError.conflict(`${clash.name} already uses that email address.`);
+    }
+  }
+
+  try {
+    return await prisma.customer.update({
+      where: { id: customerId },
+      data: {
+        ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+        ...(email ? { email } : {}),
+        ...(input.phone !== undefined
+          ? { phone: input.phone?.trim() || null }
+          : {}),
+        ...(input.country !== undefined
+          ? { country: input.country?.trim() || null }
+          : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.notes !== undefined
+          ? { notes: input.notes?.trim() || null }
+          : {}),
+      },
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw AppError.conflict('That email address is already on your list.');
+    }
+    throw err;
+  }
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: string }).code === 'P2002'
+  );
+}
+
+/**
+ * The customer list as CSV.
+ *
+ * Built from `listCustomers` rather than its own query, so the file and the
+ * screen can never disagree about what a booking count or a spend is. It
+ * takes the same filters and deliberately ignores the pagination: somebody
+ * exporting a search wants every row it matched, not the twenty-five they can
+ * see.
+ */
+export async function exportCustomersCsv(
+  organizationId: string,
+  opts: { search?: string; status?: CustomerStatus; sort?: CustomerSort },
+): Promise<string> {
+  const { customers } = await listCustomers(organizationId, {
+    ...opts,
+    page: 1,
+    pageSize: CUSTOMER_SORT_CEILING,
+  });
+
+  const header = [
+    'Name',
+    'Email',
+    'Phone',
+    'Country',
+    'Status',
+    'Bookings',
+    'Upcoming',
+    'Total spent',
+    'Last visit',
+  ];
+
+  const lines = customers.map((c) =>
+    [
+      c.name,
+      c.email,
+      c.phone ?? '',
+      c.country ?? '',
+      c.status,
+      String(c._count.bookings),
+      String(c.upcoming),
+      /*
+        Written as plain decimal rather than formatted money. A spreadsheet
+        cannot add up "$1,234.00", and a currency symbol here would be a
+        second place the org's currency is decided.
+      */
+      (c.spentCents / 100).toFixed(2),
+      c.lastVisit ? c.lastVisit.toISOString().slice(0, 10) : '',
+    ].map(csvCell),
+  );
+
+  return [header.map(csvCell).join(','), ...lines.map((l) => l.join(','))].join(
+    '\r\n',
+  );
+}
+
+/**
+ * One CSV cell.
+ *
+ * The leading-character guard is not paranoia about quoting: a cell starting
+ * =, +, - or @ is executed as a FORMULA when the file is opened in Excel or
+ * Sheets, so a customer who types `=HYPERLINK(...)` into a name field gets it
+ * run on the machine of whoever opens the export. Prefixing a single quote
+ * makes it text, which is what a name always was.
+ */
+function csvCell(value: string): string {
+  const risky = /^[=+\-@\t\r]/.test(value);
+  const cell = risky ? `'${value}` : value;
+  return `"${cell.replace(/"/g, '""')}"`;
 }
 
 export { randomBytes };

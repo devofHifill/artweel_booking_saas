@@ -2,7 +2,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../lib/async-handler';
 import { validateBody, validateQuery } from '../../middleware/validate';
-import { requireAdmin, requireMember } from '../../middleware/authenticate';
+import {
+  requireAdmin,
+  requireAdminOrSelf,
+  requireMember,
+} from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import * as service from './schedule.service';
 
@@ -112,9 +116,17 @@ scheduleRouter.get(
 
 scheduleRouter.post(
   '/:staffId/overrides',
-  // Instructors may mark their own time off; the service refuses if it would
-  // strand a booking.
-  requireMember,
+  /*
+    Their OWN time off, or an admin's.
+
+    This comment said "instructors may mark their own time off" from the day it
+    was written, and `requireMember` never enforced the word "own" — every
+    member could rewrite any colleague's availability, which decides who gets
+    offered work. Invisible until S9 made instructor accounts reachable; the
+    guard now says what the comment always claimed. The service still refuses
+    anything that would strand a booking.
+  */
+  requireAdminOrSelf(),
   validateBody(
     z.object({
       overrideType: z.enum(['DAY_OFF', 'CUSTOM_HOURS', 'EXTRA_HOURS']),
@@ -137,7 +149,8 @@ scheduleRouter.post(
 
 scheduleRouter.delete(
   '/:staffId/overrides/:overrideId',
-  requireMember,
+  // Same rule as creating one: your own, or an admin's.
+  requireAdminOrSelf(),
   asyncHandler(async (req, res) => {
     await service.deleteOverride(
       req.tenant!.organizationId,

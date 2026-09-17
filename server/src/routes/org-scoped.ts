@@ -16,6 +16,7 @@ import { policyRouter } from '../modules/policies/policy.route';
 import { paymentRouter } from '../modules/payments/payment.route';
 import { notificationRouter } from '../modules/notifications/notification.route';
 import { calendarRouter } from '../modules/calendar/calendar.route';
+import { siteRouter } from '../modules/site/site.route';
 import {
   bookingAdminRouter,
   customerRouter,
@@ -25,6 +26,11 @@ import {
   requireActiveSubscription,
 } from '../modules/billing/billing.route';
 import { onboardingRouter } from '../modules/onboarding/onboarding.route';
+import { shellRouter } from '../modules/shell/shell.route';
+import { dashboardRouter } from '../modules/dashboard/dashboard.route';
+import { integrationRouter } from '../modules/integrations/integration.route';
+import { reportRouter } from '../modules/reports/report.route';
+import { manifestRouter } from '../modules/manifest/manifest.route';
 import { getTrafficSummary } from '../modules/marketing/marketing.route';
 import { asyncHandler } from '../lib/async-handler';
 import { requireMember } from '../middleware/authenticate';
@@ -91,3 +97,28 @@ orgScopedRouter.use('/notifications', notificationRouter);
 orgScopedRouter.use('/calendar', calendarRouter);
 orgScopedRouter.use('/bookings', bookingAdminRouter);
 orgScopedRouter.use('/customers', customerRouter);
+
+/** The studio's own pages and the navigation across them. */
+orgScopedRouter.use('/site', siteRouter);
+
+/**
+ * The app chrome — badge counts, alerts, global search.
+ *
+ * Mounted last because it is the only thing here that is not a resource: it
+ * reads across bookings, notifications and calendars to answer "what does the
+ * sidebar say", and grouping it with the modules it queries would have meant
+ * picking one of them to own it.
+ */
+orgScopedRouter.use('/shell', shellRouter);
+
+/** The landing page. Composes analytics with today's operating picture. */
+orgScopedRouter.use('/dashboard', dashboardRouter);
+
+/** Four existing truths — Stripe, calendars, SMS — on one screen. */
+orgScopedRouter.use('/integrations', integrationRouter);
+
+/** Six views over one window. Admin-only: this is the studio's commercial position. */
+orgScopedRouter.use('/reports', reportRouter);
+
+/** The day's sheet — every class, every name, every balance, on one surface. */
+orgScopedRouter.use('/manifest', manifestRouter);

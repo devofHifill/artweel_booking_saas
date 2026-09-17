@@ -156,11 +156,17 @@ describe('capacity changes', () => {
     const { createSession } = await import('../../src/scheduling/session.service');
     const { bookSeats } = await import('../../src/scheduling/booking.service');
 
+    // UPCOMING, and computed rather than written down. The guard only looks at
+    // sessions still ahead of now — `startsAt: { gte: new Date() }` — so a
+    // fixed date here quietly stops testing anything the day it passes: the
+    // query finds nothing, the shrink is allowed, and the 409 never comes.
+    const startsAt = new Date(Date.now() + 30 * 86_400_000);
+
     const session = await createSession({
       organizationId: studio.organizationId,
       serviceTypeId: serviceId,
-      startsAt: new Date('2026-09-15T18:00:00Z'),
-      endsAt: new Date('2026-09-15T21:00:00Z'),
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 3 * 3_600_000),
       timezone: 'America/New_York',
       localStartTime: '14:00',
       capacity: 8,

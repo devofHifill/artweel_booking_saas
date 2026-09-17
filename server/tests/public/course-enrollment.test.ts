@@ -37,6 +37,11 @@ beforeEach(async () => {
   slug = org.slug;
 });
 
+/** A local date N weeks out, so the fixture cannot expire the way a literal does. */
+function weeksFromNow(weeks: number): string {
+  return new Date(Date.now() + weeks * 7 * 86_400_000).toISOString().slice(0, 10);
+}
+
 /** A published cohort with six dated Tuesdays. */
 async function publishCourse(
   opts: { priceCents?: number; capacity?: number; sessionCount?: number } = {},
@@ -75,7 +80,14 @@ async function publishCourse(
     .set(studio.headers)
     .send({
       rrule: 'FREQ=WEEKLY;BYDAY=TU',
-      startLocalDate: '2026-09-01',
+      /*
+        Relative, not fixed. This read '2026-09-01', which stopped being in the
+        future on 2026-09-02 and took three tests with it: a cohort that has
+        already begun answers COURSE_ALREADY_STARTED, so the enrolment cases
+        failed on a date rather than on a defect. A fixture pinned to a literal
+        date is a test with an expiry stamped on it.
+      */
+      startLocalDate: weeksFromNow(2),
       localStartTime: '19:00',
     });
   expect(generated.status).toBe(201);

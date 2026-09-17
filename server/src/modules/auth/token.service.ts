@@ -66,6 +66,20 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
       throw AppError.unauthorized('Invalid token.', 'INVALID_TOKEN');
     }
 
+    /**
+     * A support token is not an access token and must never be mistaken for
+     * one here.
+     *
+     * They are signed with the same secret and the same audience, so without
+     * this check a support token would sail through as an ordinary session for
+     * whoever `sub` names — which for a support token is a synthetic
+     * `support:<orgId>` string, not a user at all. Callers that want one ask
+     * for it by name, through `verifySupportToken`.
+     */
+    if ((decoded as { scope?: string }).scope === SUPPORT_SCOPE) {
+      throw AppError.unauthorized('Invalid token.', 'INVALID_TOKEN');
+    }
+
     return { sub: String(decoded.sub), email: String(decoded.email ?? '') };
   } catch (err) {
     if (err instanceof AppError) throw err;
@@ -74,6 +88,126 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
     }
     throw AppError.unauthorized('Invalid token.', 'INVALID_TOKEN');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Support session tokens (S7)
+// ---------------------------------------------------------------------------
+
+export const SUPPORT_SCOPE = 'support';
+
+/**
+ * What a support token carries, in the RFC 8693 actor-claim shape.
+ *
+ *   sub  the STUDIO context — `support:<organizationId>`. Synthetic on
+ *        purpose: there is no studio user being impersonated, and borrowing a
+ *        real one would put a member's id on actions they did not take.
+ *   act  the actor — the real human at the keyboard. RFC 8693 §4.1 exists for
+ *        exactly this: "delegation has occurred, and here is who is driving".
+ *
+ * The split is what keeps the audit trail honest. `authenticate` resolves
+ * `req.auth` from `act`, never from `sub`, so every downstream writer records
+ * the operator rather than the studio — while `withOrganization` reads the
+ * studio from `sub`. Collapsing the two into one claim is what would lose the
+ * human, which is the one thing this must not do.
+ *
+ * NO REFRESH TOKEN IS ISSUED with this, anywhere. The expiry is a wall, not an
+ * opening position — a session that can renew itself is a permanent grant with
+ * extra steps.
+ */
+export type SupportTokenPayload = {
+  sub: string;
+  scope: typeof SUPPORT_SCOPE;
+  /** Support session row id. Ties every action back to one reason. */
+  sid: string;
+  organizationId: string;
+  readOnly: boolean;
+  act: { sub: string; email: string };
+};
+
+export function signSupportToken(input: {
+  sessionId: string;
+  organizationId: string;
+  readOnly: boolean;
+  actor: { id: string; email: string };
+  ttlMinutes: number;
+}): { token: string; expiresAt: Date } {
+  const expiresAt = new Date(Date.now() + input.ttlMinutes * 60_000);
+
+  const token = jwt.sign(
+    {
+      sub: `${SUPPORT_SCOPE}:${input.organizationId}`,
+      scope: SUPPORT_SCOPE,
+      sid: input.sessionId,
+      organizationId: input.organizationId,
+      readOnly: input.readOnly,
+      act: { sub: input.actor.id, email: input.actor.email },
+    } satisfies SupportTokenPayload,
+    config.JWT_ACCESS_SECRET,
+    {
+      expiresIn: `${input.ttlMinutes}m`,
+      issuer: 'booking-saas',
+      audience: 'booking-saas-api',
+    },
+  );
+
+  return { token, expiresAt };
+}
+
+/**
+ * Reads a support token, or returns null if this is not one.
+ *
+ * Null rather than throwing for the not-a-support-token case, because the
+ * caller's next move is to try it as an ordinary access token. A malformed or
+ * expired token that IS claiming support scope still throws — that is a real
+ * failure and must not silently degrade into anonymous access.
+ */
+export function verifySupportToken(token: string): SupportTokenPayload | null {
+  let decoded: unknown;
+
+  try {
+    decoded = jwt.verify(token, config.JWT_ACCESS_SECRET, {
+      issuer: 'booking-saas',
+      audience: 'booking-saas-api',
+      algorithms: ['HS256'],
+    });
+  } catch (err) {
+    if (err instanceof jwt.TokenExpiredError) {
+      // Only claim this as a support expiry if it actually is one — decoding
+      // without verifying is safe here because we are reading the scope to
+      // pick an error message, not to grant anything.
+      const payload = jwt.decode(token);
+      if (
+        payload &&
+        typeof payload !== 'string' &&
+        (payload as { scope?: string }).scope === SUPPORT_SCOPE
+      ) {
+        throw AppError.unauthorized(
+          'This support session has expired.',
+          'SUPPORT_SESSION_EXPIRED',
+        );
+      }
+    }
+    return null;
+  }
+
+  if (typeof decoded === 'string' || decoded === null) return null;
+
+  const payload = decoded as Partial<SupportTokenPayload>;
+  if (payload.scope !== SUPPORT_SCOPE) return null;
+
+  if (!payload.sid || !payload.organizationId || !payload.act?.sub) {
+    throw AppError.unauthorized('Invalid token.', 'INVALID_TOKEN');
+  }
+
+  return {
+    sub: String(payload.sub),
+    scope: SUPPORT_SCOPE,
+    sid: payload.sid,
+    organizationId: payload.organizationId,
+    readOnly: payload.readOnly !== false,
+    act: { sub: payload.act.sub, email: String(payload.act.email ?? '') },
+  };
 }
 
 /** Issues a refresh token, optionally continuing an existing rotation family. */
@@ -158,6 +292,24 @@ export async function rotateRefreshToken(
 
   if (existing.expiresAt.getTime() <= Date.now()) {
     throw AppError.unauthorized('Refresh token expired.', 'REFRESH_EXPIRED');
+  }
+
+  /**
+   * A disabled account (S8) cannot renew a session.
+   *
+   * `setUserDisabled` revokes every outstanding refresh token, so in the
+   * ordinary case the reuse branch above has already caught this. The check is
+   * here anyway because that revocation is one `updateMany` and this is the
+   * gate it protects: a token issued in the window between the disable landing
+   * and the revocation completing, or one restored by any future code path,
+   * must still be refused. The cheap check belongs next to the guarantee, not
+   * only in the operation that usually enforces it.
+   */
+  if (existing.user.disabledAt) {
+    throw AppError.forbidden(
+      'This account has been disabled. Please contact support.',
+      'ACCOUNT_DISABLED',
+    );
   }
 
   await prisma.refreshToken.update({

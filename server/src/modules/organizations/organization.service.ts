@@ -1,7 +1,25 @@
 import { Prisma, type MembershipRole } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
+import { config } from '../../config';
 import { TRIAL_DAYS } from '../billing/billing.service';
+import {
+  BRAND_PRESETS,
+  DEFAULT_PRESET_ID,
+  deriveBrand,
+  findPreset,
+  resolveBrand,
+} from '../../lib/brand';
+import { embedSnippet } from '../public/embed';
+import {
+  CONFIGURABLE_ROLES,
+  PERMISSIONS,
+  ROLE_LABELS,
+  buildMatrix,
+  defaultAllows,
+  type ConfigurableRole,
+  type Permission,
+} from '../../lib/permissions';
 
 function slugify(input: string): string {
   return input
@@ -62,9 +80,88 @@ export async function getOrganization(organizationId: string) {
 
 export async function updateOrganization(
   organizationId: string,
-  data: { name?: string; timezone?: string; currency?: string },
+  data: {
+    name?: string;
+    timezone?: string;
+    currency?: string;
+    makeUpCreditsEnabled?: boolean;
+    makeUpCreditDays?: number;
+    makeUpRequiresNotice?: boolean;
+    makeUpNoticeHours?: number;
+    makeUpCrossCohort?: boolean;
+    pieceHoldDays?: number;
+
+    /* Business identity and email preferences — see
+       `20260907200000_organization_settings`. Listed rather than left to the
+       spread below, so a misspelled key is a compile error instead of a field
+       that silently never saves. */
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    legalName?: string | null;
+    address?: string | null;
+    website?: string | null;
+    businessType?: string | null;
+    emailFromName?: string | null;
+    emailFromAddress?: string | null;
+    emailReplyTo?: string | null;
+    emailBcc?: string | null;
+    emailFooter?: string | null;
+    smsEnabled?: boolean;
+    smsSenderId?: string | null;
+    smsQuietFromHour?: number;
+    smsQuietToHour?: number;
+    dateFormat?: string;
+    timeFormat?: string;
+    defaultMinNoticeMinutes?: number;
+    defaultMaxHorizonDays?: number;
+    seatHoldMinutes?: number;
+    overbookingBuffer?: number;
+    allowSameDayBookings?: boolean;
+    autoConfirmOnPayment?: boolean;
+    requireWaiver?: boolean;
+    requirePhoneAtCheckout?: boolean;
+    allowChildTickets?: boolean;
+    depositsEnabled?: boolean;
+    defaultDepositPercent?: number;
+    allowPayOnArrival?: boolean;
+    acceptCash?: boolean;
+  },
 ) {
-  return prisma.organization.update({ where: { id: organizationId }, data });
+  /*
+    A cleared field is NULL, not "".
+
+    The zod schema accepts an empty string so the form can clear a value, but
+    storing it that way makes "never set" and "deliberately blank" two
+    different values that every reader then has to treat alike — and one of
+    them would slip through a `?? fallback` as a real, empty answer.
+  */
+  const TEXT_FIELDS = [
+    'contactEmail',
+    'contactPhone',
+    'legalName',
+    'address',
+    'website',
+    'businessType',
+    'emailFromName',
+    'emailFromAddress',
+    'emailReplyTo',
+    'emailBcc',
+    'emailFooter',
+    'smsSenderId',
+  ] as const;
+
+  const normalised: Record<string, unknown> = { ...data };
+  for (const field of TEXT_FIELDS) {
+    const value = normalised[field];
+    if (typeof value === 'string' && value.trim() === '') {
+      normalised[field] = null;
+    }
+  }
+
+  return prisma.organization.update({
+    where: { id: organizationId },
+    data: normalised,
+  });
 }
 
 export async function listMembers(organizationId: string) {
@@ -72,16 +169,48 @@ export async function listMembers(organizationId: string) {
     where: { organizationId },
     include: {
       user: {
-        select: { id: true, name: true, email: true, emailVerifiedAt: true },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          emailVerifiedAt: true,
+          disabledAt: true,
+        },
       },
     },
     orderBy: { createdAt: 'asc' },
   });
 
+  /**
+   * "Last active", derived from refresh tokens.
+   *
+   * There is no `lastSeenAt` column and this is deliberately not one: a write
+   * on every request to record a timestamp nobody reads in real time is a lot
+   * of writes for a column that is only ever glanced at. Refresh tokens are
+   * minted at login and rotated as a session continues, so the newest one is
+   * the last time this person was genuinely using the product.
+   *
+   * It is therefore a floor, not a stopwatch — somebody mid-session shows as
+   * of their last rotation, not this second. Good enough for "is this account
+   * still in use", which is the only question the column answers.
+   */
+  const lastTokens = await prisma.refreshToken.groupBy({
+    by: ['userId'],
+    where: { userId: { in: members.map((m) => m.userId) } },
+    _max: { createdAt: true },
+  });
+  const lastActive = new Map(
+    lastTokens.map((t) => [t.userId, t._max.createdAt]),
+  );
+
   return members.map((m) => ({
     membershipId: m.id,
     role: m.role,
     joinedAt: m.createdAt,
+    lastActiveAt: lastActive.get(m.userId) ?? null,
+    /* Suspended is an account-level fact, not a membership one — a disabled
+       user cannot sign in to any studio they belong to. */
+    suspended: m.user.disabledAt !== null,
     user: {
       id: m.user.id,
       name: m.user.name,
@@ -89,6 +218,78 @@ export async function listMembers(organizationId: string) {
       emailVerified: m.user.emailVerifiedAt !== null,
     },
   }));
+}
+
+/** The studio's permission matrix, defaults filled in. */
+export async function getPermissions(organizationId: string) {
+  const rows = await prisma.rolePermission.findMany({
+    where: { organizationId },
+    select: { role: true, permission: true, allowed: true },
+  });
+
+  const overrides = new Map(
+    rows.map((r) => [`${r.role}:${r.permission}`, r.allowed]),
+  );
+
+  return {
+    roles: CONFIGURABLE_ROLES.map((role) => ({
+      role,
+      label: ROLE_LABELS[role],
+    })),
+    matrix: buildMatrix(overrides),
+  };
+}
+
+/**
+ * Sets one cell.
+ *
+ * Writes a row only when the choice DIFFERS from the default, and deletes it
+ * when it matches again — so the table holds exceptions and nothing else, and
+ * "no row" keeps meaning exactly one thing.
+ */
+export async function setPermission(
+  organizationId: string,
+  role: string,
+  permission: string,
+  allowed: boolean,
+) {
+  if (!PERMISSIONS.includes(permission as Permission)) {
+    throw AppError.badRequest('No such permission.');
+  }
+  if (!CONFIGURABLE_ROLES.includes(role as ConfigurableRole)) {
+    /* OWNER lands here too, and that is the point: an owner can always do
+       everything, and a studio that could untick one of their permissions
+       would be one support ticket from nobody being able to fix it. */
+    throw AppError.badRequest('That role cannot be changed.');
+  }
+
+  const typedRole = role as ConfigurableRole;
+  const typedPermission = permission as Permission;
+
+  if (defaultAllows(typedRole, typedPermission) === allowed) {
+    await prisma.rolePermission.deleteMany({
+      where: { organizationId, role: typedRole, permission: typedPermission },
+    });
+  } else {
+    await prisma.rolePermission.upsert({
+      where: {
+        organizationId_role_permission: {
+          organizationId,
+          role: typedRole,
+          permission: typedPermission,
+        },
+      },
+      create: {
+        organizationId,
+        role: typedRole,
+        permission: typedPermission,
+        allowed,
+      },
+      update: { allowed },
+    });
+  }
+
+  return getPermissions(organizationId);
 }
 
 /**
@@ -151,4 +352,202 @@ export async function removeMember(
 
   await prisma.membership.delete({ where: { id: membershipId } });
   return { removed: true };
+}
+
+// --- Branding -------------------------------------------------------------
+
+/**
+ * The studio's theme, plus the menu of choices.
+ *
+ * Returned together deliberately: the settings screen needs both, and shipping
+ * the preset list from the server means adding a preset is one edit to
+ * `lib/brand.ts` rather than one edit plus a matching one in the client.
+ *
+ * `preset` reports `custom` when an accent is stored, because an accent WINS
+ * over the preset id — reporting the stale preset id underneath it would show
+ * the owner a swatch they are not actually using.
+ */
+export async function getTheme(organizationId: string) {
+  const organization = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { brandPreset: true, brandAccent: true },
+  });
+
+  return {
+    preset: organization.brandAccent ? 'custom' : organization.brandPreset,
+    accent: organization.brandAccent,
+    tokens: resolveBrand(organization),
+    presets: BRAND_PRESETS.map((preset) => ({
+      id: preset.id,
+      name: preset.name,
+      swatch: preset.light['--clay'],
+      swatchDark: preset.dark['--clay-text'],
+    })),
+  };
+}
+
+/**
+ * Sets the theme.
+ *
+ * The two branches clear each other's column rather than leaving both set. With
+ * both populated the accent silently wins and the preset row becomes a value
+ * that is stored, shown nowhere, and wrong — the kind of state that is only
+ * discovered when somebody later reads the column and believes it.
+ *
+ * A custom colour is validated by DERIVING it here, before the write. Derivation
+ * is what enforces AA, so doing it after the update would mean a colour that
+ * cannot be rendered legibly is already saved by the time anyone finds out.
+ */
+export async function updateTheme(
+  organizationId: string,
+  input: { preset: string; accent?: string | null },
+) {
+  if (input.preset === 'custom') {
+    if (!input.accent) {
+      throw AppError.badRequest(
+        'Choose a colour to use a custom theme.',
+        'ACCENT_REQUIRED',
+      );
+    }
+
+    // Canonical lower-case form, matching the CHECK constraint on the column.
+    const accent = input.accent.trim().toLowerCase();
+
+    let derived;
+    try {
+      derived = deriveBrand(accent);
+    } catch (error) {
+      throw AppError.badRequest(
+        error instanceof Error ? error.message : 'That colour cannot be used.',
+        'ACCENT_UNUSABLE',
+      );
+    }
+
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { brandAccent: accent, brandPreset: DEFAULT_PRESET_ID },
+    });
+
+    return {
+      preset: 'custom',
+      accent,
+      tokens: derived.scheme,
+      adjusted: derived.adjusted,
+      notes: derived.notes,
+    };
+  }
+
+  const preset = findPreset(input.preset);
+  if (!preset) throw AppError.badRequest('Unknown theme.', 'UNKNOWN_PRESET');
+
+  await prisma.organization.update({
+    where: { id: organizationId },
+    data: { brandPreset: preset.id, brandAccent: null },
+  });
+
+  return {
+    preset: preset.id,
+    accent: null,
+    tokens: { light: preset.light, dark: preset.dark },
+    /* A curated preset is authored against AA and asserted in tests, so there is
+       never anything to report here. The field is present in both shapes so the
+       client has one response to render rather than two. */
+    adjusted: false,
+    notes: [] as string[],
+  };
+}
+
+// --- Storefront copy ------------------------------------------------------
+//
+// Its own pair of routes rather than more fields on the settings PATCH:
+// hero/about/SEO are what the storefront LOOKS like, cancellation rules are
+// how the studio runs. Folding them together made a Website & Widget page
+// that had to build a request out of half of one endpoint plus half of
+// another, and made the settings response mention six string fields no
+// settings screen would show.
+
+/**
+ * What is saved for the studio's public page. Every field may be null, and
+ * every renderer that reads them has a fallback — an untouched studio still
+ * gets a working page.
+ */
+export async function getPageContent(organizationId: string) {
+  const organization = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: {
+      slug: true,
+      tagline: true,
+      about: true,
+      contactEmail: true,
+      contactPhone: true,
+      seoTitle: true,
+      seoDescription: true,
+    },
+  });
+
+  /*
+    The Website & Widget page renders the embed snippet and a link to the
+    live booking page next to the copy fields, and all three are decided by
+    the same URLs — the public origin and the studio slug. Returning them
+    together means the client renders on the first response, without a
+    second round trip to build one string.
+  */
+  const publicUrl = config.PUBLIC_URL;
+  const bookingUrl = `${publicUrl}/public/${organization.slug}`;
+
+  const { slug, ...page } = organization;
+
+  return {
+    page,
+    embed: {
+      snippet: embedSnippet(slug),
+      scriptUrl: `${publicUrl}/embed.js`,
+      bookingUrl,
+    },
+  };
+}
+
+/**
+ * Trims to null so the CHECK-constrained columns never carry a lone space.
+ *
+ * Empty strings are treated the same as absent, so a studio that types text
+ * into a field and then clears it lands back at the fallback rather than at
+ * a stored empty value that reads as "yes there is a tagline, it is nothing".
+ */
+function trimToNull(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+export async function updatePageContent(
+  organizationId: string,
+  input: {
+    tagline?: string | null;
+    about?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    seoTitle?: string | null;
+    seoDescription?: string | null;
+  },
+) {
+  const data: Prisma.OrganizationUpdateInput = {};
+
+  const tagline = trimToNull(input.tagline);
+  if (tagline !== undefined) data.tagline = tagline;
+  const about = trimToNull(input.about);
+  if (about !== undefined) data.about = about;
+  const contactEmail = trimToNull(input.contactEmail);
+  if (contactEmail !== undefined) data.contactEmail = contactEmail;
+  const contactPhone = trimToNull(input.contactPhone);
+  if (contactPhone !== undefined) data.contactPhone = contactPhone;
+  const seoTitle = trimToNull(input.seoTitle);
+  if (seoTitle !== undefined) data.seoTitle = seoTitle;
+  const seoDescription = trimToNull(input.seoDescription);
+  if (seoDescription !== undefined) data.seoDescription = seoDescription;
+
+  await prisma.organization.update({ where: { id: organizationId }, data });
+
+  return getPageContent(organizationId);
 }

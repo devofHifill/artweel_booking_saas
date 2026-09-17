@@ -10,3 +10,16 @@ vitest.perf.config.ts
 *.log
 coverage
 .DS_Store
+
+# The demo dataset never ships.
+#
+# `prisma/` is copied wholesale so migrations and `seed.ts` are available on the
+# box — DEPLOY.md has an optional "seed a demo studio" step that needs it. That
+# is fine for seed.ts, which creates ONE studio and destroys nothing.
+#
+# demo.ts is a different animal: it deletes five studios by slug and rebuilds
+# them. It shipped in the production image on 2026-08-25 with a guard that did
+# not work (it allowlisted `postgres` as a local-looking host, which is exactly
+# what the deployed database is called). The guard is fixed, but the better
+# answer is that the file should not be there to guard.
+prisma/demo.ts

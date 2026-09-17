@@ -7,6 +7,7 @@ import { bookSeats, bookAppointment } from '../../scheduling/booking.service';
 import { enrollInSeries } from '../../scheduling/series.service';
 import { haversineKm, type TravelFeeBand } from '../../scheduling/travel/travel';
 import { canAcceptBookings } from '../billing/plan';
+import { priceBooking, type DepositType } from '../payments/money';
 import {
   evaluatePolicy,
   resolvePolicyForService,
@@ -54,6 +55,28 @@ export async function getStudio(slug: string) {
       timezone: true,
       currency: true,
       subscriptionStatus: true,
+      /* The studio's accent, rendered into the page's <style> block. Selected
+         here rather than fetched separately: the booking page is the surface
+         where a studio's branding actually matters, and an extra round trip on
+         the critical path to buy something is a poor trade for two columns. */
+      brandPreset: true,
+      brandAccent: true,
+      /* Owner-authored storefront copy. Every field is nullable and the
+         renderer has a fallback for each — same round-trip reasoning as the
+         brand columns. */
+      tagline: true,
+      about: true,
+      contactEmail: true,
+      contactPhone: true,
+      /* The studio's booking rules. Same round-trip reasoning: the public
+         paths that need them already have this row in hand, and a second
+         query on the path to buy something is a poor trade for three
+         booleans. */
+      allowSameDayBookings: true,
+      requirePhoneAtCheckout: true,
+      allowChildTickets: true,
+      seoTitle: true,
+      seoDescription: true,
     },
   });
 
@@ -64,24 +87,64 @@ export async function getStudio(slug: string) {
 export async function getStudioPage(slug: string) {
   const organization = await getStudio(slug);
 
-  const [services, locations] = await Promise.all([
+  /**
+   * Whether this studio can take a card at all.
+   *
+   * Queried separately, and reduced to a boolean before it leaves this
+   * function, because `getStudio` is the shape that reaches the page's
+   * `__BOOKING__` blob and the Stripe account id must never be in it. A
+   * customer needs to know whether they will be asked to pay; they have no
+   * business knowing which account the money lands in.
+   */
+  const stripe = await prisma.organization.findUniqueOrThrow({
+    where: { id: organization.id },
+    select: { stripeAccountId: true, stripeChargesEnabled: true },
+  });
+  const acceptsPayment = Boolean(
+    stripe.stripeAccountId && stripe.stripeChargesEnabled,
+  );
+
+  const [services, locations, policies, courses] = await Promise.all([
     prisma.serviceType.findMany({
-      where: { organizationId: organization.id, isActive: true },
+      where: {
+        organizationId: organization.id,
+        isActive: true,
+        /*
+          A COURSE_SERVICE is the container for a cohort, not something anyone
+          buys a single seat in. It was listed here alongside the drop-ins
+          until G2 — invisible only because no studio had one — and its
+          priceCents is the PER-CLASS rate, so a customer clicking it would
+          have bought one week of a six-week course at a sixth of the price.
+
+          Filtered at the query rather than in the template, the same as
+          inactive services: a future template change must not be able to put
+          it back.
+        */
+        bookingMode: { not: 'COURSE_SERIES' },
+      },
       select: {
         id: true,
         name: true,
         slug: true,
         description: true,
+        shortDescription: true,
         bookingMode: true,
         durationMinutes: true,
         capacityMax: true,
         priceCents: true,
+        childPriceCents: true,
         depositType: true,
         depositValue: true,
         color: true,
+        colorAccent: true,
+        emoji: true,
+        meetingPoint: true,
         skillLevel: true,
+        highlights: true,
+        preparationNotes: true,
         minNoticeMinutes: true,
         maxHorizonDays: true,
+        cancellationPolicyId: true,
         category: { select: { id: true, name: true, sortOrder: true } },
         serviceLocations: { select: { locationId: true } },
       },
@@ -102,13 +165,46 @@ export async function getStudioPage(slug: string) {
       },
       orderBy: { name: 'asc' },
     }),
+    /*
+      Every policy for the studio in one query, resolved per service below.
+      `resolvePolicyForService` is the right shape for one service and the
+      wrong shape for a page listing all of them — it would be a query each,
+      plus one for the default, on the path a stranger hits first.
+    */
+    prisma.cancellationPolicy.findMany({
+      where: { organizationId: organization.id },
+      select: { id: true, isDefault: true, tiers: true },
+    }),
+    /*
+      G2. The cohorts were reachable at /:slug/courses and shown nowhere: a
+      studio could sell a six-week course through the API and had no way to
+      put it in front of a customer.
+    */
+    listPublicCourses(organization.id),
   ]);
+
+  const defaultPolicy = policies.find((p) => p.isDefault) ?? null;
 
   return {
     organization,
     /** The page renders read-only when false, rather than 404ing. */
     acceptingBookings: canAcceptBookings(organization.subscriptionStatus),
-    services,
+    acceptsPayment,
+    courses,
+    services: services.map((s) => {
+      const policy =
+        policies.find((p) => p.id === s.cancellationPolicyId) ?? defaultPolicy;
+
+      // `cancellationPolicyId` itself is dropped: an internal id tells a
+      // customer nothing, and the terms are what they came for.
+      const { cancellationPolicyId: _ignored, ...rest } = s;
+
+      return {
+        ...rest,
+        /** The ladder, so the page can say the terms BEFORE money moves. */
+        cancellationTiers: (policy?.tiers as PolicyTier[] | null) ?? null,
+      };
+    }),
     // Coordinates are published only for fixed venues, where the address is
     // public anyway. A mobile studio's centre point is its owner's home often
     // enough that broadcasting it would be careless.
@@ -122,6 +218,127 @@ export async function getStudioPage(slug: string) {
       lat: l.locationType === 'FIXED' ? l.lat : null,
       lng: l.locationType === 'FIXED' ? l.lng : null,
     })),
+  };
+}
+
+/**
+ * The price of a selection, for display, before anything is reserved.
+ *
+ * Runs `priceBooking` — the same function `startCheckout` runs — so the
+ * summary a customer reads and the amount Stripe is asked for cannot disagree.
+ * Nothing here writes, holds, or charges.
+ */
+export async function quoteBooking(params: {
+  slug: string;
+  serviceTypeId: string;
+  /** Set when quoting a whole cohort rather than a single class. */
+  courseSeriesId?: string;
+  seats: number;
+  /** How many of `seats` are children. See the note on the column. */
+  children?: number;
+  travelFeeCents?: number;
+}) {
+  const organization = await getStudio(params.slug);
+
+  const service = await prisma.serviceType.findFirst({
+    where: {
+      id: params.serviceTypeId,
+      organizationId: organization.id,
+      isActive: true,
+    },
+    select: {
+      priceCents: true,
+      childPriceCents: true,
+      depositType: true,
+      depositValue: true,
+    },
+  });
+  if (!service) throw AppError.notFound('Service not found.');
+
+  /**
+   * A cohort carries its own price, and it is the cohort's that counts.
+   *
+   * Mirrors `startCheckout` exactly, and for the reason recorded there: the
+   * service's priceCents is the per-class drop-in rate, so charging it for a
+   * six-week course undercharges by a factor of six. Deposit terms still come
+   * from the service, because "50% up front" is a studio policy rather than
+   * something set per cohort.
+   *
+   * If these two ever disagree, the quote a customer read and the amount they
+   * were charged would differ — which is the one discrepancy in a booking
+   * product that is never forgiven.
+   */
+  const series = params.courseSeriesId
+    ? await prisma.courseSeries.findFirst({
+        where: {
+          id: params.courseSeriesId,
+          organizationId: organization.id,
+          status: 'PUBLISHED',
+        },
+        select: { priceCents: true },
+      })
+    : null;
+
+  if (params.courseSeriesId && !series) {
+    throw AppError.notFound('Course not found.');
+  }
+
+  const stripe = await prisma.organization.findUniqueOrThrow({
+    where: { id: organization.id },
+    select: {
+      stripeAccountId: true,
+      stripeChargesEnabled: true,
+      depositsEnabled: true,
+      allowPayOnArrival: true,
+    },
+  });
+
+  const price = priceBooking({
+    unitPriceCents: series ? series.priceCents : service.priceCents,
+    seats: params.seats,
+    /*
+      A cohort is sold at one price for the whole run and carries no child
+      rate of its own, so a course prices every seat the same. Passing the
+      service's child rate here would apply a per-class discount to a
+      six-week course.
+    */
+    children: series ? 0 : params.children,
+    childPriceCents: service.childPriceCents,
+    travelFeeCents: params.travelFeeCents,
+    /*
+      The studio-wide gate over the activity's own deposit terms. Off means
+      the full amount, whatever the activity says — collapsed to 'none' HERE
+      rather than inside priceBooking, which must stay a pure function of the
+      numbers it is handed.
+    */
+    depositType: (stripe.depositsEnabled
+      ? service.depositType
+      : 'none') as DepositType,
+    depositValue: service.depositValue,
+  });
+
+  return {
+    ...price,
+    /**
+     * Whether the studio will take payment at the door instead.
+     *
+     * Reported so the booking page can offer it; enforced in
+     * `createPublicBooking`, because a flag the client is trusted to respect
+     * is not a rule.
+     */
+    payOnArrivalAllowed: stripe.allowPayOnArrival,
+    /**
+     * Whether this booking will actually go through Stripe.
+     *
+     * `requiresPayment` answers "is there something to pay"; this answers
+     * "can this studio take it". They come apart for a studio that has priced
+     * its classes but not finished Stripe onboarding — which is most studios
+     * on their first day — and that studio must still be able to take a
+     * booking, exactly as it could before G1.
+     */
+    willCharge:
+      price.requiresPayment &&
+      Boolean(stripe.stripeAccountId && stripe.stripeChargesEnabled),
   };
 }
 
@@ -165,11 +382,42 @@ export async function getPublicAvailability(params: {
     customerLocation: params.customerLocation,
   });
 
+  /*
+    "Allow same-day bookings", applied HERE rather than inside the engine.
+
+    `getAvailability` is the perf-gated core and takes no knowledge of studio
+    policy; adding a settings lookup to it would put a query inside the one
+    path with a 200ms budget. This is a filter on its output, so the engine is
+    untouched and the rule still applies to every public caller.
+
+    Today is the STUDIO's today. A studio in Los Angeles at 23:00 UTC is still
+    on yesterday's date, and cutting on the server's date would hide a whole
+    day of classes from them.
+  */
+  const hideToday = !organization.allowSameDayBookings;
+  const today = hideToday
+    ? new Intl.DateTimeFormat('en-CA', {
+        timeZone: organization.timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date())
+    : null;
+
+  const notToday = (at: Date | string) =>
+    !today ||
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: organization.timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(at)) !== today;
+
   // diagnostics carries query counts and timings — internal detail.
   return {
     mode: result.mode,
-    slots: result.slots,
-    sessions: result.sessions,
+    slots: result.slots.filter((s) => notToday(s.startsAt)),
+    sessions: result.sessions.filter((s) => notToday(s.startsAt)),
   };
 }
 
@@ -230,6 +478,11 @@ export type PublicBookingInput = {
   locationId?: string;
   startsAt?: string;
   seats?: number;
+  /**
+   * How many of `seats` are children. Meaningless on an appointment, which is
+   * one-to-one by definition, so only the seat-based branch reads it.
+   */
+  children?: number;
   customer: { name: string; email: string; phone?: string };
   serviceAddress?: {
     line1: string;
@@ -265,6 +518,21 @@ export async function createPublicBooking(input: PublicBookingInput) {
     );
   }
 
+  /*
+    The studio's booking rules, checked BEFORE anything is written.
+
+    Both of these are refusals rather than corrections: silently dropping a
+    child seat, or booking somebody without the phone number their studio
+    asked for, leaves a customer holding a place that is not what they thought
+    they bought.
+  */
+  if (organization.requirePhoneAtCheckout && !input.customer.phone?.trim()) {
+    throw AppError.badRequest(
+      'This studio needs a phone number to take your booking.',
+      'PHONE_REQUIRED',
+    );
+  }
+
   const service = await prisma.serviceType.findFirst({
     where: {
       id: input.serviceTypeId,
@@ -273,6 +541,48 @@ export async function createPublicBooking(input: PublicBookingInput) {
     },
   });
   if (!service) throw AppError.notFound('Service not found.');
+
+  if (!organization.allowChildTickets && (input.children ?? 0) > 0) {
+    throw AppError.badRequest(
+      'This studio is not taking child places online at the moment.',
+      'CHILD_TICKETS_OFF',
+    );
+  }
+
+  /**
+   * Booking a chargeable class WITHOUT paying.
+   *
+   * This function is the unpaid path — the paid one goes through checkout and
+   * converts a hold. So reaching here for a class that costs money, at a
+   * studio that can take money, means somebody is booking without paying.
+   *
+   * That is legitimate when the studio has said so ("pay on arrival") and is
+   * otherwise a way to take a seat for free by calling the API directly. The
+   * condition is deliberately narrow: a studio with no Stripe connection has
+   * always been able to take unpaid bookings and still can, which is most
+   * studios on their first day.
+   */
+  if (service.priceCents > 0) {
+    const payment = await prisma.organization.findUniqueOrThrow({
+      where: { id: organization.id },
+      select: {
+        stripeAccountId: true,
+        stripeChargesEnabled: true,
+        allowPayOnArrival: true,
+      },
+    });
+
+    const canCharge = Boolean(
+      payment.stripeAccountId && payment.stripeChargesEnabled,
+    );
+
+    if (canCharge && !payment.allowPayOnArrival) {
+      throw AppError.badRequest(
+        'This class has to be paid for when you book it.',
+        'PAYMENT_REQUIRED',
+      );
+    }
+  }
 
   const customer = await upsertCustomer(organization.id, input);
 
@@ -350,9 +660,26 @@ export async function createPublicBooking(input: PublicBookingInput) {
   });
 
   if (booking) {
+    /*
+      Through priceBooking rather than `priceCents * seats`, which is what
+      this line used to be.
+
+      That multiplication was a second implementation of the price, and the
+      moment a child rate existed it became a WRONG one — an unpaid booking
+      for two adults and a child would have recorded three adult fares while
+      the quote beside it said otherwise. One function computes what a party
+      costs; every path that needs a number asks it.
+    */
+    const price = priceBooking({
+      unitPriceCents: service.priceCents,
+      seats,
+      children: input.children,
+      childPriceCents: service.childPriceCents,
+    });
+
     const updated = await prisma.booking.update({
       where: { id: booking.id },
-      data: { totalCents: service.priceCents * seats },
+      data: { totalCents: price.subtotalCents, children: price.children },
     });
 
     await queueNotifications(updated.id);
@@ -632,11 +959,28 @@ export async function claimWaitlistOffer(token: string) {
  */
 export async function getPublicCourses(slug: string) {
   const organization = await getStudio(slug);
+
+  return {
+    organization,
+    acceptingBookings: canAcceptBookings(organization.subscriptionStatus),
+    courses: await listPublicCourses(organization.id),
+  };
+}
+
+/**
+ * The open cohorts, without the studio lookup.
+ *
+ * Split out in G2 so the booking page can render courses in its first response
+ * without a second `getStudio` round trip — the page already holds the
+ * organization, and fetching it again to list what is on sale beside the
+ * classes would be paying twice for the same row.
+ */
+export async function listPublicCourses(organizationId: string) {
   const now = new Date();
 
   const series = await prisma.courseSeries.findMany({
     where: {
-      organizationId: organization.id,
+      organizationId,
       status: 'PUBLISHED',
       sessions: { some: {} },
     },
@@ -672,10 +1016,7 @@ export async function getPublicCourses(slug: string) {
     orderBy: { createdAt: 'desc' },
   });
 
-  return {
-    organization,
-    acceptingBookings: canAcceptBookings(organization.subscriptionStatus),
-    courses: series
+  return series
       .filter((s) => s.sessions.length > 0)
       .map((s) => {
         const seatsRemaining = Math.min(
@@ -720,8 +1061,7 @@ export async function getPublicCourses(slug: string) {
             (!hasStarted || s.allowLateEnrollment),
           hasStarted,
         };
-      }),
-  };
+      });
 }
 
 /**
@@ -846,11 +1186,33 @@ export async function getBookingByToken(token: string) {
           durationMinutes: true,
           bookingMode: true,
           cancellationPolicyId: true,
+          /* G5 — "before you come" belongs on the confirmation as much as on
+             the way in. This is the page a customer actually returns to the
+             night before, from the link in their email. */
+          preparationNotes: true,
+          /* And these two only make sense here. Booking instructions are
+             written for somebody who has already booked, and a meeting point
+             is no use to anyone still deciding — putting either on the
+             booking page would be answering a question nobody has asked yet. */
+          bookingInstructions: true,
+          meetingPoint: true,
         },
       },
       staff: { select: { id: true, name: true } },
       location: { select: { id: true, name: true, address: true, locationType: true } },
-      organization: { select: { id: true, name: true, slug: true, timezone: true } },
+      organization: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          timezone: true,
+          // The manage page shares a stylesheet with the booking page, so
+          // without these it would render in clay while the page the customer
+          // booked from renders in the studio's colour.
+          brandPreset: true,
+          brandAccent: true,
+        },
+      },
       customer: { select: { name: true, email: true } },
     },
   });

@@ -1,0 +1,743 @@
+import { Router, type Request } from 'express';
+import { z } from 'zod';
+import { asyncHandler } from '../../lib/async-handler';
+import { AppError } from '../../lib/app-error';
+import { config } from '../../config';
+import { authenticateOptional } from '../../middleware/authenticate';
+import { requirePlatformAdmin } from '../../middleware/require-platform-admin';
+import { rateLimit } from '../../middleware/rate-limit';
+import { validateBody, validateQuery } from '../../middleware/validate';
+import { findLiveGrant } from './platform.service';
+import { auditContext, listAuditLog } from './audit.service';
+import {
+  exportStudiosCsv,
+  getStudio,
+  listStudios,
+} from './studios.service';
+import { getPlatformMetrics } from './metrics.service';
+import { getMrrHistory } from './mrr.service';
+import { getBookingVolume, getPlatformGrowth } from './growth.service';
+import {
+  getPlansOverview,
+  listIntegrations,
+  listWebhooks,
+  updatePlanSettings,
+  type PlanSettingsPatch,
+  type WebhookStatus,
+} from './management.service';
+import type { PlanId } from '../billing/plan';
+import {
+  getNavCounts,
+  listActivities,
+  listBookings,
+  listCustomers,
+  listLocations,
+  listResources,
+  type ListQuery,
+} from './catalog.service';
+import {
+  getGeographicDistribution,
+  getNeedsAttention,
+  getPlanDistribution,
+  getRecentActivity,
+  getRevenueModel,
+} from './insights.service';
+import { getPlatformHealth } from './health.service';
+import {
+  availablePlans,
+  extendTrial,
+  setPlan,
+  suspendStudio,
+  unsuspendStudio,
+} from './studio-admin.service';
+import {
+  endSupportSession,
+  listSupportSessions,
+  startSupportSession,
+} from './support.service';
+import { listUsers, setMemberRole, setUserDisabled } from './users.service';
+import {
+  disconnectStudioCalendar,
+  getStudioIntegrations,
+} from './integrations.service';
+
+/**
+ * `/api/platform/*` — Artweel's own operator surface.
+ *
+ * Mounted OUTSIDE `/api/organizations`, so nothing here passes through
+ * `withOrganization`. That is not an oversight: these routes act on platform
+ * data — which studios exist, what they pay, whether they are suspended — and
+ * there is no tenant to scope them to. Reaching inside a single studio is a
+ * different capability with a different design (support sessions, S7) and it
+ * does go through the choke point.
+ *
+ * `authenticateOptional` rather than `authenticate` so that a caller with no
+ * token gets the same 404 as a caller with a perfectly good token and no grant.
+ */
+export const platformRouter = Router();
+
+/**
+ * Rationed like the auth routes, and for the same reason.
+ *
+ * Every request here is answered with a 404 unless the caller holds a grant,
+ * which makes the endpoint a cheap oracle to hammer while probing for one. The
+ * budget is generous — a real operator loading a dashboard makes a handful of
+ * calls — and shares nothing with any other limiter.
+ */
+platformRouter.use(
+  rateLimit({
+    windowMs: config.AUTH_RATE_WINDOW_MINUTES * 60_000,
+    max: 300,
+    name: 'platform',
+  }),
+);
+
+platformRouter.use(authenticateOptional, requirePlatformAdmin);
+
+/**
+ * Discovery for the /admin client, and nothing else.
+ *
+ * Kept separate from `/api/auth/me` on purpose: the studio dashboard calls that
+ * one on every load, and adding a `platformAdmin` field to it would ship the
+ * existence of this surface to every customer's browser. The admin client probes
+ * here instead and treats a 404 as "not for you".
+ */
+platformRouter.get(
+  '/me',
+  asyncHandler(async (req, res) => {
+    const grant = await findLiveGrant(req.platform!.userId);
+
+    res.json({
+      platformAdmin: {
+        userId: req.platform!.userId,
+        grantedAt: grant?.grantedAt ?? null,
+        note: grant?.note ?? null,
+      },
+    });
+  }),
+);
+
+/**
+ * The audit log.
+ *
+ * Read-only, and there is deliberately no route that writes, edits or deletes a
+ * row — entries are only ever created as a side effect of the action they
+ * describe, inside its transaction. An endpoint that could author an audit entry
+ * on its own would make the log something an operator can compose rather than
+ * something that records them.
+ */
+const auditQuerySchema = z.object({
+  organizationId: z.string().uuid().optional(),
+  actorUserId: z.string().uuid().optional(),
+  action: z.string().min(1).max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+});
+
+platformRouter.get(
+  '/audit',
+  validateQuery(auditQuerySchema),
+  asyncHandler(async (req, res) => {
+    res.json({
+      entries: await listAuditLog(req.query as z.infer<typeof auditQuerySchema>),
+    });
+  }),
+);
+
+// --- Studios --------------------------------------------------------------
+
+const studioListQuerySchema = z.object({
+  search: z.string().trim().min(1).max(120).optional(),
+  status: z
+    .enum(['TRIALING', 'ACTIVE', 'PAST_DUE', 'SUSPENDED', 'CANCELED'])
+    .optional(),
+  plan: z.enum(['SOLO', 'STUDIO', 'PRO']).optional(),
+  /* Derived from timezone rather than declared, so any string is allowed and
+     an unknown one simply matches nothing. */
+  country: z.string().trim().min(1).max(60).optional(),
+  stripe: z.enum(['connected', 'restricted', 'none']).optional(),
+  created: z.enum(['30d', '90d', '12m']).optional(),
+  sort: z.enum(['createdAt', 'name', 'trialEndsAt', 'lastBookingAt']).optional(),
+  direction: z.enum(['asc', 'desc']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
+platformRouter.get(
+  '/organizations',
+  validateQuery(studioListQuerySchema),
+  asyncHandler(async (req, res) => {
+    const query = req.query as z.infer<typeof studioListQuerySchema>;
+    res.json(await listStudios(query));
+  }),
+);
+
+/*
+  Registered BEFORE `/organizations/:organizationId`, or Express hands
+  "export.csv" to the param route and an operator gets "Studio not found" for a
+  download.
+*/
+platformRouter.get(
+  '/organizations/export.csv',
+  validateQuery(studioListQuerySchema.omit({ limit: true, offset: true })),
+  asyncHandler(async (req, res) => {
+    const csv = await exportStudiosCsv(
+      req.query as z.infer<typeof studioListQuerySchema>,
+    );
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="artweel-studios-${stamp}.csv"`,
+    );
+    // A BOM, or Excel on Windows reads the file as the system codepage and any
+    // accented studio name opens as mojibake.
+    res.send(`﻿${csv}`);
+  }),
+);
+
+platformRouter.get(
+  '/organizations/:organizationId',
+  asyncHandler(async (req, res) => {
+    res.json(await getStudio(studioId(req)));
+  }),
+);
+
+// --- Studio write actions -------------------------------------------------
+
+/**
+ * Every action below requires a `reason`, and the schema enforces a real one.
+ *
+ * The reason is the field that makes the audit log worth keeping — "who" and
+ * "what" are usually recoverable from other evidence, "why" never is. A minimum
+ * length is not bureaucracy: an operator who can satisfy the field with "x" will,
+ * and then the log records that somebody typed a character.
+ */
+const reasonSchema = z
+  .string()
+  .trim()
+  .min(8, 'Give a reason of at least 8 characters — it goes in the audit log.')
+  .max(500);
+
+/**
+ * Resolves the studio id from the path.
+ *
+ * A malformed id must 404 here rather than reach Prisma, where a non-uuid comes
+ * back as an opaque 500 instead of an answer. Shared by the detail route and
+ * every write below so there is one place to get this right.
+ */
+function studioId(req: Request): string {
+  const parsed = z.string().uuid().safeParse(req.params.organizationId);
+  if (!parsed.success) {
+    throw AppError.notFound('Studio not found.', 'STUDIO_NOT_FOUND');
+  }
+  return parsed.data;
+}
+
+const extendTrialSchema = z.object({
+  extendTo: z.coerce.date(),
+  reason: reasonSchema,
+});
+
+platformRouter.post(
+  '/organizations/:organizationId/trial',
+  validateBody(extendTrialSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof extendTrialSchema>;
+
+    res.json({
+      studio: await extendTrial(
+        auditContext(req),
+        studioId(req),
+        body.extendTo,
+        body.reason,
+      ),
+    });
+  }),
+);
+
+const setPlanSchema = z.object({
+  plan: z.enum(['SOLO', 'STUDIO', 'PRO']),
+  /**
+   * Defaults to false so a plain plan change never silently marks an account
+   * free. Comping is the unusual, consequential one and should have to be asked
+   * for.
+   */
+  comp: z.boolean().default(false),
+  reason: reasonSchema,
+});
+
+platformRouter.post(
+  '/organizations/:organizationId/plan',
+  validateBody(setPlanSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof setPlanSchema>;
+
+    res.json({
+      studio: await setPlan(auditContext(req), studioId(req), body.plan, {
+        comp: body.comp,
+        reason: body.reason,
+      }),
+    });
+  }),
+);
+
+const reasonOnlySchema = z.object({ reason: reasonSchema });
+
+platformRouter.post(
+  '/organizations/:organizationId/suspend',
+  validateBody(reasonOnlySchema),
+  asyncHandler(async (req, res) => {
+    const { reason } = req.body as z.infer<typeof reasonOnlySchema>;
+    res.json({
+      studio: await suspendStudio(auditContext(req), studioId(req), reason),
+    });
+  }),
+);
+
+platformRouter.post(
+  '/organizations/:organizationId/unsuspend',
+  validateBody(reasonOnlySchema),
+  asyncHandler(async (req, res) => {
+    const { reason } = req.body as z.infer<typeof reasonOnlySchema>;
+    res.json({
+      studio: await unsuspendStudio(auditContext(req), studioId(req), reason),
+    });
+  }),
+);
+
+platformRouter.get(
+  '/plans',
+  asyncHandler(async (_req, res) => {
+    res.json({ plans: availablePlans() });
+  }),
+);
+
+// --- Support sessions (S7) ------------------------------------------------
+//
+// The only platform capability that reaches INSIDE a studio. Everything else
+// on this router acts on platform data — which studios exist, what they pay —
+// and has no tenant to scope to. This one does, and it goes through the same
+// choke point every studio request does rather than around it.
+
+const startSupportSchema = z.object({
+  reason: reasonSchema,
+  /**
+   * Read-only unless asked otherwise. A support session that can write is the
+   * unusual case and should have to be requested, not defaulted into — the
+   * whole argument against a platform bypass is that it collapses the distance
+   * between looking and changing.
+   */
+  readOnly: z.boolean().default(true),
+});
+
+platformRouter.post(
+  '/organizations/:organizationId/support-sessions',
+  validateBody(startSupportSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof startSupportSchema>;
+
+    res.status(201).json(
+      await startSupportSession(auditContext(req), studioId(req), {
+        reason: body.reason,
+        readOnly: body.readOnly,
+      }),
+    );
+  }),
+);
+
+const supportListQuerySchema = z.object({
+  organizationId: z.string().uuid().optional(),
+  activeOnly: z.coerce.boolean().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+platformRouter.get(
+  '/support-sessions',
+  validateQuery(supportListQuerySchema),
+  asyncHandler(async (req, res) => {
+    const query = req.query as z.infer<typeof supportListQuerySchema>;
+    res.json({ sessions: await listSupportSessions(query) });
+  }),
+);
+
+/**
+ * Ends a session early.
+ *
+ * POST rather than DELETE: the row is kept forever — it is the record of a
+ * visit — and DELETE on a resource that is not deleted reads as a promise the
+ * endpoint does not keep.
+ */
+platformRouter.post(
+  '/support-sessions/:sessionId/end',
+  asyncHandler(async (req, res) => {
+    const parsed = z.string().uuid().safeParse(req.params.sessionId);
+    if (!parsed.success) {
+      throw AppError.notFound('Support session not found.', 'SESSION_NOT_FOUND');
+    }
+
+    res.json(await endSupportSession(auditContext(req), parsed.data));
+  }),
+);
+
+// --- Integrations (S10) ---------------------------------------------------
+//
+// Read-only, plus the one action support actually needs. The read is the
+// studio's own `getIntegrationStatus`, so an operator and an owner cannot end
+// up reading the same studio differently.
+
+platformRouter.get(
+  '/organizations/:organizationId/integrations',
+  asyncHandler(async (req, res) => {
+    res.json(await getStudioIntegrations(studioId(req)));
+  }),
+);
+
+platformRouter.post(
+  '/organizations/:organizationId/integrations/calendar/:staffId/disconnect',
+  validateBody(reasonOnlySchema),
+  asyncHandler(async (req, res) => {
+    const staffId = z.string().uuid().safeParse(req.params.staffId);
+    if (!staffId.success) {
+      throw AppError.notFound('Instructor not found.', 'STAFF_NOT_FOUND');
+    }
+
+    const { reason } = req.body as z.infer<typeof reasonOnlySchema>;
+
+    res.json(
+      await disconnectStudioCalendar(
+        auditContext(req),
+        studioId(req),
+        staffId.data,
+        reason,
+      ),
+    );
+  }),
+);
+
+// --- Users (S8) -----------------------------------------------------------
+//
+// The only surface in the product that reads across every tenant's people at
+// once. Behind the platform gate, and audited from the first line rather than
+// "once it matters" — a cross-tenant list of names and addresses is precisely
+// the thing worth having a record of somebody having opened.
+
+const userListQuerySchema = z.object({
+  search: z.string().trim().min(1).max(120).optional(),
+  status: z.enum(['active', 'disabled', 'unverified']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
+platformRouter.get(
+  '/users',
+  validateQuery(userListQuerySchema),
+  asyncHandler(async (req, res) => {
+    const query = req.query as z.infer<typeof userListQuerySchema>;
+    res.json(await listUsers(query));
+  }),
+);
+
+const disableUserSchema = z.object({
+  /**
+   * Explicit rather than a toggle. A route that flips whatever it finds does
+   * the wrong thing when two operators click at once, and reads ambiguously in
+   * the audit log afterwards — "user.toggle" tells a reader nothing about what
+   * the account ended up as.
+   */
+  disabled: z.boolean(),
+  reason: reasonSchema,
+});
+
+platformRouter.post(
+  '/users/:userId/disabled',
+  validateBody(disableUserSchema),
+  asyncHandler(async (req, res) => {
+    const parsed = z.string().uuid().safeParse(req.params.userId);
+    if (!parsed.success) {
+      throw AppError.notFound('User not found.', 'USER_NOT_FOUND');
+    }
+
+    const body = req.body as z.infer<typeof disableUserSchema>;
+
+    res.json(
+      await setUserDisabled(auditContext(req), parsed.data, {
+        disabled: body.disabled,
+        reason: body.reason,
+      }),
+    );
+  }),
+);
+
+/**
+ * Cross-tenant role assignment (S9).
+ *
+ * OWNER *is* in this enum, unlike the invitation schema — an operator restoring
+ * a studio that lost its owner is exactly the support case this exists for. The
+ * last-owner guard still applies: `setMemberRole` delegates to
+ * `changeMemberRole` rather than writing the row, so the platform gets no path
+ * around the invariant that a studio always has an owner.
+ */
+const setRoleSchema = z.object({
+  role: z.enum(['OWNER', 'ADMIN', 'INSTRUCTOR', 'FRONT_DESK']),
+  reason: reasonSchema,
+});
+
+platformRouter.post(
+  '/organizations/:organizationId/members/:membershipId/role',
+  validateBody(setRoleSchema),
+  asyncHandler(async (req, res) => {
+    const membershipId = z.string().uuid().safeParse(req.params.membershipId);
+    if (!membershipId.success) {
+      throw AppError.notFound('Member not found.', 'MEMBER_NOT_FOUND');
+    }
+
+    const body = req.body as z.infer<typeof setRoleSchema>;
+
+    res.json(
+      await setMemberRole(auditContext(req), studioId(req), membershipId.data, {
+        role: body.role,
+        reason: body.reason,
+      }),
+    );
+  }),
+);
+
+// --- Overview -------------------------------------------------------------
+
+/*
+  The window for the flow metrics. `days` is the preset path (Today=1, 7, 30,
+  90); `from`/`to` is Custom. Point-in-time counts ignore all of it — see
+  MetricsRange — so an absent or malformed range simply falls back to 30 days
+  rather than erroring, because the bulk of the screen does not depend on it.
+*/
+const metricsRangeSchema = z
+  .object({
+    days: z.coerce.number().int().min(1).max(366).optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+  })
+  .refine((v) => !(Boolean(v.from) !== Boolean(v.to)), {
+    message: 'Give both from and to, or neither.',
+  });
+
+platformRouter.get(
+  '/metrics',
+  validateQuery(metricsRangeSchema),
+  asyncHandler(async (req, res) => {
+    const q = req.query as unknown as z.infer<typeof metricsRangeSchema>;
+    const now = new Date();
+
+    let range: { start: Date; end: Date } | undefined;
+    if (q.from && q.to && q.to > q.from) {
+      range = { start: q.from, end: q.to };
+    } else if (q.days) {
+      range = { start: new Date(now.getTime() - q.days * 86_400_000), end: now };
+    }
+
+    res.json({ metrics: await getPlatformMetrics(range) });
+  }),
+);
+
+/**
+ * MRR over time.
+ *
+ * Separate from `/metrics` because it answers a different kind of question and
+ * reads a different table: `/metrics` is the state of the platform now, this is
+ * what was written down on each past day. Keeping them apart also means the
+ * dashboard's headline cards still render if this table is empty, which it is
+ * until the snapshot worker has run.
+ */
+platformRouter.get(
+  '/mrr',
+  validateQuery(
+    z.object({ days: z.coerce.number().int().min(2).max(1096).optional() }),
+  ),
+  asyncHandler(async (req, res) => {
+    const { days } = req.query as unknown as { days?: number };
+    res.json({ history: await getMrrHistory(days ?? 365) });
+  }),
+);
+
+/**
+ * Studio growth and booking volume, by month.
+ *
+ * Both in one response because both screens are one row of the dashboard and
+ * neither is worth a second round trip. Signups and bookings are genuinely
+ * historical; churn is not, and says so by returning null for the months no
+ * snapshot covers.
+ */
+platformRouter.get(
+  '/growth',
+  validateQuery(
+    z.object({ months: z.coerce.number().int().min(1).max(36).optional() }),
+  ),
+  asyncHandler(async (req, res) => {
+    const { months } = req.query as unknown as { months?: number };
+    const window = months ?? 12;
+
+    const [growth, volume] = await Promise.all([
+      getPlatformGrowth(window),
+      getBookingVolume(window),
+    ]);
+
+    res.json({ growth, volume });
+  }),
+);
+
+/**
+ * The lower half of the dashboard, in one call.
+ *
+ * Five panels that are each a handful of cheap queries and are always read
+ * together. Split up they would be five round trips for one screen.
+ */
+platformRouter.get(
+  '/insights',
+  asyncHandler(async (_req, res) => {
+    const [plans, geography, attention, activity, revenueModel] =
+      await Promise.all([
+        getPlanDistribution(),
+        getGeographicDistribution(),
+        getNeedsAttention(),
+        getRecentActivity(12),
+        getRevenueModel(),
+      ]);
+
+    res.json({ plans, geography, attention, activity, revenueModel });
+  }),
+);
+
+// --- Cross-studio lists ----------------------------------------------------
+
+/**
+ * The support lists. All read-only: see the note on catalog.service — anything
+ * that changes a studio's data belongs on the studio's own surface, entered
+ * through a support session that records who looked and why.
+ */
+const listQuerySchema = z.object({
+  search: z.string().max(120).optional(),
+  organizationId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const CATALOGS = {
+  bookings: listBookings,
+  customers: listCustomers,
+  activities: listActivities,
+  locations: listLocations,
+  resources: listResources,
+} as const;
+
+for (const [path, list] of Object.entries(CATALOGS)) {
+  platformRouter.get(
+    `/${path}`,
+    validateQuery(listQuerySchema),
+    asyncHandler(async (req, res) => {
+      res.json(await list(req.query as unknown as ListQuery));
+    }),
+  );
+}
+
+// --- Platform management ---------------------------------------------------
+
+platformRouter.get(
+  '/webhooks',
+  validateQuery(
+    listQuerySchema.extend({
+      status: z.enum(['processed', 'failed', 'pending']).optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    res.json(
+      await listWebhooks(
+        req.query as unknown as ListQuery & { status?: WebhookStatus },
+      ),
+    );
+  }),
+);
+
+platformRouter.get(
+  '/integrations',
+  validateQuery(listQuerySchema),
+  asyncHandler(async (req, res) => {
+    res.json(await listIntegrations(req.query as unknown as ListQuery));
+  }),
+);
+
+platformRouter.get(
+  '/plans-overview',
+  asyncHandler(async (_req, res) => {
+    res.json(await getPlansOverview());
+  }),
+);
+
+/**
+ * Changes a plan's price or limits.
+ *
+ * A reason is REQUIRED, like every other consequential platform action. "Who
+ * set Solo to $49, and why" is a question that gets asked a quarter later, and
+ * the current value cannot answer it.
+ *
+ * Existing subscribers are unaffected: their price was fixed at subscription
+ * time in `subscribedPriceCents`, so this moves the list price for new
+ * subscriptions only.
+ */
+platformRouter.patch(
+  '/plans/:planId',
+  validateBody(
+    z
+      .object({
+        // A hard ceiling rather than an open number: a fat-fingered extra zero
+        // on a price is charged to a real card.
+        priceCentsMonthly: z.number().int().min(0).max(1_000_000).optional(),
+        maxStaff: z.number().int().min(1).max(10_000).nullable().optional(),
+        maxLocations: z.number().int().min(1).max(10_000).nullable().optional(),
+        reason: z.string().trim().min(3).max(500),
+      })
+      .refine(
+        (b) =>
+          b.priceCentsMonthly !== undefined ||
+          b.maxStaff !== undefined ||
+          b.maxLocations !== undefined,
+        'Change at least one of price, instructors or locations.',
+      ),
+  ),
+  asyncHandler(async (req, res) => {
+    const planId = req.params.planId as PlanId;
+    if (!['SOLO', 'STUDIO', 'PRO'].includes(planId)) {
+      throw AppError.notFound('No such plan.');
+    }
+
+    const { reason, ...patch } = req.body as PlanSettingsPatch & {
+      reason: string;
+    };
+
+    res.json({
+      plan: await updatePlanSettings(auditContext(req), planId, patch, reason),
+    });
+  }),
+);
+
+/** Sidebar badges. */
+platformRouter.get(
+  '/nav-counts',
+  asyncHandler(async (_req, res) => {
+    res.json(await getNavCounts());
+  }),
+);
+
+/**
+ * Worker and queue health.
+ *
+ * Separate from `/api/health`, which answers "can this container serve traffic"
+ * for the load balancer and must stay cheap and public. This one answers "is the
+ * work actually getting done", which is a different question — and the one that
+ * was green throughout C2.1 while three sweeps ran never.
+ */
+platformRouter.get(
+  '/health',
+  asyncHandler(async (_req, res) => {
+    res.json({ health: await getPlatformHealth() });
+  }),
+);

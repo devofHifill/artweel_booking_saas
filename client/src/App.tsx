@@ -1,13 +1,24 @@
 import { useEffect, useState } from 'react';
-import { Navigate, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import {
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom';
 import { api } from './lib/api';
 import { useAuth, useActiveOrg, useOrgBase } from './lib/auth';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Onboarding from './pages/Onboarding';
-import Today from './pages/Today';
+import Dashboard from './pages/Dashboard';
 import Bookings from './pages/Bookings';
 import CalendarPage from './pages/Calendar';
+import MySchedule from './pages/MySchedule';
+import Help from './pages/Help';
+import { HelpMenu } from './components/HelpMenu';
+import { AccountMenu } from './components/AccountMenu';
 import Customers from './pages/Customers';
 import Register from './pages/Register';
 import Classes from './pages/Classes';
@@ -18,32 +29,125 @@ import Firings from './pages/Firings';
 import Packs from './pages/Packs';
 import CustomerDetail from './pages/CustomerDetail';
 import Billing from './pages/Billing';
+import SettingsPage from './pages/Settings';
+import StaffPage from './pages/Staff';
+import PaymentsPage from './pages/Payments';
+import NotificationsPage from './pages/Notifications';
+import IntegrationsPage from './pages/Integrations';
+import ReportsPage from './pages/Reports';
+import Website from './pages/Website';
+import AcceptInvite from './pages/AcceptInvite';
+import ResetPassword from './pages/ResetPassword';
+import AdminApp from './admin/AdminApp';
+import { Shell } from './components/Shell';
+import { Icon } from './components/Icon';
+import { initials } from './components/layout';
+import { ThemeToggle } from './components/ThemeToggle';
+import { GlobalSearch } from './components/GlobalSearch';
+import { AlertBell } from './components/AlertBell';
+import { useShellSummary } from './lib/useShellSummary';
 
 export default function App() {
-  const { user, loading, signOut, memberships, activeOrgId, setActiveOrg } =
-    useAuth();
+  const { user, loading, signOut, memberships } = useAuth();
   const org = useActiveOrg();
+  const location = useLocation();
   const [showSignUp, setShowSignUp] = useState(false);
+  /* Badge counts and alerts for the chrome. Declared with the other hooks
+     rather than beside the JSX that uses it: everything below this point can
+     return early, and a hook after an early return is a hook that sometimes
+     does not run. */
+  const summary = useShellSummary();
+
+  /**
+   * Which nav items this person can actually reach.
+   *
+   * Not cosmetic. Until S9 shipped invitations, `register` only ever created an
+   * OWNER, so every signed-in user could reach every route and a nav that
+   * rendered everything was accidentally correct. The moment an instructor can
+   * log in, that same nav offers them seven screens that answer 403 — and a
+   * sidebar full of links that fail is worse than a shorter one, because it
+   * reads as a broken product rather than a scoped account.
+   *
+   * The server is what enforces these; this mirrors the gates that are actually
+   * on the routes so the two agree:
+   *
+   *   Reports          requireAdmin
+   *   Notifications    requireAdmin on everything but the log
+   *   Website & widget requireAdmin to save
+   *   Settings         requireAdmin for every section that writes
+   *   Plan             requireAdmin for checkout and the billing portal
+   *   Payments         requireAdmin
+   *   Staff & Guides   requireAdmin to change anybody
+   */
+  const isAdmin = org?.role === 'OWNER' || org?.role === 'ADMIN';
 
   if (loading) return <div className="empty">Loading…</div>;
 
-  if (!user) {
+  /**
+   * Accepting an invitation, ABOVE the signed-in check.
+   *
+   * The person following an invitation link usually has no account, so the
+   * ordinary `!user` branch would show them a login screen for credentials
+   * they do not have — a dead end at exactly the moment they were trying to
+   * join. It sits above the signed-in branch too, deliberately: a freelance
+   * instructor already signed in to another studio must still be able to
+   * accept, and bouncing them to their own dashboard would silently swallow
+   * the invitation.
+   */
+  if (location.pathname.startsWith('/invite/')) {
     return (
-      <>
-        {showSignUp ? (
-          <SignUp onSignedUp={() => window.location.reload()} />
-        ) : (
-          <Login />
-        )}
-        <div style={{ textAlign: 'center', marginTop: -20 }}>
-          <button className="link" onClick={() => setShowSignUp((v) => !v)}>
-            {showSignUp
-              ? 'Already have an account? Sign in'
-              : 'New here? Start your studio'}
-          </button>
-        </div>
-      </>
+      <Routes>
+        <Route path="/invite/:token" element={<AcceptInvite />} />
+      </Routes>
     );
+  }
+
+  /*
+    Setting a new password from an emailed link, ABOVE the signed-in check for
+    the same reason as invitations: the person following it is usually locked
+    out, so bouncing them to a login they cannot pass is a dead end. Completing
+    it revokes every session anyway, so there is no dashboard to protect here.
+  */
+  if (location.pathname.startsWith('/reset-password')) {
+    return (
+      <Routes>
+        <Route path="/reset-password" element={<ResetPassword />} />
+      </Routes>
+    );
+  }
+
+  if (!user) {
+    // The flip between the two screens lives INSIDE the auth layout now, so it
+    // sits in the panel's header rather than floating under a full-height
+    // split screen with nothing around it.
+    const flip = () => setShowSignUp((v) => !v);
+
+    return showSignUp ? (
+      <SignUp onSignedUp={() => window.location.reload()} onSwitch={flip} />
+    ) : (
+      <Login onSwitch={flip} />
+    );
+  }
+
+  /**
+   * The platform surface, branched ABOVE everything studio-related.
+   *
+   * Two reasons it sits here rather than inside the shell below:
+   *
+   * 1. Nothing in the studio sidebar is conditional on being an operator, so no
+   *    conditional can ever leak platform UI to a customer. The admin tree has
+   *    its own shell entirely.
+   *
+   * 2. An Artweel operator may belong to NO studio, which is the normal case for
+   *    a staff account. Below this line, zero memberships means the "No studio
+   *    yet" dead end — so branching after it would have made /admin unreachable
+   *    for exactly the accounts that need it.
+   *
+   * Whether the caller is actually an admin is not decided here. AdminApp asks
+   * the server, which 404s for everyone without a live grant.
+   */
+  if (location.pathname.startsWith('/admin')) {
+    return <AdminApp />;
   }
 
   if (memberships.length === 0) {
@@ -61,79 +165,345 @@ export default function App() {
   }
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">
+    <Shell
+      brand={
+        <>
           {org?.organization.name ?? 'Studio'}
           <small>{org?.role.toLowerCase().replace('_', ' ')}</small>
+        </>
+      }
+      topbar={
+        <div className="topbar-tools">
+          <GlobalSearch />
+
+          <div className="topbar-right">
+            {/*
+              Today's date, so the dashboard's figures have a stated anchor.
+
+              With the YEAR. It was "Tue, Sep 1", which is fine until somebody
+              is looking at a course that runs into next year, or reading a
+              screenshot months later — and this product schedules a long way
+              ahead. The long form matches the prototype and costs a little
+              width; `topbar-date` is hidden on narrow screens already.
+            */}
+            <span className="topbar-date">
+              {new Date().toLocaleDateString(undefined, {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+              })}
+            </span>
+
+            <AlertBell alerts={summary.alerts} />
+
+            <HelpMenu />
+
+            {/*
+              A real link to the real page, not a preview modal. It is the thing
+              customers see, and the fastest way to check a change landed is to
+              look at it. Opens in a new tab so the dashboard is not lost.
+
+              Labelled, not a bare glyph. It had `title` and `aria-label`, so a
+              screen reader always got it — but a sighted person met a generic
+              open-in-new-window mark and had to hover to learn that the most
+              useful control on this bar goes to their own booking page.
+            */}
+            {org && (
+              <a
+                className="button-link topbar-cta"
+                href={`/public/${org.organization.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Icon name="external" size={16} />
+                View booking page
+              </a>
+            )}
+
+            <AccountMenu />
+          </div>
         </div>
+      }
+      bottomNav={
+        <>
+          <NavLink to="/" end>
+            <Icon name="today" size={20} />
+            Dashboard
+          </NavLink>
+          <NavLink to="/calendar">
+            <Icon name="calendar" size={20} />
+            Calendar
+          </NavLink>
+          <NavLink to="/bookings">
+            <Icon name="bookings" size={20} />
+            Bookings
+            {summary.counts.pendingBookings > 0 && (
+              <span className="nav-dot" aria-hidden="true" />
+            )}
+          </NavLink>
+          <NavLink to="/classes">
+            <Icon name="classes" size={20} />
+            Activities
+          </NavLink>
+          <NavLink to="/customers">
+            <Icon name="customers" size={20} />
+            People
+          </NavLink>
+        </>
+      }
+      sidebar={
+        <>
+          {/*
+            TourFlow's thirteen items, in TourFlow's order and grouping, plus the
+            four screens it has no equivalent for.
 
-        <nav className="nav">
-          <NavLink to="/" end>Today</NavLink>
-          <NavLink to="/calendar">Calendar</NavLink>
-          <NavLink to="/bookings">Bookings</NavLink>
-          <NavLink to="/classes">Classes</NavLink>
-          <NavLink to="/courses">Courses</NavLink>
-          <NavLink to="/register">Register</NavLink>
-          <NavLink to="/studio">Studio floor</NavLink>
-          <NavLink to="/customers">Customers</NavLink>
-          <NavLink to="/packs">Packs</NavLink>
-          <NavLink to="/billing">Plan</NavLink>
-        </nav>
+            Those four — Courses, Packs, Studio floor, Plan — are the ceramics
+            vertical this product deliberately picked, so they get their own
+            group rather than being scattered through the other two.
 
-        <div className="spacer" />
+            Three labels are TourFlow's rather than the schema's: Activities,
+            Staff & Guides, Daily Manifest. The ROUTES underneath are unchanged
+            (/classes, /staff, /register), so existing links and bookmarks
+            survive and the code still calls things what the database calls them.
+          */}
+          <nav className="nav">
+            <p className="nav-label">Operations</p>
+            <NavLink to="/" end>
+              <Icon name="today" />
+              Dashboard
+            </NavLink>
+            <NavLink to="/bookings">
+              <Icon name="bookings" />
+              Bookings
+              {summary.counts.pendingBookings > 0 && (
+                <span className="count" title="Awaiting payment or confirmation">
+                  {summary.counts.pendingBookings}
+                </span>
+              )}
+            </NavLink>
+            <NavLink to="/calendar">
+              <Icon name="calendar" />
+              Calendar
+            </NavLink>
+            <NavLink to="/classes">
+              <Icon name="classes" />
+              Activities
+            </NavLink>
+            <NavLink to="/customers">
+              <Icon name="customers" />
+              Customers
+            </NavLink>
+            {isAdmin && (
+              <NavLink to="/staff">
+                <Icon name="staff" />
+                Staff &amp; Guides
+              </NavLink>
+            )}
+            {/*
+              Shown to non-admins only. An owner or admin who also teaches
+              reaches the same panel through Staff & Guides, where they can
+              also change hours — so a second entry point for them would be a
+              second answer to one question. For everybody else it is the only
+              answer there is.
+            */}
+            {!isAdmin && (
+              <NavLink to="/my-schedule">
+                <Icon name="staff" />
+                My schedule
+              </NavLink>
+            )}
+            {isAdmin && (
+              <NavLink to="/payments">
+                <Icon name="plan" />
+                Payments
+              </NavLink>
+            )}
+            {isAdmin && (
+              <NavLink to="/reports">
+                <Icon name="health" />
+                Reports
+              </NavLink>
+            )}
+            <NavLink to="/register">
+              <Icon name="register" />
+              Daily Manifest
+            </NavLink>
 
-        {memberships.length > 1 && (
-          <>
-            <label htmlFor="org">Studio</label>
-            <select
-              id="org"
-              value={activeOrgId ?? ''}
-              onChange={(e) => setActiveOrg(e.target.value)}
-            >
-              {memberships.map((m) => (
-                <option key={m.organizationId} value={m.organizationId}>
-                  {m.organization.name}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
+            {/*
+              Courses, Packs and Studio floor are HIDDEN, not removed (D0,
+              2026-08-24). The sidebar matches TourFlow's thirteen items, and
+              TourFlow has no equivalent for these because it sells tours and
+              tours have no kilns — which is a fact about the prototype, not a
+              verdict on the features.
 
-        <button onClick={signOut} style={{ marginTop: 12 }}>
-          Sign out
-        </button>
-      </aside>
+              Their routes below still work, their server modules are untouched,
+              and their tests still run. Restoring them is deleting this comment
+              and the block it replaced.
+            */}
 
-      <main className="main">
-        <BillingBanner />
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/setup" element={<SetupRoute />} />
-          <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/bookings" element={<Bookings />} />
-          <Route path="/classes" element={<Classes />} />
-          <Route path="/courses" element={<Courses />} />
-          <Route path="/courses/:seriesId" element={<CourseDetail />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/studio" element={<Navigate to="/studio/pieces" replace />} />
-          <Route path="/studio/pieces" element={<Pieces />} />
-          <Route path="/studio/firings" element={<Firings />} />
-          <Route path="/customers" element={<Customers />} />
-          <Route path="/customers/:customerId" element={<CustomerDetail />} />
-          <Route path="/packs" element={<Packs />} />
-          <Route path="/billing" element={<Billing />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
-    </div>
+            {/* Notifications, Integrations and Website & Widget join this group
+                as B5, B6 and B8 land; the order below is already their final
+                one, so adding each is an insert rather than a reshuffle. */}
+            {/* The whole group is owner/admin work — how the studio presents
+                itself, what it sends, what it pays. An instructor has nothing
+                to do here and every screen in it would refuse them. */}
+            {isAdmin && (
+              <>
+                <p className="nav-label">Growth &amp; setup</p>
+                <NavLink to="/notifications">
+                  <Icon name="bell" />
+                  Notifications
+                </NavLink>
+                <NavLink to="/integrations">
+                  <Icon name="plug" />
+                  Integrations
+                </NavLink>
+                <NavLink to="/website">
+                  <Icon name="site" />
+                  Website &amp; widget
+                </NavLink>
+                <NavLink to="/settings">
+                  <Icon name="settings" />
+                  Settings
+                </NavLink>
+                {/* Plan is hidden with the ceramics three — the demo has no
+                    billing screen. `/billing` still works, and the trial and
+                    payment banners still appear on every page, so a studio is
+                    not cut off from paying. */}
+              </>
+            )}
+          </nav>
+
+          <div className="spacer" />
+
+          {/*
+            The studio switcher and Sign out moved to the account menu in the
+            topbar, which is where people look for an account. They MOVED —
+            leaving copies here would be one question with two answers, free to
+            drift apart, which is the thing this phase has declined three times.
+
+            The theme control stays: it is a preference for this device, not
+            part of an account.
+          */}
+
+          {/*
+            Help in the sidebar as well as the bar, which is what the prototype
+            does — but as a LINK, because every other row in this list
+            navigates and one that opens a panel instead misdescribes itself.
+            The page and the top bar's popover both read one list of shortcuts,
+            so they cannot drift apart.
+          */}
+          <NavLink to="/help">
+            <Icon name="external" size={20} />
+            Help &amp; Support
+          </NavLink>
+
+          {/*
+            Who is signed in, at the foot of the sidebar.
+
+            Informational only: the account ACTIONS — switch studio, sign out —
+            live in the topbar menu, and putting buttons here too would rebuild
+            the duplication that menu just replaced. This says who and where,
+            which is the part worth having in view while you work.
+          */}
+          {user && (
+            <div className="side-user">
+              <span className="avatar sm">{initials(user.name || user.email)}</span>
+              <span className="mini-main">
+                <b>{user.name || user.email}</b>
+                <span className="tiny muted">
+                  {org
+                    ? `${org.role.toLowerCase().replace('_', ' ')} · ${org.organization.name}`
+                    : user.email}
+                </span>
+              </span>
+            </div>
+          )}
+
+          <ThemeToggle />
+        </>
+      }
+    >
+      <SupportBanner sessions={summary.support ?? []} />
+      <BillingBanner />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/setup" element={<SetupRoute />} />
+        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/bookings" element={<Bookings />} />
+        <Route path="/classes" element={<Classes />} />
+        <Route path="/courses" element={<Courses />} />
+        <Route path="/courses/:seriesId" element={<CourseDetail />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/studio" element={<Navigate to="/studio/pieces" replace />} />
+        <Route path="/studio/pieces" element={<Pieces />} />
+        <Route path="/studio/firings" element={<Firings />} />
+        <Route path="/customers" element={<Customers />} />
+        <Route path="/customers/:customerId" element={<CustomerDetail />} />
+        <Route path="/packs" element={<Packs />} />
+
+        {/*
+          Admin-only, and guarded here as well as hidden from the nav.
+
+          Hiding a link is not access control — the server is what refuses
+          these — but a bookmark or a typed URL would otherwise render a full
+          page that then fails every request it makes, which reads as broken
+          rather than as "not yours". Redirecting home is the honest answer to
+          a screen this account does not have.
+        */}
+        <Route
+          path="/billing"
+          element={isAdmin ? <Billing /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/staff"
+          element={isAdmin ? <StaffPage /> : <Navigate to="/" replace />}
+        />
+        {/*
+          Ungated on purpose. The page finds the viewer's OWN staff record and
+          shows nothing else, so an admin who also teaches gets the same thing
+          as an instructor, and a front-desk account with no staff record gets
+          an explanation. The write it offers is `requireAdminOrSelf` on the
+          server, which is the guard that actually decides.
+        */}
+        <Route path="/my-schedule" element={<MySchedule />} />
+        <Route path="/help" element={<Help />} />
+        <Route
+          path="/payments"
+          element={isAdmin ? <PaymentsPage /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/notifications"
+          element={isAdmin ? <NotificationsPage /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/integrations"
+          element={isAdmin ? <IntegrationsPage /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/reports"
+          element={isAdmin ? <ReportsPage /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/website"
+          element={isAdmin ? <Website /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/settings"
+          element={isAdmin ? <SettingsPage /> : <Navigate to="/" replace />}
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Shell>
   );
 }
 
 /**
  * A studio that has not published yet lands on the wizard instead of an empty
- * Today view. Showing "nothing booked today" to somebody who has not set
- * anything up tells them nothing about what to do next.
+ * dashboard. Showing five zeroed KPI tiles to somebody who has not set anything
+ * up tells them nothing about what to do next — and reads as a broken product
+ * rather than an empty one.
  */
 function Home() {
   const base = useOrgBase();
@@ -152,12 +522,55 @@ function Home() {
 
   if (complete === null) return <div className="empty">Loading…</div>;
   if (!complete) return <Navigate to="/setup" replace />;
-  return <Today />;
+  return <Dashboard />;
 }
 
 function SetupRoute() {
   const navigate = useNavigate();
   return <Onboarding onDone={() => navigate('/')} />;
+}
+
+/**
+ * "Somebody from Artweel is looking at your studio."
+ *
+ * Shown to the STUDIO while it is happening, not to the operator. A support
+ * session is somebody reading a studio's customer list and bookings, and the
+ * studio is entitled to know at the time rather than afterwards in a log they
+ * cannot see.
+ *
+ * It names the person, says whether they can change anything, and gives the
+ * reason — because a banner that says somebody is here and will not say why is
+ * worse than no banner at all. It is deliberately not dismissible: it is not a
+ * notification, it is the state of the room.
+ */
+function SupportBanner({
+  sessions,
+}: {
+  sessions: import('./lib/useShellSummary').SupportPresence[];
+}) {
+  if (sessions.length === 0) return null;
+
+  return (
+    <>
+      {sessions.map((session) => (
+        <div key={session.id} className="alert warn support-banner" role="status">
+          <strong>Artweel support is viewing your studio.</strong>{' '}
+          {session.by} — {session.reason}.{' '}
+          {session.readOnly
+            ? 'They can look, but cannot change anything.'
+            : 'They can make changes on your behalf.'}{' '}
+          <span className="muted">
+            Access ends at{' '}
+            {new Date(session.expiresAt).toLocaleTimeString([], {
+              hour: 'numeric',
+              minute: '2-digit',
+            })}
+            .
+          </span>
+        </div>
+      ))}
+    </>
+  );
 }
 
 /** Trial and payment warnings, on every page rather than only on billing. */

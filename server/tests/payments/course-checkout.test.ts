@@ -17,6 +17,26 @@ import { setPaymentProvider } from '../../src/modules/payments/provider.registry
  * where seats or money can go missing, so each gets a case here.
  */
 
+/**
+ * A Tuesday at least three weeks out, computed rather than written down.
+ *
+ * This fixture asserts that every session in the course still has BOTH of its
+ * reminders ahead of it. A fixed calendar date makes that a claim about the
+ * day the test is run, and it expired on 2026-09-01: the course started that
+ * Tuesday evening, so the 24-hour reminder for the first session was already
+ * due and correctly skipped, and the count came back 11 rather than 12.
+ *
+ * Three weeks rather than one, so that the studio timezone resolving the local
+ * date a day either side of this machine's cannot bring the first session
+ * within a reminder window.
+ */
+function firstTuesdayWellAhead(): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + 21);
+  while (d.getUTCDay() !== 2) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 const app = createApp();
 let provider: FakePaymentProvider;
 let studio: Studio;
@@ -75,7 +95,7 @@ beforeEach(async () => {
     .set(studio.headers)
     .send({
       rrule: 'FREQ=WEEKLY;BYDAY=TU',
-      startLocalDate: '2026-09-01',
+      startLocalDate: firstTuesdayWellAhead(),
       localStartTime: '19:00',
     });
 

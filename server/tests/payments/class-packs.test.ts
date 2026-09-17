@@ -21,6 +21,16 @@ import { setPaymentProvider } from '../../src/modules/payments/provider.registry
  * genuinely one.
  */
 
+/**
+ * A class far enough ahead that it stays ahead.
+ *
+ * Spending a pack credit is refused for a session that has already started, so
+ * a written-down date here works only until real time reaches it.
+ */
+function futureLocalDate(): string {
+  return new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+}
+
 const app = createApp();
 let provider: FakePaymentProvider;
 let studio: Studio;
@@ -287,7 +297,7 @@ describe('spending pack credits', () => {
       .set(studio.headers)
       .send({
         serviceTypeId: service.body.service.id,
-        startLocalDate: '2027-06-05',
+        startLocalDate: futureLocalDate(),
         localStartTime: '10:00',
         capacity: 8,
       });
@@ -408,7 +418,7 @@ describe('refunding a pack', () => {
         .set(studio.headers)
         .send({
           serviceTypeId: service.body.service.id,
-          startLocalDate: '2027-06-05',
+          startLocalDate: futureLocalDate(),
           localStartTime: '10:00',
           capacity: 8,
         });

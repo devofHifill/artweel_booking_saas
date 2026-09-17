@@ -6,11 +6,13 @@ import { logger } from '../../lib/logger';
 import { encodeToken } from '../public/public.service';
 import {
   DEFAULT_TEMPLATES,
+  TEMPLATE_META,
   TemplateKey,
   buildValues,
   render,
   type BookingContext,
 } from './templates';
+import { AppError } from '../../lib/app-error';
 
 /**
  * Enqueueing side of the outbox.
@@ -581,10 +583,26 @@ function smsSkipReason(customer: {
  * operates in. A message due at 03:00 goes at 08:00; one due at 22:30 goes at
  * 08:00 the next morning.
  */
-export function applyQuietHours(when: Date, timezone: string): Date {
+export function applyQuietHours(
+  when: Date,
+  timezone: string,
+  /**
+   * The studio's own quiet window, as the operator sets it: no texts between
+   * `fromHour` and `toHour`.
+   *
+   * THE INVERSION LIVES HERE AND NOWHERE ELSE. Everything below works in the
+   * SENDING window, which is what `config.SMS_QUIET_START_HOUR` and its
+   * sibling have always held despite their names. A studio's quiet hours are
+   * the complement of that, so they are turned around once, on the way in.
+   *
+   * Optional, so every existing caller keeps the platform default exactly.
+   */
+  quiet?: { fromHour: number; toHour: number },
+): Date {
   const local = DateTime.fromJSDate(when, { zone: timezone });
-  const start = config.SMS_QUIET_START_HOUR;
-  const end = config.SMS_QUIET_END_HOUR;
+  /* Quiet 21:00–08:00 means sending 08:00–21:00. */
+  const start = quiet ? quiet.toHour : config.SMS_QUIET_START_HOUR;
+  const end = quiet ? quiet.fromHour : config.SMS_QUIET_END_HOUR;
 
   if (local.hour >= start && local.hour < end) return when;
 
@@ -701,4 +719,110 @@ export async function recordSmsOptIn(phone: string) {
 
 function normalizePhone(phone: string): string {
   return phone.replace(/[^\d]/g, '');
+}
+
+// --- Automations ------------------------------------------------------------
+
+/**
+ * The Automations table: every message the product can send, and what the
+ * studio's own history with it looks like.
+ *
+ * Built from the CODE's list of template keys, not from what happens to be in
+ * the outbox. A studio that has never had a waitlist offer fire still needs to
+ * see the rule, and see that it is on — a table assembled from sent messages
+ * would show them nothing and imply the feature does not exist.
+ */
+export async function listAutomations(organizationId: string) {
+  const keys = Object.keys(DEFAULT_TEMPLATES);
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const [rules, overrides, recent, lastSent] = await Promise.all([
+    prisma.notificationRule.findMany({ where: { organizationId } }),
+    prisma.notificationTemplate.findMany({
+      where: { organizationId },
+      select: { templateKey: true, channel: true },
+    }),
+    /*
+      Counted over SENT only. "486" under a heading of "30 days" is read as
+      "went out"; including failures and skips would inflate it with messages
+      nobody received, which is the opposite of what the number is for.
+    */
+    prisma.notification.groupBy({
+      by: ['templateKey'],
+      where: { organizationId, status: 'SENT', sentAt: { gte: since } },
+      _count: { _all: true },
+    }),
+    prisma.notification.groupBy({
+      by: ['templateKey'],
+      where: { organizationId, status: 'SENT' },
+      _max: { sentAt: true },
+    }),
+  ]);
+
+  const countFor = new Map(recent.map((r) => [r.templateKey, r._count._all]));
+  const lastFor = new Map(lastSent.map((r) => [r.templateKey, r._max.sentAt]));
+  const ruleFor = new Map(rules.map((r) => [r.templateKey, r.enabled]));
+
+  return keys.map((key) => {
+    const meta = TEMPLATE_META[key];
+    const defaults = DEFAULT_TEMPLATES[key]!;
+
+    /*
+      Which channels this message CAN go out on — a property of the template,
+      not of the studio. SMS additionally needs the customer's consent, which
+      is per person and decided at send time, so this says "email and SMS" for
+      a message that supports both even when a given guest only gets the email.
+    */
+    const channels: ('EMAIL' | 'SMS')[] = defaults.SMS
+      ? ['EMAIL', 'SMS']
+      : ['EMAIL'];
+
+    return {
+      templateKey: key,
+      name: meta?.name ?? key,
+      trigger: meta?.trigger ?? '',
+      essential: meta?.essential ?? false,
+      channels,
+      /** True when the studio has rewritten the words on any channel. */
+      customised: overrides.some((o) => o.templateKey === key),
+      /** Absent rule means on — see the migration. */
+      enabled: ruleFor.get(key) ?? true,
+      sentLast30Days: countFor.get(key) ?? 0,
+      lastSentAt: lastFor.get(key) ?? null,
+    };
+  });
+}
+
+/**
+ * Turns one automation on or off.
+ *
+ * Turning it back ON deletes the row rather than setting `enabled = true`, so
+ * the table only ever holds deliberate exceptions and "no row" keeps meaning
+ * exactly one thing. Storing an explicit true would make absent and true two
+ * spellings of the same state, and the first piece of code to check only for
+ * a row would get it wrong.
+ */
+export async function setAutomation(
+  organizationId: string,
+  templateKey: string,
+  enabled: boolean,
+) {
+  if (!DEFAULT_TEMPLATES[templateKey]) {
+    throw AppError.notFound('No such notification.');
+  }
+
+  if (enabled) {
+    await prisma.notificationRule.deleteMany({
+      where: { organizationId, templateKey },
+    });
+    return { templateKey, enabled: true };
+  }
+
+  await prisma.notificationRule.upsert({
+    where: { organizationId_templateKey: { organizationId, templateKey } },
+    create: { organizationId, templateKey, enabled: false },
+    update: { enabled: false },
+  });
+
+  return { templateKey, enabled: false };
 }

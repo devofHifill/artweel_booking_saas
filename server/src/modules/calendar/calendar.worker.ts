@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config';
 import { logger } from '../../lib/logger';
+import { recordWorkerRun } from '../../lib/heartbeat';
 import { CalendarAuthError } from './provider';
 import { executeSyncJob, renewExpiringWatches } from './calendar.service';
 
@@ -108,6 +109,9 @@ export async function processCalendarBatch(limit = 20) {
 
 let timer: NodeJS.Timeout | null = null;
 
+/** The tick currently running. See the note in `workers/sweep.worker.ts`. */
+let inFlight: Promise<void> | null = null;
+
 export function startCalendarWorker(intervalMs = 10_000) {
   if (timer) return;
 
@@ -115,29 +119,36 @@ export function startCalendarWorker(intervalMs = 10_000) {
 
   const tick = async () => {
     try {
-      const result = await processCalendarBatch();
-      if (result.claimed > 0) logger.debug(result, 'Calendar sync batch');
+      await recordWorkerRun('calendar', async () => {
+        const result = await processCalendarBatch();
+        if (result.claimed > 0) logger.debug(result, 'Calendar sync batch');
 
-      // Roughly hourly at the default interval. Channels last about a week,
-      // so this has plenty of margin — but missing it entirely stops inbound
-      // sync silently, which is the failure worth guarding against.
-      if (++renewCounter >= 360) {
-        renewCounter = 0;
-        await renewExpiringWatches();
-      }
+        // Roughly hourly at the default interval. Channels last about a week,
+        // so this has plenty of margin — but missing it entirely stops inbound
+        // sync silently, which is the failure worth guarding against.
+        if (++renewCounter >= 360) {
+          renewCounter = 0;
+          await renewExpiringWatches();
+        }
+      });
     } catch (err) {
       logger.error({ err }, 'Calendar worker tick failed');
     }
   };
 
-  timer = setInterval(() => void tick(), intervalMs);
+  timer = setInterval(() => {
+    inFlight = tick();
+  }, intervalMs);
   timer.unref();
   logger.info({ intervalMs }, 'Calendar worker started');
 }
 
-export function stopCalendarWorker() {
+export async function stopCalendarWorker() {
   if (timer) {
     clearInterval(timer);
     timer = null;
   }
+
+  await inFlight?.catch(() => {});
+  inFlight = null;
 }

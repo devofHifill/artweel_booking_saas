@@ -60,8 +60,13 @@ async function pastClass(startsAt = '2026-08-04T18:00:00Z') {
   });
 }
 
+/**
+ * A class that has NOT started, which is the entire point of it: `markable` is
+ * `startsAt <= now`, so a date written down here is a claim about the day the
+ * suite runs. This one said 2027-06-01, which would have held until it didn't.
+ */
 async function futureClass() {
-  return pastClass('2027-06-01T18:00:00Z');
+  return pastClass(new Date(Date.now() + 30 * 86_400_000).toISOString());
 }
 
 async function book(sessionId: string, label: string) {

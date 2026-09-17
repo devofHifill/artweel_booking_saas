@@ -3,6 +3,18 @@ import request from 'supertest';
 import { createApp } from '../../src/app';
 import { prisma } from '../../src/lib/prisma';
 import { resetDb } from '../helpers/fixtures';
+import { setProviders } from '../../src/modules/notifications/registry';
+import type { EmailProvider } from '../../src/modules/notifications/provider';
+
+/** Records the reset email so the test can read the link it carried. */
+class RecordingEmail implements EmailProvider {
+  readonly name = 'recording';
+  sent: { to: string; subject: string; text: string }[] = [];
+  async send(input: { to: string; subject: string; text: string }) {
+    this.sent.push(input);
+    return { messageId: `msg_${this.sent.length}` };
+  }
+}
 
 /**
  * W1.1 — Auth and tenancy.
@@ -320,6 +332,33 @@ describe('password reset', () => {
 
     expect(res.status).toBe(202);
     expect(res.body.resetToken).toBeUndefined();
+  });
+
+  it('emails a real account a link carrying the reset token, and emails an unknown one nothing', async () => {
+    const email = new RecordingEmail();
+    setProviders({ email });
+
+    await registerUser();
+
+    // An unknown address must not produce an email — that would be the
+    // membership oracle the 202 exists to deny, moved into the mailbox.
+    await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'nobody@clay.test' });
+    expect(email.sent).toHaveLength(0);
+
+    const forgot = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'rowan@clay.test' });
+
+    expect(email.sent).toHaveLength(1);
+    expect(email.sent[0]!.to).toBe('rowan@clay.test');
+
+    // The link carries exactly the token the reset endpoint will consume, so
+    // the email is a working reset and not a dead promise.
+    expect(email.sent[0]!.text).toContain(
+      `/reset-password?token=${forgot.body.resetToken}`,
+    );
   });
 
   it('resets the password and kills every existing session', async () => {

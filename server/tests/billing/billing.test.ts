@@ -264,7 +264,7 @@ describe('the public page when a studio lapses', () => {
     const slug = await publish();
     await setStatus('SUSPENDED');
 
-    const page = await request(app).get(`/public/${slug}`);
+    const page = await request(app).get(`/public/${slug}/book`);
 
     expect(page.status).toBe(200);
     expect(page.text).toContain('not taking online bookings');

@@ -25,6 +25,12 @@ const createPolicySchema = z.object({
   tiers: z.array(tierSchema).min(1).max(10),
   isDefault: z.boolean().default(false),
   noShowFeeCents: z.number().int().min(0).max(10_000_000).default(0),
+  /* What a no-show forfeits, as a share of what they paid. 100 is the
+     default and means they get nothing back. */
+  noShowFeePercent: z.number().int().min(0).max(100).optional(),
+  /* The terms in the studio's own words. Null falls back to a sentence
+     generated from the ladder. */
+  description: z.string().max(1000).nullish(),
   allowReschedule: z.boolean().default(true),
   rescheduleCutoffHours: z.number().int().min(0).max(8760).default(24),
 });

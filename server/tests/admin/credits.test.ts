@@ -20,6 +20,17 @@ import { signUpStudio, type Studio } from '../helpers/api';
  * studio is either giving away seats or refusing ones it owes.
  */
 
+/**
+ * A class far enough ahead that it stays ahead.
+ *
+ * Redeeming a credit is refused for a session that has already started, so a
+ * fixture booking a credit into a class needs that class to be in the future —
+ * which a written-down date only is until it isn't.
+ */
+function futureLocalDate(): string {
+  return new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+}
+
 const app = createApp();
 let studio: Studio;
 let serviceId: string;
@@ -220,7 +231,7 @@ describe('spending credits', () => {
               priceCents: 0,
             })
         ).body.service.id,
-        startLocalDate: '2027-05-01',
+        startLocalDate: futureLocalDate(),
         localStartTime: '10:00',
         capacity: 8,
       });
@@ -334,6 +345,53 @@ describe('spending credits', () => {
   });
 });
 
+describe('turning the feature on at all', () => {
+  /**
+   * `makeUpCreditsEnabled` defaults to FALSE, and until 2026-08-14 nothing
+   * could write it — not this route, not onboarding, not the seed. Only the
+   * tests, reaching past the API to set it directly, which is exactly why the
+   * suite was green while the feature was unreachable for every real studio.
+   *
+   * So this asserts through the API, deliberately.
+   */
+  it('lets a studio switch make-up credits on', async () => {
+    await prisma.organization.update({
+      where: { id: studio.organizationId },
+      data: { makeUpCreditsEnabled: false },
+    });
+
+    const res = await request(app)
+      .patch(`/api/organizations/${studio.organizationId}`)
+      .set(studio.headers)
+      .send({
+        makeUpCreditsEnabled: true,
+        makeUpRequiresNotice: false,
+        makeUpCreditDays: 60,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.organization.makeUpCreditsEnabled).toBe(true);
+    expect(res.body.organization.makeUpRequiresNotice).toBe(false);
+    expect(res.body.organization.makeUpCreditDays).toBe(60);
+
+    // And it actually takes effect, rather than only being stored.
+    const marked = await markAbsent(weeks[0]!.id);
+    expect(marked.body.creditsIssued).toBe(1);
+  });
+
+  it('refuses a hold period the database would reject', async () => {
+    const res = await request(app)
+      .patch(`/api/organizations/${studio.organizationId}`)
+      .set(studio.headers)
+      .send({ pieceHoldDays: -1 });
+
+    // Caught by the schema, so it never reaches the CHECK constraint and comes
+    // back naming the field rather than as a 500 from Postgres.
+    expect(res.status).toBe(422);
+    expect(res.body.error.details[0].field).toBe('pieceHoldDays');
+  });
+});
+
 describe('managing credits by hand', () => {
   it('grants one out of thin air', async () => {
     const res = await request(app)
@@ -406,7 +464,7 @@ describe('managing credits by hand', () => {
       .set(studio.headers)
       .send({
         serviceTypeId: slot.body.service.id,
-        startLocalDate: '2027-05-01',
+        startLocalDate: futureLocalDate(),
         localStartTime: '10:00',
         capacity: 8,
       });

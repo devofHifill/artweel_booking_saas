@@ -7,7 +7,22 @@ import { AppError } from '../../lib/app-error';
 import { config } from '../../config';
 import * as service from './public.service';
 import { startCheckout } from '../payments/payment.service';
+import { renderSitePage } from './site-page';
+import {
+  renderAbout,
+  renderActivities,
+  renderActivity,
+  renderContact,
+  renderHome,
+} from './storefront';
+import {
+  filterServices,
+  findService,
+  getStorefront,
+} from './storefront.service';
+import { getPublishedPage } from '../site/site.service';
 import { renderBookingPage, renderManagePage } from './booking-page';
+import { buildIcs } from './ics';
 
 /**
  * Unauthenticated. Everything here is reachable by anyone with the URL, so
@@ -23,6 +38,19 @@ const readLimit = rateLimit({ windowMs: 60_000, max: 120, name: 'public-read' })
 const writeLimit = rateLimit({ windowMs: 60_000, max: 10, name: 'public-write' });
 
 const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/**
+ * The storefront's filters, read off the query string.
+ *
+ * Trimmed to strings and nothing else — these are echoed back into the search
+ * form's values, so an array or an object arriving from a crafted query would
+ * otherwise reach the renderer as something `escapeHtml` was not written for.
+ */
+const readFilters = (req: { query: Record<string, unknown> }) => {
+  const one = (key: string) =>
+    typeof req.query[key] === 'string' ? (req.query[key] as string) : undefined;
+  return { q: one('q'), category: one('category'), date: one('date') };
+};
 
 const param = (req: { params: Record<string, string | undefined> }, key: string) => {
   const value = req.params[key];
@@ -40,12 +68,109 @@ const param = (req: { params: Record<string, string | undefined> }, key: string)
  * legible to a search crawler. The interactive steps are progressive
  * enhancement on top of real HTML.
  */
+/**
+ * The studio's front door.
+ *
+ * This URL used to serve the booking flow directly, and one caller still
+ * depends on that: `embed.ts` builds the widget iframe as
+ * `/public/<slug>?embed=1`, and those snippets are already pasted into
+ * studios' own WordPress and Squarespace sites. We cannot edit somebody
+ * else's HTML, so `?embed=1` MUST keep returning the booking page forever —
+ * otherwise every embedded widget in the wild silently becomes a full
+ * storefront inside a 620px iframe.
+ *
+ * Without the flag it is the storefront, and the booking flow moved to
+ * `/book`. Existing links to the bare URL still work; they now land on the
+ * home page with a Book button rather than on step one.
+ */
 publicRouter.get(
   '/:slug',
   readLimit,
   asyncHandler(async (req, res) => {
+    if (req.query.embed === '1') {
+      const data = await service.getStudioPage(param(req, 'slug'));
+      res.type('html').send(renderBookingPage(data));
+      return;
+    }
+
+    const store = await getStorefront(param(req, 'slug'));
+    res.type('html').send(renderHome(store, readFilters(req)));
+  }),
+);
+
+/** The booking flow itself. */
+publicRouter.get(
+  '/:slug/book',
+  readLimit,
+  asyncHandler(async (req, res) => {
     const data = await service.getStudioPage(param(req, 'slug'));
     res.type('html').send(renderBookingPage(data));
+  }),
+);
+
+publicRouter.get(
+  '/:slug/activities',
+  readLimit,
+  asyncHandler(async (req, res) => {
+    const store = await getStorefront(param(req, 'slug'));
+    const filters = readFilters(req);
+    res
+      .type('html')
+      .send(renderActivities(store, filterServices(store, filters), filters));
+  }),
+);
+
+publicRouter.get(
+  '/:slug/a/:service',
+  readLimit,
+  asyncHandler(async (req, res) => {
+    const store = await getStorefront(param(req, 'slug'));
+    const found = findService(store, param(req, 'service'));
+    if (!found) throw AppError.notFound('That experience is not available.');
+    res.type('html').send(renderActivity(store, found));
+  }),
+);
+
+publicRouter.get(
+  '/:slug/about',
+  readLimit,
+  asyncHandler(async (req, res) => {
+    res.type('html').send(renderAbout(await getStorefront(param(req, 'slug'))));
+  }),
+);
+
+publicRouter.get(
+  '/:slug/contact',
+  readLimit,
+  asyncHandler(async (req, res) => {
+    res
+      .type('html')
+      .send(renderContact(await getStorefront(param(req, 'slug'))));
+  }),
+);
+
+/**
+ * One of the studio's own pages.
+ *
+ * The `/p/` segment is what keeps this from shadowing `/:slug/data`,
+ * `/:slug/availability` and `/:slug/services/:id/staff` — the API the booking
+ * page itself calls. Without it, the first studio to name a page "data" would
+ * break their own booking page, and the report would be "the site is broken"
+ * with nothing pointing at the page they had just added.
+ *
+ * Draft pages 404 here rather than rendering with a banner: a draft is
+ * unfinished, and an unfinished page on a live site is worse than a missing
+ * one.
+ */
+publicRouter.get(
+  '/:slug/p/:path',
+  readLimit,
+  asyncHandler(async (req, res) => {
+    const { org, page, nav } = await getPublishedPage(
+      param(req, 'slug'),
+      param(req, 'path'),
+    );
+    res.type('html').send(renderSitePage({ org, page, nav, brand: org }));
   }),
 );
 
@@ -155,6 +280,13 @@ publicRouter.post(
       locationId: z.string().uuid().optional(),
       startsAt: z.string().datetime().optional(),
       seats: z.number().int().min(1).max(50).default(1),
+      /*
+        How many of `seats` are children, priced at the service's child rate.
+        A count within the party rather than a second party size — `seats`
+        stays the total everywhere, so capacity, holds and the manifest are
+        never handed a different number than the price was computed from.
+      */
+      children: z.number().int().min(0).max(50).default(0),
       customer: z.object({
         name: z.string().min(1).max(120),
         email: z.string().email().max(255),
@@ -173,18 +305,29 @@ publicRouter.post(
       /** TCPA: explicit, unbundled, and recorded with a timestamp. */
       smsConsent: z.boolean().default(false),
       notes: z.string().max(2000).optional(),
+      /*
+        Which surface the booking came from. Whitelisted rather than free-form
+        so a caller cannot make up its own channel and end up in the dashboard
+        donut as a slice nobody recognises. The embedded widget is the only
+        thing that says anything other than 'web'; new channels get added here
+        and to the SOURCE_LABELS map on the dashboard.
+      */
+      source: z.enum(['web', 'embed']).optional(),
     }),
   ),
   asyncHandler(async (req, res) => {
     const booking = await service.createPublicBooking({
       ...req.body,
       slug: param(req, 'slug'),
-      source: 'web',
+      source: req.body.source ?? 'web',
     });
 
     res.status(201).json({
       booking: {
         id: booking!.id,
+        /* The quotable half of the pair below: safe to print, safe to read
+           down a phone, and useless to anybody who finds it. */
+        reference: booking!.reference,
         startsAt: booking!.startsAt,
         endsAt: booking!.endsAt,
         seats: booking!.seats,
@@ -306,6 +449,56 @@ publicRouter.post(
 );
 
 /**
+ * What will this cost, and how much of it now?
+ *
+ * G1. The summary panel needs a subtotal, a travel fee, a total and the
+ * deposit split, and `money.ts` opens with the rule that an amount charged to
+ * a customer is computed on the server. Working the deposit out again in the
+ * page script would be a second copy of that arithmetic, drifting from the
+ * first the moment either changes — so the page asks instead.
+ *
+ * A read, not a write: it reserves nothing, charges nothing, and takes the
+ * read budget. The authoritative amount is still the one `startCheckout`
+ * computes when the money actually moves; this is the same function run for
+ * display.
+ */
+publicRouter.post(
+  '/:slug/quote',
+  readLimit,
+  validateBody(
+    z.object({
+      serviceTypeId: z.string().uuid(),
+      /** Quoting a whole cohort. Its price wins over the service's. */
+      courseSeriesId: z.string().uuid().optional(),
+      seats: z.number().int().min(1).max(50).default(1),
+      /*
+        How many of `seats` are children, priced at the service's child rate.
+        A count within the party rather than a second party size — `seats`
+        stays the total everywhere, so capacity, holds and the manifest are
+        never handed a different number than the price was computed from.
+      */
+      children: z.number().int().min(0).max(50).default(0),
+      /* Quoted, never trusted: the fee is re-derived from the studio's own
+         bands at checkout. It is here so the summary can show a total that
+         matches what the coverage check already told the customer. */
+      travelFeeCents: z.number().int().min(0).max(1_000_00).optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    res.json(
+      await service.quoteBooking({
+        slug: param(req, 'slug'),
+        serviceTypeId: req.body.serviceTypeId,
+        courseSeriesId: req.body.courseSeriesId,
+        seats: req.body.seats,
+        children: req.body.children,
+        travelFeeCents: req.body.travelFeeCents,
+      }),
+    );
+  }),
+);
+
+/**
  * Buying a priced cohort.
  *
  * Same shape as class checkout and for the same reason: seats are held first,
@@ -370,6 +563,13 @@ publicRouter.post(
       serviceTypeId: z.string().uuid(),
       sessionId: z.string().uuid(),
       seats: z.number().int().min(1).max(50).default(1),
+      /*
+        How many of `seats` are children, priced at the service's child rate.
+        A count within the party rather than a second party size — `seats`
+        stays the total everywhere, so capacity, holds and the manifest are
+        never handed a different number than the price was computed from.
+      */
+      children: z.number().int().min(0).max(50).default(0),
       customer: z.object({
         name: z.string().min(1).max(120),
         email: z.string().email().max(255),
@@ -389,6 +589,7 @@ publicRouter.post(
       serviceTypeId: req.body.serviceTypeId,
       sessionId: req.body.sessionId,
       seats: req.body.seats,
+      children: req.body.children,
       customerEmail: req.body.customer.email,
       customerName: req.body.customer.name,
       successUrl: `${base}?paid=1`,
@@ -414,6 +615,7 @@ publicRouter.get(
     res.json({
       booking: {
         id: data.booking.id,
+        reference: data.booking.reference,
         startsAt: data.booking.startsAt,
         endsAt: data.booking.endsAt,
         status: data.booking.status,
@@ -428,6 +630,58 @@ publicRouter.get(
       cancellationQuote: data.cancellationQuote,
       canReschedule: data.canReschedule,
     });
+  }),
+);
+
+/**
+ * The booking as a calendar file.
+ *
+ * G5. Served rather than built in the browser so the link works from the
+ * confirmation EMAIL too, where there is no page script to build a blob — and
+ * on a phone, where tapping a data: URI is unreliable and tapping a
+ * text/calendar URL opens the calendar app.
+ *
+ * The token is the same secret the manage page uses. Anyone holding it can
+ * already see and cancel the booking, so a calendar file tells them nothing
+ * new; anyone without it gets the same 404 every other token route gives.
+ */
+publicRouter.get(
+  '/bookings/:token/calendar.ics',
+  readLimit,
+  asyncHandler(async (req, res) => {
+    const { booking } = await service.getBookingByToken(param(req, 'token'));
+
+    const where =
+      booking.location?.locationType === 'FIXED'
+        ? [booking.location.name, booking.location.address]
+            .filter(Boolean)
+            .join(', ')
+        : (booking.location?.name ?? null);
+
+    const ics = buildIcs({
+      /* The booking id, not the token. A UID is written into the reader's
+         calendar and may be synced onward; the token is a credential and has
+         no business travelling with it. */
+      uid: `booking-${booking.id}@artweel`,
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+      title: `${booking.serviceType.name} — ${booking.organization.name}`,
+      location: where,
+      description: [
+        booking.reference ? `Booking reference ${booking.reference}` : null,
+        booking.serviceType.preparationNotes,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    });
+
+    res
+      .type('text/calendar; charset=utf-8')
+      .set(
+        'Content-Disposition',
+        `attachment; filename="${booking.reference ?? 'booking'}.ics"`,
+      )
+      .send(ics);
   }),
 );
 
