@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { useAuth } from '../lib/auth';
+import { NavLink } from 'react-router-dom';
+import { useActiveOrg, useAuth } from '../lib/auth';
+import { Icon } from './Icon';
 import { initials } from './layout';
 
 /**
@@ -17,9 +19,18 @@ import { initials } from './layout';
  *
  * The theme control stays in the sidebar: it is a device preference, not an
  * account, and it belongs next to nothing in particular.
+ *
+ * Plan & billing is here too, for owners and admins. It is the one entry point:
+ * the sidebar's Plan item stays hidden, and the trial/payment banner and the
+ * bell link to the same page. Billing belongs to a STUDIO, not to the person,
+ * so the link names the active studio — the switcher right above it can change
+ * which one that is.
  */
 export function AccountMenu() {
   const { user, memberships, activeOrgId, setActiveOrg, signOut } = useAuth();
+  const org = useActiveOrg();
+  // Mirrors the guard on the /billing route; the server enforces it.
+  const canBill = org?.role === 'OWNER' || org?.role === 'ADMIN';
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -82,9 +93,29 @@ export function AccountMenu() {
             </div>
           )}
 
-          <button type="button" onClick={signOut} style={{ width: '100%' }}>
-            Sign out
-          </button>
+          {canBill && org && (
+            <div className="menu-sep">
+              <NavLink
+                to="/billing"
+                className="bell-item"
+                onClick={() => setOpen(false)}
+              >
+                <Icon name="plan" size={16} />
+                <span className="mini-main">
+                  Plan &amp; billing
+                  <span className="tiny muted" style={{ display: 'block' }}>
+                    {org.organization.name}
+                  </span>
+                </span>
+              </NavLink>
+            </div>
+          )}
+
+          <div className="menu-sep">
+            <button type="button" onClick={signOut} style={{ width: '100%' }}>
+              Sign out
+            </button>
+          </div>
         </div>
       )}
     </div>
