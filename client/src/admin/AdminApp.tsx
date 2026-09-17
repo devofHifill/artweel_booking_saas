@@ -21,6 +21,7 @@ import { Shell } from '../components/Shell';
 import { Icon } from '../components/Icon';
 import { LoadingRegion, SkeletonList } from '../components/states';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { ChangePasswordDialog } from '../components/ChangePasswordDialog';
 
 /**
  * Artweel's own operator surface.
@@ -49,6 +50,7 @@ export default function AdminApp() {
     'checking',
   );
   const [grant, setGrant] = useState<Grant | null>(null);
+  const [changingPassword, setChangingPassword] = useState(false);
   /* Sidebar badges. Fetched separately from the gate so a counts failure
      leaves the navigation working without numbers rather than blocking it. */
   const [counts, setCounts] = useState<{
@@ -202,6 +204,16 @@ export default function AdminApp() {
           <div className="admin-who">
             <strong>{user?.email}</strong>
             {grant?.note && <span className="sub">{grant.note}</span>}
+            {/* The platform shell has no account menu, so it sits with the
+                identity it changes. Same dialog as the studio dashboard. */}
+            <button
+              type="button"
+              className="link"
+              style={{ alignSelf: 'flex-start', paddingLeft: 0 }}
+              onClick={() => setChangingPassword(true)}
+            >
+              Change password
+            </button>
           </div>
 
           {/*
@@ -217,6 +229,10 @@ export default function AdminApp() {
           <button onClick={signOut} style={{ marginTop: 12 }}>
             Sign out
           </button>
+
+          {changingPassword && (
+            <ChangePasswordDialog onClose={() => setChangingPassword(false)} />
+          )}
         </>
       }
     >

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { tokens } from '../lib/api';
 import { useActiveOrg, useAuth } from '../lib/auth';
+import { ChangePasswordDialog } from './ChangePasswordDialog';
 import { Icon } from './Icon';
 import { initials } from './layout';
 
@@ -25,6 +27,10 @@ import { initials } from './layout';
  * bell link to the same page. Billing belongs to a STUDIO, not to the person,
  * so the link names the active studio — the switcher right above it can change
  * which one that is.
+ *
+ * Change password is for everyone, whatever their role — except inside a
+ * support session, where the server's actor is the OPERATOR, so the form would
+ * change their password from a studio's tab.
  */
 export function AccountMenu() {
   const { user, memberships, activeOrgId, setActiveOrg, signOut } = useAuth();
@@ -32,6 +38,7 @@ export function AccountMenu() {
   // Mirrors the guard on the /billing route; the server enforces it.
   const canBill = org?.role === 'OWNER' || org?.role === 'ADMIN';
   const [open, setOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -93,21 +100,36 @@ export function AccountMenu() {
             </div>
           )}
 
-          {canBill && org && (
+          {(canBill || !tokens.support) && (
             <div className="menu-sep">
-              <NavLink
-                to="/billing"
-                className="bell-item"
-                onClick={() => setOpen(false)}
-              >
-                <Icon name="plan" size={16} />
-                <span className="mini-main">
-                  Plan &amp; billing
-                  <span className="tiny muted" style={{ display: 'block' }}>
-                    {org.organization.name}
+              {canBill && org && (
+                <NavLink
+                  to="/billing"
+                  className="bell-item"
+                  onClick={() => setOpen(false)}
+                >
+                  <Icon name="plan" size={16} />
+                  <span className="mini-main">
+                    Plan &amp; billing
+                    <span className="tiny muted" style={{ display: 'block' }}>
+                      {org.organization.name}
+                    </span>
                   </span>
-                </span>
-              </NavLink>
+                </NavLink>
+              )}
+              {!tokens.support && (
+                <button
+                  type="button"
+                  className="bell-item"
+                  onClick={() => {
+                    setOpen(false);
+                    setChangingPassword(true);
+                  }}
+                >
+                  <Icon name="settings" size={16} />
+                  <span className="mini-main">Change password</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -117,6 +139,10 @@ export function AccountMenu() {
             </button>
           </div>
         </div>
+      )}
+
+      {changingPassword && (
+        <ChangePasswordDialog onClose={() => setChangingPassword(false)} />
       )}
     </div>
   );
