@@ -9,8 +9,8 @@ import { useEffect, useRef, useState } from 'react';
  * looking for it.
  *
  * There is no documentation site, no support address and no help centre in
- * this product — checked, not assumed. What DOES exist is two real keyboard
- * shortcuts, and most people never discover either. So that is what this says.
+ * this product — checked, not assumed. What DOES exist is a few real keyboard
+ * shortcuts, and most people never discover any. So that is what this says.
  *
  * When there is somewhere to send people, it goes here and this comment goes
  * away.
@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from 'react';
 export const SHORTCUTS: { keys: string; what: string }[] = [
   { keys: '/', what: 'Jump to search, from anywhere' },
   { keys: 'Esc', what: 'Close this, or any other panel' },
+  { keys: '[', what: 'Collapse or expand the sidebar' },
 ];
 
 /**

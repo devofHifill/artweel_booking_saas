@@ -220,13 +220,15 @@ export default function AdminApp() {
             A link rather than a nav item: the studio dashboard is a different
             application that happens to share a bundle.
           */}
-          <a href="/" className="sub">
+          <a href="/" className="sub side-link">
+            <Icon name="external" size={16} />
             Studio dashboard
           </a>
 
           <ThemeToggle />
 
-          <button onClick={signOut} style={{ marginTop: 12 }}>
+          <button className="side-signout" onClick={signOut} style={{ marginTop: 12 }}>
+            <Icon name="signout" size={16} />
             Sign out
           </button>
 
