@@ -1,4 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import { useLocation } from 'react-router-dom';
 import { Icon } from './Icon';
 
@@ -13,7 +18,22 @@ import { Icon } from './Icon';
  * Below 900px the sidebar is fixed and translated off-canvas; the CSS owns the
  * animation, this component owns only the open/closed state and the behaviours
  * that state implies.
+ *
+ * Above 900px the sidebar can also COLLAPSE to a rail of icons, for the wide
+ * screens — calendar, bookings, manifest — that want the 180px back. A rail
+ * rather than hiding it outright: it is the primary navigation, and the
+ * pending-bookings badge lives on it. The choice is per device, like the theme.
  */
+
+const COLLAPSED_KEY = 'bsaas.sidebar';
+
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === 'collapsed';
+  } catch {
+    return false;
+  }
+}
 export function Shell({
   brand,
   sidebar,
@@ -41,7 +61,73 @@ export function Shell({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
   const location = useLocation();
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSED_KEY, collapsed ? 'collapsed' : 'expanded');
+    } catch {
+      /* Private mode: it simply will not be remembered. */
+    }
+  }, [collapsed]);
+
+  /**
+   * `[` collapses or expands, guarded like `/` in GlobalSearch so a bracket
+   * typed into a real field stays a bracket.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== '[' || event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      const el = document.activeElement;
+      const typing =
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement ||
+        (el instanceof HTMLElement && el.isContentEditable);
+      if (typing) return;
+
+      event.preventDefault();
+      setCollapsed((v) => !v);
+    };
+
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  /**
+   * Names on hover, for a rail that shows only icons.
+   *
+   * Native `title`, set lazily from the row's own text, rather than a CSS
+   * tooltip: the sidebar scrolls, so it clips anything positioned outside its
+   * box (see "The sidebar clips popovers" in TOURFLOW-PARITY-PLAN.md), and
+   * rather than a title on every link, which would be one more thing for each
+   * of two sidebars to keep in step with its labels. Screen readers are
+   * unaffected either way — the text is still in the DOM, just not painted.
+   */
+  const nameOnHover = (event: ReactMouseEvent<HTMLElement>) => {
+    if (!collapsed) return;
+    const row = (event.target as HTMLElement).closest<HTMLElement>('a, button');
+    if (!row || row.title) return;
+    const text = row.textContent?.trim();
+    if (text) {
+      row.title = text;
+      row.dataset.autoTitle = '';
+    }
+  };
+
+  // Expanded, the label is on screen, and a tooltip repeating it is noise.
+  useEffect(() => {
+    if (collapsed) return;
+    document
+      .querySelectorAll<HTMLElement>('.sidebar [data-auto-title]')
+      .forEach((el) => {
+        el.removeAttribute('title');
+        delete el.dataset.autoTitle;
+      });
+  }, [collapsed]);
 
   /**
    * Navigating closes the drawer.
@@ -75,7 +161,9 @@ export function Shell({
 
   return (
     <div
-      className={`shell ${topbar ? 'has-topbar' : ''} ${className}`
+      className={`shell ${topbar ? 'has-topbar' : ''} ${
+        collapsed ? 'sidebar-collapsed' : ''
+      } ${className}`
         .replace(/\s+/g, ' ')
         .trim()}
     >
@@ -114,8 +202,24 @@ export function Shell({
         />
       )}
 
-      <aside className={`sidebar ${open ? 'open' : ''}`.trim()}>
-        <div className="brand">{brand}</div>
+      <aside
+        className={`sidebar ${open ? 'open' : ''}`.trim()}
+        onMouseOver={nameOnHover}
+      >
+        <div className="sidebar-head">
+          <div className="brand">{brand}</div>
+          {/* Wide screens only; below 900px the drawer has its own toggle. */}
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={() => setCollapsed((v) => !v)}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Expand sidebar  [' : 'Collapse sidebar  ['}
+          >
+            <Icon name="sidebar" size={18} />
+          </button>
+        </div>
         {sidebar}
       </aside>
 

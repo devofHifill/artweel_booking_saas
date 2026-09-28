@@ -4410,3 +4410,111 @@ code.path {
 .pager button { min-width: 32px; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: var(--radius); padding: 4px 10px; cursor: pointer; font-size: 15px; line-height: 1.2; }
 .pager button:hover:not(:disabled) { border-color: var(--clay); color: var(--clay-text); }
 .pager button:disabled { opacity: .4; cursor: default; }
+
+/* --- Collapsible sidebar ---------------------------------------------------
+   Above 900px the sidebar can shrink to a 64px rail of icons; Shell owns the
+   state and puts `sidebar-collapsed` on the root. Below 900px none of this
+   applies — the sidebar is a drawer there, with its own toggle in the topbar.
+
+   Labels are hidden with `font-size: 0` rather than by wrapping each one in a
+   span: every icon is an <svg> with an explicit width, so it keeps its size,
+   and the text stays in the DOM for screen readers and for the hover titles
+   Shell derives from it. */
+
+.sidebar-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.sidebar-head .brand { flex: 1 1 auto; min-width: 0; }
+
+.sidebar-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin-top: 2px;
+  background: transparent;
+  border: 0;
+  color: var(--side-text-dim);
+}
+.sidebar-toggle:hover { background: var(--side-hover); color: #fff; }
+
+/* The platform sidebar's footer rows carry icons so they survive the rail. */
+.side-link,
+.side-signout {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.side-signout { justify-content: center; }
+
+@media (min-width: 901px) {
+  .sidebar-toggle { display: inline-flex; }
+
+  .shell > .sidebar { transition: width var(--motion-base) var(--ease), flex-basis var(--motion-base) var(--ease); }
+  .shell.has-topbar { transition: grid-template-columns var(--motion-base) var(--ease); }
+
+  .shell.sidebar-collapsed > .sidebar {
+    width: 64px;
+    flex-basis: 64px;
+    padding-left: 8px;
+    padding-right: 8px;
+    overflow-x: hidden;
+  }
+  .shell.has-topbar.sidebar-collapsed { grid-template-columns: 64px 1fr; }
+
+  .sidebar-collapsed .sidebar-head { justify-content: center; padding-bottom: var(--space-2); }
+  .sidebar-collapsed .sidebar-head .brand { display: none; }
+  .sidebar-collapsed .sidebar-toggle { margin-top: 0; }
+
+  /* Rows: icon only, centred. */
+  .sidebar-collapsed .sidebar a,
+  .sidebar-collapsed .sidebar button:not(.sidebar-toggle),
+  .sidebar-collapsed .sidebar .nav-help {
+    position: relative;
+    justify-content: center;
+    gap: 0;
+    font-size: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* Counts become a dot on the icon — the rail still says "something is waiting". */
+  .sidebar-collapsed .nav a .count,
+  .sidebar-collapsed .nav a .nav-count {
+    position: absolute;
+    top: 6px;
+    right: 12px;
+    min-width: 0;
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    margin: 0;
+    font-size: 0;
+    border-radius: 50%;
+    background: var(--clay);
+  }
+  .sidebar-collapsed .nav a.active .count,
+  .sidebar-collapsed .nav a.active .nav-count { background: #fff; }
+  .sidebar-collapsed .nav a .nav-count.bad { background: var(--danger); }
+
+  /* Group headings become rules between the groups. */
+  .sidebar-collapsed .nav-label,
+  .sidebar-collapsed .nav-group {
+    height: 1px;
+    padding: 0;
+    margin: var(--space-3) 10px;
+    font-size: 0;
+    background: var(--side-line);
+    opacity: 1;
+  }
+
+  /* The footer: avatar only, and no identity text — the account menu has it. */
+  .sidebar-collapsed .side-user { justify-content: center; padding-left: 0; padding-right: 0; }
+  .sidebar-collapsed .side-user .mini-main,
+  .sidebar-collapsed .admin-who { display: none; }
+}
