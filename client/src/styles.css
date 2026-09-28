@@ -174,7 +174,7 @@ a { color: var(--clay-text); }
 
   It carries its own palette rather than the theme tokens, deliberately: it is
   dark in BOTH schemes, so `--card` and `--ink` are the wrong values for it in
-  light mode and would fight the theme in dark. The five `--side-*` tokens below
+  light mode and would fight the theme in dark. The `--side-*` tokens below
   are the whole of that exception, and nothing outside this block reads them.
 */
 :root {
@@ -183,11 +183,15 @@ a { color: var(--clay-text); }
   --side-text-dim: #64748b;
   --side-hover: rgba(255, 255, 255, .07);
   --side-line: rgba(255, 255, 255, .08);
+  /* One width for the sidebar AND the grid column that holds it. They were two
+     literals: the sidebar went from 220px to 248px and the column stayed at
+     220px, so the sidebar ran 28px over the top bar and the page. */
+  --side-width: 248px;
 }
 
 .sidebar {
-  width: 248px;
-  flex: 0 0 248px;
+  width: var(--side-width);
+  flex: 0 0 var(--side-width);
   background: var(--side-bg);
   color: var(--side-text);
   padding: 14px 10px;
@@ -1815,7 +1819,7 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
   */
   .shell.has-topbar {
     display: grid;
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: var(--side-width) 1fr;
     grid-template-areas:
       'sidebar topbar'
       'sidebar main';
