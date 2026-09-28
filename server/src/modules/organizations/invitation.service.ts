@@ -6,6 +6,7 @@ import { logger } from '../../lib/logger';
 import { AppError } from '../../lib/app-error';
 import { hashPassword } from '../../lib/password';
 import { issueTokenPair } from '../auth/token.service';
+import { linkStaffToUser } from '../staff/staff.service';
 
 /**
  * Invitations — how anybody other than a founder gets into a studio.
@@ -349,6 +350,13 @@ export async function acceptInvitation(input: AcceptInput) {
       ],
       skipDuplicates: true,
     });
+
+    /*
+      And the staff record, if the studio already listed them. Without this the
+      login and the person on the rota were two strangers with one email, and My
+      schedule — which finds your record by login — was empty for everybody.
+    */
+    await linkStaffToUser(tx, invitation.organizationId, account.id, invitation.email);
 
     await tx.invitation.update({
       where: { id: invitation.id },

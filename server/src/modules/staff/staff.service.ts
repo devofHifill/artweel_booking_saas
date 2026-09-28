@@ -177,14 +177,17 @@ export async function createStaff(
   // somebody's colleagues because a card expired would be indefensible.
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
-    select: { plan: true },
+    select: { plan: true, timezone: true },
   });
   const activeStaff = await prisma.staff.count({
     where: { organizationId, isActive: true },
   });
   requireCapacity(org.plan as PlanId, 'maxStaff', activeStaff);
 
-  const email = String(input.email).trim().toLowerCase();
+  const { locationIds: requestedLocations, ...fields } = input as {
+    locationIds?: string[];
+  } & Record<string, unknown>;
+  const email = String(fields.email).trim().toLowerCase();
 
   // Composite unique is (organizationId, email): the same freelancer may
   // exist at several studios, but not twice at one.
@@ -198,12 +201,115 @@ export async function createStaff(
     );
   }
 
-  return prisma.staff.create({
-    data: {
-      ...(input as Prisma.StaffUncheckedCreateInput),
-      email,
-      organizationId,
-    },
+  /*
+    Where they work, checked before anything is written. Omitted means every
+    active location: an instructor linked to none is never offered for a One to
+    one, because the booking page always asks by location — and there was no
+    screen to link anybody, so everyone added here was unbookable for 1:1.
+  */
+  const locationIds =
+    requestedLocations ??
+    (
+      await prisma.location.findMany({
+        where: { organizationId, isActive: true },
+        select: { id: true },
+      })
+    ).map((l) => l.id);
+
+  if (requestedLocations) {
+    const owned = await prisma.location.count({
+      where: { id: { in: requestedLocations }, organizationId },
+    });
+    if (owned !== requestedLocations.length) {
+      throw AppError.badRequest('One or more locations were not found.');
+    }
+  }
+
+  const userId = await memberUserIdFor(organizationId, email);
+
+  return prisma.$transaction(async (tx) => {
+    const staff = await tx.staff.create({
+      data: {
+        ...(fields as Prisma.StaffUncheckedCreateInput),
+        email,
+        // The studio's zone unless somebody chose otherwise. See the schema.
+        timezone: (fields.timezone as string | undefined) ?? org.timezone,
+        userId,
+        organizationId,
+      },
+    });
+
+    if (locationIds.length > 0) {
+      await tx.staffLocation.createMany({
+        data: locationIds.map((locationId) => ({ staffId: staff.id, locationId })),
+        skipDuplicates: true,
+      });
+    }
+
+    return staff;
+  });
+}
+
+/**
+ * The login, if any, that this staff record belongs to.
+ *
+ * A staff record is a person to schedule and a membership is a login; the
+ * link between them is `staff.userId`, and My schedule finds your record by
+ * it. Nothing ever set it, so every instructor who signed in found an empty
+ * page. Matched on email, and only to somebody who is already a MEMBER of this
+ * studio — an account with the same address at another studio is not a login
+ * to this one.
+ */
+async function memberUserIdFor(
+  organizationId: string,
+  email: string,
+): Promise<string | null> {
+  const member = await prisma.membership.findFirst({
+    where: { organizationId, user: { email } },
+    select: { userId: true },
+  });
+  return member?.userId ?? null;
+}
+
+/**
+ * Links a login to this studio's staff record with the same email, if there
+ * is one and it is not linked already. Called when an invitation is accepted,
+ * which is the other half of `memberUserIdFor`: the staff record can come
+ * before the login or after it, and either order has to end up connected.
+ */
+export async function linkStaffToUser(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  userId: string,
+  email: string,
+) {
+  await tx.staff.updateMany({
+    where: { organizationId, email: email.trim().toLowerCase(), userId: null },
+    data: { userId },
+  });
+}
+
+/**
+ * Puts everybody who works nowhere at a newly created location.
+ *
+ * A studio can add staff before it has a location — the setup wizard is what
+ * creates the first one — and those people would otherwise stay linked to
+ * nothing, which is the unbookable-for-1:1 state all over again. Staff already
+ * placed somewhere are left alone: a second room is not automatically theirs.
+ */
+export async function placeUnplacedStaff(
+  organizationId: string,
+  locationId: string,
+) {
+  const unplaced = await prisma.staff.findMany({
+    where: { organizationId, isActive: true, staffLocations: { none: {} } },
+    select: { id: true },
+  });
+  if (unplaced.length === 0) return;
+
+  await prisma.staffLocation.createMany({
+    data: unplaced.map((s) => ({ staffId: s.id, locationId })),
+    skipDuplicates: true,
   });
 }
 
@@ -231,6 +337,12 @@ export async function updateStaff(
       }
     }
     data.email = email;
+
+    // A corrected address may be the one their login uses. Never unlinks.
+    if (!existing.userId) {
+      const userId = await memberUserIdFor(organizationId, email);
+      if (userId) data.userId = userId;
+    }
   }
 
   /**
@@ -259,6 +371,29 @@ export async function updateStaff(
         'STAFF_HAS_UPCOMING',
       );
     }
+  }
+
+  /**
+   * A new zone moves their hours with them.
+   *
+   * Each working-hours rule copies the person's zone when it is created, so
+   * changing only `staff.timezone` would leave "10:00–18:00" meaning 10:00 in
+   * the old zone. That is exactly wrong for the reason this is usually
+   * changed — the zone was never right (every staff member used to default to
+   * New York) and the hours were always meant as local hours.
+   *
+   * Only rules still in the OLD zone follow. A rule deliberately set to some
+   * other zone — mobile work over a state line — says so and is kept.
+   */
+  if (typeof input.timezone === 'string' && input.timezone !== existing.timezone) {
+    const [staff] = await prisma.$transaction([
+      prisma.staff.update({ where: { id }, data }),
+      prisma.availabilityRule.updateMany({
+        where: { staffId: id, timezone: existing.timezone },
+        data: { timezone: input.timezone },
+      }),
+    ]);
+    return staff;
   }
 
   return prisma.staff.update({ where: { id }, data });

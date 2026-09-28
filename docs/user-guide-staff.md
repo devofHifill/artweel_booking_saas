@@ -13,18 +13,16 @@ How to add staff members, make them bookable, give them a dashboard login, and d
 ## Contents
 
 1. [Staff vs. Team: two different lists](#1-staff-vs-team-two-different-lists)
-2. [Before you start: known issues](#2-before-you-start-known-issues)
-3. [Part A: Create the staff record](#part-a-create-the-staff-record)
-4. [Part B: Make them bookable](#part-b-make-them-bookable)
-5. [Part C: Put them on classes](#part-c-put-them-on-classes)
-6. [Part D: Give them a login (optional)](#part-d-give-them-a-login-optional)
-7. [Part E: Test](#part-e-test)
-8. [Editing a staff member](#editing-a-staff-member)
-9. [Deactivating or removing someone](#deactivating-or-removing-someone)
-10. [The Staff & Guides page at a glance](#the-staff--guides-page-at-a-glance)
-11. [Plan limits](#plan-limits)
-12. [Troubleshooting](#troubleshooting)
-13. [Internal notes: remove before publishing](#internal-notes-remove-before-publishing)
+2. [Part A: Create the staff record](#part-a-create-the-staff-record)
+3. [Part B: Make them bookable](#part-b-make-them-bookable)
+4. [Part C: Put them on classes](#part-c-put-them-on-classes)
+5. [Part D: Give them a login (optional)](#part-d-give-them-a-login-optional)
+6. [Part E: Test](#part-e-test)
+7. [Editing a staff member](#editing-a-staff-member)
+8. [Deactivating or removing someone](#deactivating-or-removing-someone)
+9. [The Staff & Guides page at a glance](#the-staff--guides-page-at-a-glance)
+10. [Plan limits](#plan-limits)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -38,18 +36,6 @@ How to add staff members, make them bookable, give them a dashboard login, and d
 | **Needed to sign in?** | ❌ No | ✅ Yes |
 
 An instructor who only teaches needs a **staff record** and nothing else. Someone who also needs to see the dashboard needs **both**.
-
----
-
-## 2. Before you start: known issues
-
-> ⚠️ Staff added with **Add staff** can end up **impossible to book, or booked at the wrong times**, because of the issues below. The instructor created by **Set up my studio** isn't affected: setup gives them the studio's timezone and links them to the studio's location.
-
-| # | Issue | Who it affects | Workaround |
-|---|---|---|---|
-| 1 | **New staff aren't linked to any location, and no screen can link them.** The booking page selects a location, and **One to one** activities only offer staff linked to that location. | **One to one** activities. Group classes aren't affected | Ask your platform admin to link the staff member to the location (see [Internal notes](#internal-notes-remove-before-publishing)) |
-| 2 | **New staff get the timezone *America/New_York*, and no screen can change it.** Their working hours are saved in that timezone. | Studios **not** on US Eastern time | Ask your platform admin to set the staff member's timezone **before** you add working hours. Hours added earlier keep the old timezone |
-| 3 | **Accepting a login invitation doesn't connect the login to the staff record.** | Staff who sign in | Their **My schedule** page shows nothing. The rest of the dashboard works for their role |
 
 ---
 
@@ -70,6 +56,8 @@ Only an **Owner** or **Admin** sees this button.
 | Role | | The line under their name, 2–3 words, e.g. `Wheel instructor` |
 | Calendar colour | | Colour of their sessions on your calendar |
 | Max bookings a day | | `0` = unlimited |
+| Timezone | | Starts as **Same as the studio**. Their working hours are read in this timezone, so only change it for someone who genuinely works in another one |
+| Works at | | The studio's locations they work from. **All are on by default.** Only shown once the studio has a location |
 | **Show on the booking page** | | **On**: customers see them and can pick them. **Off**: hidden from customers, but still usable behind the scenes |
 
 ### Step 3: Save
@@ -84,15 +72,13 @@ On their card, **click each activity chip** they teach so it turns on.
 
 > If no chip is on, the card shows **"Not bookable yet"**, and **nothing can be booked with them**.
 
-### Step 5: Link them to a location
-*Required for **One to one** activities.*
+### Step 5: Check where they work
+*Matters for **One to one** activities.*
 
-There's currently no screen for this (known issue 1). Ask your platform admin to link them to your location.
+**One to one** activities only offer staff who work at the location the customer picks. New staff work at **every** location, so there's usually nothing to do. To change it, **Edit** them and turn the **Works at** chips on or off.
 
 ### Step 6: Check their timezone
-*Required if your studio isn't on US Eastern time.*
-
-There's currently no screen for this (known issue 2). Ask your platform admin to set their timezone to the studio's **before step 7**.
+New staff use the studio's timezone. Only change it (**Edit → Timezone**) for someone who works in a different one. Changing it later keeps their hours the same on the clock, e.g. 10:00–18:00 stays 10:00–18:00 in the new timezone.
 
 ### Step 7: Set working hours
 On their card, click **Hours**. This opens **"When [name] works"**.
@@ -119,7 +105,7 @@ Pick **What**, the **Date**, and the **From / Until** times where needed, then a
 
 > A **Day off** is refused if they already have sessions that day. Move or cancel those first.
 >
-> Staff who sign in can add their own days off from **My schedule**. Their weekly hours can only be changed by an Owner or Admin. (Blocked for now by known issue 3.)
+> Staff who sign in can add their own days off from **My schedule**. Their weekly hours can only be changed by an Owner or Admin. This needs their login and staff record to use the **same email** (Step 11).
 
 ---
 
@@ -146,7 +132,7 @@ Only needed if they should sign in to the dashboard.
 | Field | Notes |
 |---|---|
 | Name | Their name |
-| Email | Use the **same email** as their staff record |
+| Email | Use the **same email** as their staff record. That's how their login finds their record, e.g. for **My schedule** |
 | Role | See the table below |
 
 | Role | Can do |
@@ -183,11 +169,10 @@ Then check **Bookings** in the dashboard, and cancel the booking if it was a tes
 
 **Staff & Guides → their card → Edit**
 
-You can change: Name, Email, Phone, Role, Calendar colour, Max bookings a day, Show on the booking page.
+You can change: Name, Email, Phone, Role, Calendar colour, Max bookings a day, Timezone, Works at, Show on the booking page.
 
 - Their activities are changed with the chips (Step 4).
 - Their hours are changed with **Hours** (Step 7).
-- **Location and timezone can't be changed here** (known issues 1 and 2).
 
 ---
 
@@ -255,60 +240,11 @@ Switch between **Cards** and **Table**.
 | No **Add staff** button | You're not an Owner or Admin | Ask an Owner or Admin |
 | Card says **Not bookable yet** | No activities assigned | Step 4 |
 | Card says **No hours set** | No working hours | Step 7 |
-| Missing from **One to one** on the booking page | Not linked to the location | Step 5 (known issue 1) |
-| Time slots at strange times | Staff timezone is America/New_York | Step 6, then delete and re-add their hours |
+| Missing from **One to one** on the booking page | Not working at that location | Step 5 |
+| Time slots at strange times | Their timezone isn't the studio's | Step 6 |
 | Not shown by name on the booking page | **Show on the booking page** is off | Edit and turn it on |
 | Only some of their hours are offered | Activity is longer than the remaining hours, or **Minimum notice** hides near slots | Extend their hours, or lower the activity's minimum notice |
 | Can't mark a day off | They have sessions that day | Move or cancel those sessions first |
 | Can't remove them | They have booking or session history | Deactivate instead |
 | Invitation never arrived | Email in spam | Copy the invitation link and send it yourself |
-| Their **My schedule** is empty | Login isn't linked to the staff record | Known issue 3 |
-
----
-
-## Internal notes: remove before publishing
-
-These are for the platform team, not for studios.
-
-### Code references
-
-| Issue | Where |
-|---|---|
-| New staff have no location link | `client/src/pages/Staff.tsx` sends no `locationIds`. The only writer is `PUT /api/organizations/:orgId/staff/:staffId/locations`, which has no UI. Availability filters on `staffLocations` whenever `locationId` is in the query: `server/src/scheduling/availability/availability.service.ts` (`getAppointmentAvailability`). The booking page always sends `locationId` when it selects a location: `server/src/modules/public/booking-page.client.ts` (`pickService`, `showTimes`) |
-| New staff default to America/New_York | `createStaffSchema` in `server/src/modules/staff/staff.route.ts` defaults `timezone` to `America/New_York`, and the form doesn't send one. Working hours rules copy `staff.timezone` at creation: `server/src/modules/schedules/schedule.service.ts` |
-| Login not linked to staff | Accepting an invitation creates a membership only: `server/src/modules/organizations/invitation.service.ts`. Nothing ever sets `staff.userId`. `client/src/pages/MySchedule.tsx` finds the record by `userId` |
-| Seeded instructor unaffected | `seedPotteryDefaults` in `server/src/modules/onboarding/onboarding.service.ts` sets `timezone: org.timezone` and creates a `staffLocation` |
-
-### Manual workaround (admin, until fixed)
-Run while signed in to the dashboard as an Owner or Admin, from the browser console on the dashboard origin.
-
-```js
-const org  = localStorage.getItem('bsaas.activeOrg');
-const auth = { Authorization: 'Bearer ' + localStorage.getItem('bsaas.access'),
-               'Content-Type': 'application/json' };
-const base = `/api/organizations/${org}`;
-
-// Find the staff member and the location
-const { staff }     = await (await fetch(`${base}/staff`, { headers: auth })).json();
-const { locations } = await (await fetch(`${base}/locations`, { headers: auth })).json();
-const person = staff.find((s) => s.name === 'STAFF NAME HERE');
-
-// Issue 1: link to all active locations
-await fetch(`${base}/staff/${person.id}/locations`, {
-  method: 'PUT', headers: auth,
-  body: JSON.stringify({ locationIds: locations.map((l) => l.id) }),
-});
-
-// Issue 2: set the timezone (do this BEFORE adding working hours)
-await fetch(`${base}/staff/${person.id}`, {
-  method: 'PATCH', headers: auth,
-  body: JSON.stringify({ timezone: 'America/New_York' /* the studio's timezone */ }),
-});
-```
-
-> Working hours added **before** the timezone fix keep the old timezone. Delete them and add them again afterwards.
-
-### Suggested product fix
-1. Add a **Locations** picker to the Add/Edit staff form (calls `PUT /staff/:id/locations`), defaulting to all locations when the studio has one.
-2. Default a new staff member's `timezone` to the studio's timezone instead of `America/New_York`, and add a timezone field to the form.
-3. On invitation accept, link any staff record at that studio with a matching email (`staff.userId = account.id`).
+| Their **My schedule** is empty | Their login and staff record use different emails | Edit the staff record to use the email they sign in with |

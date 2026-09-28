@@ -826,7 +826,7 @@ export function CurrencySection() {
  * or one that has moved is never silently reassigned to New York by opening
  * this page.
  */
-const TIMEZONES = [
+export const TIMEZONES = [
   'America/New_York',
   'America/Chicago',
   'America/Denver',

@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config';
+import { placeUnplacedStaff } from '../staff/staff.service';
 
 /**
  * Getting a studio from signup to a live booking page.
@@ -148,6 +149,9 @@ export async function seedPotteryDefaults(
       },
     });
     created.location = true;
+
+    // Anybody added on Staff & Guides before setup ran works here too.
+    await placeUnplacedStaff(organizationId, location.id);
   }
 
   // --- Instructor ----------------------------------------------------------

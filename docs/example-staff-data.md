@@ -7,7 +7,7 @@ Use it as:
 - **sample data** for documentation, demos and testing
 - the **request bodies** if you set staff up through the API
 
-> See also: [user-guide-staff.md](user-guide-staff.md) for the step-by-step guide and known issues.
+> See also: [user-guide-staff.md](user-guide-staff.md) for the step-by-step guide.
 
 ---
 
@@ -40,7 +40,7 @@ Teaches group classes and one-to-one lessons, and signs in to see their classes.
 | Show on the booking page | ✅ On | `isPublic` | `true` |
 | *(API only)* Bio | — | `bio` | `"Maya has thrown pots for twelve years and loves teaching first-timers."` |
 | *(API only)* Photo | — | `photoUrl` | `"https://example.com/staff/maya.jpg"` |
-| *(API only)* Timezone | — | `timezone` | **the studio's timezone**, e.g. `"America/New_York"` |
+| Timezone | Same as the studio | `timezone` | omit for the studio's timezone, or e.g. `"America/New_York"` |
 
 ### Activities they teach (activity chips on their card)
 
@@ -50,7 +50,7 @@ Teaches group classes and one-to-one lessons, and signs in to see their classes.
 | Private Wheel Lesson | ✅ On |
 | Handbuilding Workshop | ⬜ Off |
 
-### Location link *(no screen, see [known issue 1](user-guide-staff.md#2-before-you-start-known-issues))*
+### Works at (Edit → Works at)
 
 | Location | Linked |
 |---|---|
@@ -192,7 +192,8 @@ Covers classes when needed but isn't shown by name on the booking page.
 | `isActive` | *(Deactivate / Reactivate)* | boolean | | `false` = deactivated | `true` |
 | `bio` | *(API only)* | text | | max 4000 | `null` |
 | `photoUrl` | *(API only)* | URL | | max 1000 | `null` |
-| `timezone` | *(API only)* | IANA zone | | e.g. `America/New_York`, `Asia/Kolkata`. **Working hours are saved in this timezone** | **`America/New_York`** (not the studio's) |
+| `timezone` | Timezone | IANA zone | | e.g. `America/New_York`, `Asia/Kolkata`. **Working hours are read in this timezone.** Changing it moves their existing hours with them | **the studio's timezone** |
+| `locationIds` | Works at | UUID array | | Create only. Locations they work from. Afterwards use `PUT /staff/:id/locations` | **every active location** |
 
 ### Activities they teach
 
@@ -204,7 +205,7 @@ Covers classes when needed but isn't shown by name on the booking page.
 
 | API field | Form | Type | Rules |
 |---|---|---|---|
-| `locationIds` | *(no screen)* | uuid[] | max 200. **Replaces the whole list.** Needed for One to one activities |
+| `locationIds` | Works at | uuid[] | max 200. **Replaces the whole list.** One to one activities only offer staff linked to the chosen location |
 
 ### Working hours
 
@@ -308,7 +309,7 @@ Base path: `/api/organizations/<organization-id>`
 }
 ```
 
-> ⚠️ **Always send `timezone`** set to the studio's timezone. If it's omitted, the staff member gets `America/New_York`, and their working hours are saved in it.
+> `timezone` can be left out: the staff member then gets the studio's timezone. `locationIds` can be left out too: they then work at every active location.
 
 **Response** `201`: `{ "staff": { "id": "<staff-uuid>", ... } }`
 
@@ -335,7 +336,7 @@ Replaces the whole list. The same link can also be set from the activity side: `
 { "locationIds": ["<the-studio-location-uuid>"] }
 ```
 
-Replaces the whole list. **Required for One to one activities.**
+Replaces the whole list. **One to one activities only offer staff linked to the chosen location.** New staff are already linked to every active location, so this is only needed to change that.
 
 ### 4. Add working hours: one request per block
 
@@ -494,7 +495,7 @@ Copy this and fill it in for each new staff member.
 | Calendar colour           |       |   (#RRGGBB)
 | Max bookings a day        |       |   (0 = unlimited)
 | Show on the booking page  |       |   Yes / No
-| Timezone                  |       |   (set to the studio's — no screen)
+| Timezone                  |       |   (blank = same as the studio)
 
 ### Activities they teach
 | Activity                  | Yes/No |
@@ -502,7 +503,7 @@ Copy this and fill it in for each new staff member.
 |                           |        |
 |                           |        |
 
-### Location link (no screen — needed for One to one)
+### Works at (default: every location)
 | Location                  | Yes/No |
 |---------------------------|--------|
 |                           |        |
