@@ -166,7 +166,7 @@ A private lesson booked by one person, with one instructor, inside that instruct
 |---|---|---|
 | Assign the instructor | **Staff & Guides** → instructor → activity chip | **Private Wheel Lesson**: on |
 | Working hours | **Staff & Guides** → instructor → **Hours** | e.g. **Tue–Fri**, `16:00` → `20:00` |
-| Location link | *(no screen, see staff guide)* | Instructor linked to **The studio** |
+| Works at | **Staff & Guides** → instructor → **Edit → Works at** | **The studio**: on (the default) |
 
 ---
 

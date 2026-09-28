@@ -13,6 +13,7 @@ import { EmptyState, LoadingRegion, SkeletonTable } from '../components/states';
 import { WorkingHours } from '../components/working-hours';
 import { Icon } from '../components/Icon';
 import { StaffSchedule } from '../components/StaffSchedule';
+import { TIMEZONES } from '../components/settings-sections';
 
 /**
  * Staff & Guides.
@@ -46,6 +47,8 @@ type StaffRow = {
   isPublic: boolean;
   isActive: boolean;
   maxBookingsPerDay: number;
+  timezone: string;
+  staffLocations: { location: { id: string; name: string } }[];
   /** Derived on the server from real working hours. Never stored. */
   availability: StaffAvailability;
   awayReason: string | null;
@@ -88,6 +91,7 @@ function initials(name: string): string {
 }
 
 type ServiceOption = { id: string; name: string };
+type LocationOption = { id: string; name: string };
 
 /** The four figures above the list. See `getRotaSummary` on the server. */
 type Rota = {
@@ -105,6 +109,10 @@ const BLANK = {
   color: '#a6522c',
   isPublic: true,
   maxBookingsPerDay: 0,
+  /** Empty means the studio's own zone, which the server fills in. */
+  timezone: '',
+  /** Null means "every location", the server's default for somebody new. */
+  locationIds: null as string[] | null,
 };
 
 export default function Staff() {
@@ -114,6 +122,7 @@ export default function Staff() {
 
   const [staff, setStaff] = useState<StaffRow[] | null>(null);
   const [services, setServices] = useState<ServiceOption[]>([]);
+  const [locations, setLocations] = useState<LocationOption[]>([]);
   /*
     Everyone is fetched and the filtering happens here, because the statuses
     the filter offers are DERIVED on the server and there is nothing to query
@@ -182,6 +191,13 @@ export default function Staff() {
       .catch(() => {
         // The list still works; only the "teaches" picker is unavailable.
       });
+
+    api
+      .get<{ locations: LocationOption[] }>(`${base}/locations`)
+      .then((res) => setLocations(res.locations))
+      .catch(() => {
+        // The form still saves; somebody new is placed at every location.
+      });
   }, [base]);
 
   function startCreate() {
@@ -199,6 +215,18 @@ export default function Staff() {
       color: row.color,
       isPublic: row.isPublic,
       maxBookingsPerDay: row.maxBookingsPerDay,
+      timezone: row.timezone,
+      locationIds: row.staffLocations.map((l) => l.location.id),
+    });
+  }
+
+  function toggleLocation(id: string) {
+    const current = form.locationIds ?? locations.map((l) => l.id);
+    setForm({
+      ...form,
+      locationIds: current.includes(id)
+        ? current.filter((l) => l !== id)
+        : [...current, id],
     });
   }
 
@@ -217,11 +245,24 @@ export default function Staff() {
       color: form.color,
       isPublic: form.isPublic,
       maxBookingsPerDay: Number(form.maxBookingsPerDay) || 0,
+      // Omitted rather than empty, so a new person gets the studio's zone.
+      ...(form.timezone ? { timezone: form.timezone } : {}),
     };
 
     try {
-      if (editing === 'new') await api.post(`${base}/staff`, body);
-      else await api.patch(`${base}/staff/${editing}`, body);
+      if (editing === 'new') {
+        await api.post(`${base}/staff`, {
+          ...body,
+          ...(form.locationIds ? { locationIds: form.locationIds } : {}),
+        });
+      } else {
+        await api.patch(`${base}/staff/${editing}`, body);
+        if (form.locationIds) {
+          await api.put(`${base}/staff/${editing}/locations`, {
+            locationIds: form.locationIds,
+          });
+        }
+      }
 
       setEditing(null);
       await load();
@@ -482,6 +523,66 @@ export default function Staff() {
               />
               <span className="sub">0 means no limit.</span>
             </label>
+
+            <label>
+              Timezone
+              <select
+                value={form.timezone}
+                onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+              >
+                {editing === 'new' && <option value="">Same as the studio</option>}
+                {form.timezone && !TIMEZONES.includes(form.timezone) && (
+                  <option value={form.timezone}>
+                    {form.timezone.replace('_', ' ')}
+                  </option>
+                )}
+                {TIMEZONES.map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz.replace('_', ' ')}
+                  </option>
+                ))}
+              </select>
+              {/* Not cosmetic: their working hours are read in this zone. */}
+              <span className="sub">
+                Their working hours are in this timezone. Changing it keeps the
+                same hours on the clock.
+              </span>
+            </label>
+
+            {/*
+              Where they work. One to one bookings only offer people linked to
+              the location the customer picked, so somebody linked to nowhere is
+              silently unbookable for 1:1 — which is what everybody added here
+              used to be, because this field did not exist.
+            */}
+            {locations.length > 0 && (
+              <div className="field-group" role="group" aria-labelledby="staff-works-at">
+                <span id="staff-works-at">Works at</span>
+                <span className="chips">
+                  {locations.map((location) => {
+                    const on = (
+                      form.locationIds ?? locations.map((l) => l.id)
+                    ).includes(location.id);
+                    return (
+                      <button
+                        type="button"
+                        key={location.id}
+                        className={`chip ${on ? 'on' : ''}`.trim()}
+                        aria-pressed={on}
+                        onClick={() => toggleLocation(location.id)}
+                      >
+                        {location.name}
+                      </button>
+                    );
+                  })}
+                </span>
+                {form.locationIds?.length === 0 && (
+                  <span className="not-bookable">
+                    Not offered for One to one bookings anywhere
+                  </span>
+                )}
+              </div>
+            )}
 
             <label className="check">
               <input

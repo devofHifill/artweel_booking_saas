@@ -26,8 +26,29 @@ const createStaffSchema = z.object({
    * Per person, not per studio. A studio running mobile work across a state
    * line genuinely has instructors in two zones, and this one is authoritative
    * for their working hours.
+   *
+   * Omitted means the STUDIO's zone, filled in by the service. This defaulted
+   * to America/New_York and the Staff form never sent one, so everybody added
+   * in a studio anywhere else had their hours stored three or more hours out.
    */
-  timezone: z.string().max(64).default('America/New_York'),
+  timezone: z
+    .string()
+    .max(64)
+    .refine((value) => {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: value });
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'Unknown timezone.')
+    .optional(),
+  /**
+   * Where they work. Omitted means every active location, which for most
+   * studios — one room — is the only sensible answer. Create only; afterwards
+   * it is `PUT /:staffId/locations`.
+   */
+  locationIds: z.array(z.string().uuid()).max(200).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#A6522C'),
   isPublic: z.boolean().default(true),
   isActive: z.boolean().default(true),
@@ -35,7 +56,7 @@ const createStaffSchema = z.object({
   maxBookingsPerDay: z.number().int().min(0).max(100).default(0),
 });
 
-const updateStaffSchema = createStaffSchema.partial();
+const updateStaffSchema = createStaffSchema.omit({ locationIds: true }).partial();
 const listQuerySchema = z.object({
   includeInactive: z
     .enum(['true', 'false'])

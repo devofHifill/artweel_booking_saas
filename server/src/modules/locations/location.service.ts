@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
 import { haversineKm, type TravelFeeBand } from '../../scheduling/travel/travel';
 import { requireCapacity, requireFeature, type PlanId } from '../billing/plan';
+import { placeUnplacedStaff } from '../staff/staff.service';
 
 /**
  * Locations.
@@ -69,12 +70,16 @@ export async function createLocation(
     requireFeature(org.plan as PlanId, 'mobileBookings');
   }
 
-  return prisma.location.create({
+  const location = await prisma.location.create({
     data: {
       ...(input as Prisma.LocationUncheckedCreateInput),
       organizationId,
     },
   });
+
+  if (location.isActive) await placeUnplacedStaff(organizationId, location.id);
+
+  return location;
 }
 
 export async function updateLocation(

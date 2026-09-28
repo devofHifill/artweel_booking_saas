@@ -78,7 +78,7 @@ export default function MySchedule() {
         explains rather than apologises.
       */}
       {mine === null && (
-        <EmptyState hint="An owner or admin can add you on Staff & Guides.">
+        <EmptyState hint="An owner or admin can add you on Staff & Guides — with the email you sign in with, which is how your account finds your record.">
           You are not on the teaching rota. This page shows the hours of people
           who teach, and your account has no instructor record — so there is
           nothing here to schedule.
