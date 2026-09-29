@@ -659,6 +659,12 @@ export default function Classes() {
               schedule, which is the only thing they filter. In the header they
               read as page-wide controls and crowded out the two that are.
             */}
+            {/* The guide for this screen, where the question comes up. */}
+            {isAdmin && (
+              <Link className="button-link" to="/help/guides/activities">
+                How this works
+              </Link>
+            )}
             <SegRange
               label="How to show the catalogue"
               options={[

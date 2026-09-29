@@ -1,13 +1,8 @@
-# Creating an Activity — User Guide
+# Creating an activity
 
-How to set up a studio, create a bookable activity, and put the booking widget on your own website.
+How to set up your studio, create an activity customers can book, and put the booking widget on your own website.
 
-> **Where things live**
-> - **Dashboard:** `https://app.bookaihub.com`
-> - **Public booking page:** `https://bookaihub.com/public/<your-studio-slug>`
-> - **Widget script:** `https://bookaihub.com/embed.js`
->
-> Staging equivalents: `https://app.artweel.fillforge.cloud` and `https://artweel.fillforge.cloud`.
+> **Your booking page:** `https://bookaihub.com/public/<your-studio-slug>`
 
 ---
 
@@ -34,7 +29,7 @@ These cause most "my activity isn't showing" problems. Read them first.
 
 | # | Rule | What happens if you miss it |
 |---|------|-----------------------------|
-| 1 | **Add your location first**, in **Settings → Locations** (or with **Set up my studio** on `/setup`). | You can't pick a location for your activity. |
+| 1 | **Add your location first**, in **Settings → Locations** (or with **Set up the basics** on `/setup`). | You can't pick a location for your activity. |
 | 2 | **With more than one location, every class session needs one.** With a single location, sessions go there automatically, including ones scheduled before it existed. | With several locations, a session left on *"Not set"* appears on your calendar but **not on the booking page or widget**. |
 | 3 | **A staff member needs at least one activity assigned.** | They show *"Not bookable yet"* and customers can't book them. |
 | 4 | **Set the studio timezone before scheduling anything.** | Start times are saved in the wrong timezone. Fixing the timezone later does **not** move sessions already created. |
@@ -48,18 +43,18 @@ These cause most "my activity isn't showing" problems. Read them first.
 Go to the dashboard and sign in, or register a new studio.
 
 ### Step 2: Run studio setup
-1. Go to **`/setup`** (e.g. `https://app.bookaihub.com/setup`).
-2. Click **Set up my studio**.
+1. Go to **Setup** (`/setup`). Each step on the checklist links to the screen that completes it.
+2. Click **Set up the basics**.
 
 It **only adds what is missing and never overwrites** anything you've already set up. On a new studio it creates:
 
-- a location called **The studio** (you can also add and rename locations in **Settings → Locations**)
-- an instructor called **Me**, with working hours **Tue–Sat, 10:00–18:00**
+- a location called **The studio** (rename it, or add more, in **Settings → Locations**)
+- **you** as the instructor, with your name and email, working **Tue–Sat, 10:00–18:00**, teaching any activity nobody teaches yet
 - a cancellation policy called **Standard**
-- equipment (pottery wheels and a kiln)
-- **3 sample activities** (Beginner Wheel Throwing, Handbuilding Workshop, Private Lesson)
 
-> If `/setup` shows **"You are live"** and no **Set up my studio** button, setup is already complete and your location already exists.
+Tick **Also add three example pottery classes and studio equipment** only if you run a ceramics studio. It adds Beginner Wheel Throwing, Handbuilding Workshop and Private Lesson, plus pottery wheels and a kiln.
+
+> If **Setup** shows **"You are live"**, setup is already complete.
 
 ### Step 3: Business information
 **Settings → Business Information**: set the studio name customers will see.
@@ -70,8 +65,8 @@ It **only adds what is missing and never overwrites** anything you've already se
 
 ⚠️ Do this **before** creating any activity or schedule.
 
-### Step 5: Hide the sample activities (optional)
-For each sample activity you don't want: **Activities → open it → Status: Draft → Save**.
+### Step 5: Hide the example activities (optional)
+If you added the pottery examples, for each one you don't want: **Activities → open it → Status: Draft → Save**.
 
 ---
 
@@ -79,7 +74,7 @@ For each sample activity you don't want: **Activities → open it → Status: Dr
 
 ### Step 6: Add or edit a staff member
 **Staff & Guides**
-- **SOLO plan:** edit the existing instructor (e.g. **Me**). Don't add a new one.
+- **SOLO plan:** edit the instructor setup created (you). Don't add a new one.
 - **Studio / Pro plan:** click **Add staff**.
 
 | Field | Notes |
@@ -93,8 +88,9 @@ For each sample activity you don't want: **Activities → open it → Status: Dr
 | **Show on the booking page** | Tick to show them to customers; untick to hide them |
 
 ### Step 7: Assign activities
-On the staff member's row, click the **activity chips** to turn them on.
-If no chip is on, they show **"Not bookable yet"**.
+On the staff member's card, click the **activity chips** to turn them on. If no chip is on, they show **"Not bookable yet"**.
+
+You can also do this from the activity's side: the **Who teaches it** section when you create or edit it (Step 9.4), or the **Who teaches** button on its card in **Activities**.
 
 ### Step 8: Working hours
 On the staff member's row, click **Hours**.
@@ -110,7 +106,7 @@ On the staff member's row, click **Hours**.
 ### Step 9: Open the form
 **Activities → Create activity**
 
-The form has six sections.
+The form has seven sections.
 
 ### 9.1 Basics
 
@@ -138,10 +134,17 @@ The form has six sections.
 
 | Field | Notes |
 |---|---|
-| **Location** | **Pick your location (e.g. The studio).** Don't leave it on *"Anywhere you run it"* |
+| **Location** | With one location it's chosen for you. With several, **pick the one it runs at** rather than *"Anywhere you run it"* |
 | Meeting point | Details a map can't give, e.g. "Second door on the left, ring the bell". Sent with the confirmation |
 
-### 9.4 Availability
+### 9.4 Who teaches it
+
+Click the chip for each instructor who teaches it. With only one instructor, they're chosen already.
+
+- **One to one:** at least one is **required**. Customers pick from these, inside their working hours. The form warns you if nobody is chosen.
+- **Group class:** optional. Group classes are booked from their dates.
+
+### 9.5 Availability
 *Shown only when creating a new activity. Creates the sessions when you save.*
 
 | Field | Notes |
@@ -154,14 +157,14 @@ The form has six sections.
 - If it warns about a location, go back to **Where** and pick one.
 - You can leave days and times empty and schedule sessions later (Step 11).
 
-### 9.5 Presentation
+### 9.6 Presentation
 
 | Field | Notes |
 |---|---|
 | Icon | Shown on the booking page |
 | Colour | Used on the calendar and booking page |
 
-### 9.6 Policies
+### 9.7 Policies
 
 | Field | Notes |
 |---|---|
@@ -174,7 +177,9 @@ The form has six sections.
 | Booking instructions | Arrival details, e.g. parking, which door |
 
 ### Step 10: Save
-Click **Save**.
+Click **Create activity** (or **Save** when editing). The page then says how many classes it scheduled.
+
+Each card in **Activities** says whether customers can book it. If not, it says why (no upcoming dates, nobody teaches it, no working hours, or not working where it runs), with a button or link to fix it. **Bookable now** at the top counts only the ones customers can book.
 
 ### Step 11: Add more dates (optional)
 In **Activities → Schedule a class**:
@@ -191,10 +196,10 @@ In **Activities → Schedule a class**:
 Use this to schedule beyond 12 weeks, or to add one-off dates.
 
 ### Step 12: One to one activities: extra checks
-- The activity is **assigned** to the instructor (Step 7).
-- The instructor has **working hours** covering when you want to offer it (Step 8).
+- Somebody **teaches** it (Step 9.4 or Step 7).
+- They have **working hours** covering when you want to offer it (Step 8).
 
-Without both, **no time slots appear** on the booking page.
+Without both, **no time slots appear** on the booking page. The activity's card will say which is missing.
 
 ---
 
@@ -209,21 +214,23 @@ Without both, **no time slots appear** on the booking page.
 | **Stripe connected** | Customers **pay online when they book** |
 | **Stripe + "Allow pay on arrival"** | Customers can choose to pay at the studio |
 
-Deposits (Step 9.6) only take effect once Stripe is connected.
+Deposits (Step 9.7) only take effect once Stripe is connected.
 
 ---
 
 ## Part E: Publish and test
 
 ### Step 14: Publish
-Go to **`/setup`** → **Publish my booking page**.
-This button appears once the studio, an activity and working hours are all in place.
+Go to **Setup** → **Publish my booking page**.
+This button appears once every step is done **and at least one activity can actually be booked**. If nothing can be booked yet, Setup lists each activity that's stuck, with why and a link to fix it.
 
 ### Step 15: Test the booking page directly
 1. Open `https://bookaihub.com/public/<your-studio-slug>`.
 2. Book the activity end to end.
 3. Check **Bookings** in the dashboard. The booking should be there, with source **web**.
 4. If it was a test, cancel it.
+
+> Customers can **change the date themselves**: the **Manage or cancel** link in their confirmation offers other dates of the same class (or other times with the same instructor), within your cancellation policy's reschedule rules. Their payment and booking link stay the same.
 
 > **Always test here before embedding.** If booking doesn't work on this page, it won't work in the widget either.
 
@@ -336,7 +343,7 @@ Any icon and colour.
 ### After saving
 1. **Staff & Guides → instructor → turn on the "Pottery Wheel Throwing Party" chip.**
 2. **Hours**: make sure the instructor works **Saturday and Sunday**, and **until at least 19:00** (the 17:00 party ends at 19:00). The setup defaults (Tue–Sat, 10:00–18:00) don't cover this.
-3. Optional: set the instructor on each session under **Activities → Scheduled classes**.
+3. Optional: set the instructor when you schedule each session (**Schedule a class → Instructor**).
 4. Optional: connect Stripe (Part D).
 
 ### Test
@@ -392,7 +399,8 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 | Symptom | Cause | Fix |
 |---|---|---|
 | Activity not on the booking page | Status is **Draft** | Set **Status: Active** |
-| Activity listed but **no dates** | You have several locations and the sessions have **none** | Edit each session and pick its location |
+| Activity listed but **no dates** | You have several locations and the sessions have **none** | In **Activities → Scheduled classes**, each such class is flagged **Not on your booking page**. Pick its location there |
+| Card says **Not bookable: …** | What it names: no dates, nobody teaches it, no hours, or instructors not at that location | Use the button or link on the card |
 | No dates in the next day or two | **Minimum notice** hides them | Expected. Lower the minimum notice if needed |
 | Later dates missing | **Bookable up to (days ahead)** is too short | Increase it |
 | Dates stop after 12 weeks | Availability limit | **Schedule a class → Repeat weekly** |

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import {
   Navigate,
   NavLink,
@@ -17,6 +17,9 @@ import Bookings from './pages/Bookings';
 import CalendarPage from './pages/Calendar';
 import MySchedule from './pages/MySchedule';
 import Help from './pages/Help';
+/* Loaded when a guide is opened: it carries the Markdown renderer, which no
+   other screen needs, so the dashboard's first load does not pay for it. */
+const GuidePage = lazy(() => import('./pages/Guide'));
 import { HelpMenu } from './components/HelpMenu';
 import { AccountMenu } from './components/AccountMenu';
 import Customers from './pages/Customers';
@@ -470,6 +473,14 @@ export default function App() {
         */}
         <Route path="/my-schedule" element={<MySchedule />} />
         <Route path="/help" element={<Help />} />
+        <Route
+          path="/help/guides/:slug"
+          element={
+            <Suspense fallback={<p className="sub">Loading the guide…</p>}>
+              <GuidePage />
+            </Suspense>
+          }
+        />
         <Route
           path="/payments"
           element={isAdmin ? <PaymentsPage /> : <Navigate to="/" replace />}

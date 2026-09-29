@@ -1,5 +1,8 @@
+import { Link } from 'react-router-dom';
 import { PageHead } from '../components/layout';
 import { SHORTCUTS } from '../components/HelpMenu';
+import { useActiveOrg } from '../lib/auth';
+import { guidesFor } from '../guides';
 
 /**
  * Help & Support.
@@ -13,18 +16,42 @@ import { SHORTCUTS } from '../components/HelpMenu';
  * leaving the page you are on to read two lines would be the wrong trade.
  * Both read `SHORTCUTS`, so the two can never disagree.
  *
- * The support section says what is true today. There is no help desk, no
- * documentation site and no support address in this product — checked in the
- * config and the marketing pages, not assumed — so this points at the person
- * who can actually act, which for a studio account is its owner.
+ * The support section says what is true today. There is no help desk and no
+ * support address in this product — checked in the config and the marketing
+ * pages, not assumed — so this points at the person who can actually act,
+ * which for a studio account is its owner.
+ *
+ * The guides come first: they answer "how do I…", which is what most people
+ * open Help for. They ship with the dashboard (src/guides), and each is shown
+ * only to the roles it is written for.
  */
 export default function Help() {
+  const role = useActiveOrg()?.role;
+  const guides = guidesFor(role);
+
   return (
     <>
       <PageHead
         title="Help &amp; Support"
-        lede="Getting around, and where to go when something is wrong."
+        lede="How things work, getting around, and where to go when something is wrong."
       />
+
+      {guides.length > 0 && (
+        <section className="card settings-section">
+          <h2>Guides</h2>
+          <p className="sub">Step by step, with what to do when something does not show up.</p>
+          <ul className="guide-list">
+            {guides.map((g) => (
+              <li key={g.slug}>
+                <Link to={`/help/guides/${g.slug}`}>
+                  <strong>{g.title}</strong>
+                  <span className="tiny muted">{g.summary}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="card settings-section">
         <h2>Keyboard shortcuts</h2>
