@@ -29,7 +29,8 @@ onboardingRouter.post(
   asyncHandler(async (req, res) => {
     const created = await service.seedPotteryDefaults(
       req.tenant!.organizationId,
-      req.body,
+      // Who pressed it: the instructor setup makes is them, unless told otherwise.
+      { ...req.body, actorUserId: req.auth?.userId },
     );
 
     res.json({
