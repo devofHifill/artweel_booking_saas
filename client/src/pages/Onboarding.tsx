@@ -85,8 +85,16 @@ type State = {
   readyToPublish: boolean;
   complete: boolean;
   bookingUrl: string;
-  organization: { name: string; slug: string; timezone: string };
+  organization: {
+    name: string;
+    slug: string;
+    timezone: string;
+    businessType?: string | null;
+  };
 };
+
+/** The business types the ceramics examples actually fit. */
+const CERAMICS = ['Pottery studio', 'Ceramics school'];
 
 export default function Onboarding({ onDone }: { onDone: () => void }) {
   const base = useOrgBase();
@@ -94,6 +102,10 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /* Whether to add the example pottery classes and equipment. Ticked for a
+     ceramics studio, off for everyone else — a kayak business was handed
+     three pottery classes and a kiln, or nothing at all. */
+  const [examples, setExamples] = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -111,7 +123,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.post<{ state: State }>(`${base}/onboarding/seed`, {});
+      const res = await api.post<{ state: State }>(`${base}/onboarding/seed`, {
+        examples: addExamples,
+      });
       setState(res.state);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not set that up.');
@@ -142,6 +156,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   const remaining = state.steps.filter(
     (s) => !s.done && !s.optional && s.id !== 'publish',
   );
+  // Until somebody touches the box, it follows the studio's business type.
+  const addExamples =
+    examples ?? CERAMICS.includes(state.organization.businessType ?? '');
 
   return (
     <div style={{ maxWidth: 620 }}>
@@ -244,15 +261,24 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
           {remaining.length > 0 && (
             <div className="card">
-              <h2>Start from a working studio</h2>
+              <h2>Set up the basics</h2>
               <p className="sub">
-                We will add three classes, an instructor, opening hours, a
-                cancellation policy and your equipment — all typical for a
-                ceramics studio. Change anything you like afterwards; nothing
-                you have already set up will be touched.
+                We will add your location, make you the instructor, set opening
+                hours of Tuesday to Saturday, 10:00 to 18:00, and a standard
+                cancellation policy. Change any of it afterwards; nothing you
+                have already set up will be touched.
               </p>
+              <label className="check" style={{ margin: '4px 0 12px' }}>
+                <input
+                  type="checkbox"
+                  checked={addExamples}
+                  onChange={(e) => setExamples(e.target.checked)}
+                />
+                Also add three example pottery classes and studio equipment
+                (for a ceramics studio)
+              </label>
               <button className="primary" onClick={seed} disabled={busy}>
-                {busy ? 'Setting up…' : 'Set up my studio'}
+                {busy ? 'Setting up…' : 'Set up the basics'}
               </button>
             </div>
           )}

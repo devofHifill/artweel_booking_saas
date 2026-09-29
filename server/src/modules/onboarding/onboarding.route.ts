@@ -24,6 +24,13 @@ onboardingRouter.post(
     z.object({
       instructorName: z.string().max(120).optional(),
       instructorEmail: z.string().email().max(255).optional(),
+      /**
+       * The example ceramics classes and equipment. Everything else setup
+       * adds — a location, you as instructor, hours, a cancellation policy —
+       * suits any business; three pottery classes and a kiln do not.
+       * Defaults on, which is what setup always did.
+       */
+      examples: z.boolean().default(true),
     }),
   ),
   asyncHandler(async (req, res) => {

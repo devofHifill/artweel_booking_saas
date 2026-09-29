@@ -475,6 +475,11 @@ export function renderBookingPage(data: PageData): string {
 <script>
 window.__BOOKING__ = ${jsonForScript({
     slug: organization.slug,
+    /* For the "nothing here" moments: somebody who finds no dates is offered
+       the studio itself, not a dead end. The same details the footer shows. */
+    studioName: organization.name,
+    contactEmail: organization.contactEmail ?? null,
+    contactPhone: organization.contactPhone ?? null,
     currency: organization.currency,
     timezone: organization.timezone,
     acceptsPayment: data.acceptsPayment,

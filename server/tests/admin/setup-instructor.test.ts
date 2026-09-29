@@ -40,6 +40,28 @@ const onlyInstructor = () =>
     include: { staffServices: { include: { serviceType: { select: { name: true } } } } },
   });
 
+describe('setting up the basics without the ceramics examples (#4)', () => {
+  it('adds a location, the owner as instructor, hours and a policy — and no pottery', async () => {
+    const res = await seed({ examples: false });
+
+    expect(res.body.created).toMatchObject({
+      location: true,
+      staff: true,
+      hours: true,
+      policy: true,
+      services: 0,
+      resources: 0,
+    });
+    expect(await prisma.serviceType.count({ where: { organizationId: studio.organizationId } })).toBe(0);
+    expect(await prisma.resource.count({ where: { organizationId: studio.organizationId } })).toBe(0);
+  });
+
+  it('still adds the examples when asked, as it always did', async () => {
+    const res = await seed();
+    expect(res.body.created.services).toBe(3);
+  });
+});
+
 describe('the instructor setup creates', () => {
   it('is the owner who pressed the button, linked to their login', async () => {
     await seed();

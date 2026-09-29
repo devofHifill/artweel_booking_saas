@@ -30,17 +30,41 @@ export type Step = {
   optional: boolean;
 };
 
+/** "Rowan", "Rowan and Sam", "Rowan, Sam and Jo". */
+function listNames(names: string[]) {
+  if (names.length <= 1) return names.join('');
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
 export async function getOnboardingState(organizationId: string) {
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
   });
 
-  const [services, staff, rules, locations] = await Promise.all([
+  const [services, team, locations] = await Promise.all([
     prisma.serviceType.count({ where: { organizationId, isActive: true } }),
-    prisma.staff.count({ where: { organizationId, isActive: true } }),
-    prisma.availabilityRule.count({ where: { organizationId } }),
+    /* Per person, not a count. "Anybody has any rule" ticked this step while a
+       second instructor — the one a One to one is booked with — had none. */
+    prisma.staff.findMany({
+      where: { organizationId, isActive: true },
+      select: {
+        name: true,
+        _count: { select: { availabilityRules: { where: { ruleType: 'WORKING' } } } },
+        staffServices: {
+          where: { serviceType: { isActive: true, bookingMode: 'APPOINTMENT' } },
+          select: { serviceTypeId: true },
+        },
+      },
+    }),
     prisma.location.count({ where: { organizationId, isActive: true } }),
   ]);
+
+  const withHours = team.filter((s) => s._count.availabilityRules > 0);
+  /* Hours only decide ONE TO ONE bookings — a group class is booked from its
+     dates — so the people who must have them are those who teach one. */
+  const missingHours = team
+    .filter((s) => s.staffServices.length > 0 && s._count.availabilityRules === 0)
+    .map((s) => s.name);
 
   /**
    * Completion is DERIVED from the data, not from a flag the wizard sets.
@@ -80,8 +104,12 @@ export async function getOnboardingState(organizationId: string) {
     {
       id: 'hours',
       title: 'Set your hours',
-      description: 'When you teach. Customers can only book inside these.',
-      done: staff > 0 && rules > 0,
+      // Names who is missing, rather than leaving the step to be puzzled over.
+      description:
+        missingHours.length > 0
+          ? `${listNames(missingHours)} ${missingHours.length === 1 ? 'teaches' : 'teach'} One to one lessons but ${missingHours.length === 1 ? 'has' : 'have'} no working hours yet.`
+          : 'When you teach. Customers can only book inside these.',
+      done: withHours.length > 0 && missingHours.length === 0,
       optional: false,
     },
     {
@@ -134,6 +162,8 @@ export async function getOnboardingState(organizationId: string) {
       name: org.name,
       slug: org.slug,
       timezone: org.timezone,
+      // So setup can offer the ceramics examples to a ceramics studio only.
+      businessType: org.businessType,
     },
   };
 }
@@ -154,8 +184,15 @@ export async function markPublished(organizationId: string) {
  */
 export async function seedPotteryDefaults(
   organizationId: string,
-  input: { instructorName?: string; instructorEmail?: string; actorUserId?: string } = {},
+  input: {
+    instructorName?: string;
+    instructorEmail?: string;
+    actorUserId?: string;
+    /** The example ceramics classes and equipment. See the route. */
+    examples?: boolean;
+  } = {},
 ) {
+  const examples = input.examples !== false;
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
   });
@@ -285,7 +322,8 @@ export async function seedPotteryDefaults(
   // --- Equipment -----------------------------------------------------------
   const existingResources = await prisma.resource.count({ where: { organizationId } });
 
-  if (existingResources === 0) {
+  // Wheels and a kiln are the ceramics example, not the basics.
+  if (examples && existingResources === 0) {
     await prisma.resource.create({
       data: {
         organizationId,
@@ -314,7 +352,8 @@ export async function seedPotteryDefaults(
     where: { organizationId },
   });
 
-  if (existingServices === 0) {
+  // The three ceramics classes are the example; a kayak business says no.
+  if (examples && existingServices === 0) {
     const defaults = [
       {
         name: 'Beginner Wheel Throwing',
