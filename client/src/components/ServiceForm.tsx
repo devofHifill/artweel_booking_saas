@@ -68,6 +68,8 @@ export type ServiceDraft = {
   categoryId?: string | null;
   cancellationPolicyId?: string | null;
   locationId?: string | null;
+  /** Who teaches it. A join, saved through `PUT /services/:id/staff`. */
+  staffIds?: string[];
 };
 
 const MODES = [
@@ -193,6 +195,10 @@ export function ServiceForm({
   const [meetingPoint, setMeetingPoint] = useState(existing?.meetingPoint ?? '');
   const [minGuests, setMinGuests] = useState(existing?.capacityMin ?? 1);
   const [isActive, setIsActive] = useState(existing?.isActive !== false);
+  const [teacherIds, setTeacherIds] = useState<string[]>(existing?.staffIds ?? []);
+  const [instructors, setInstructors] = useState<{ id: string; name: string }[] | null>(
+    null,
+  );
 
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [policies, setPolicies] = useState<
@@ -297,6 +303,34 @@ export function ServiceForm({
       }
     })();
   }, [base, existing]);
+
+  /*
+    The team, for "Who teaches it" — loaded on its own so a failure here leaves
+    the rest of the form working. A studio with ONE instructor is not asked:
+    they teach it, the same reasoning as the single location above, and only
+    when creating, for the same reason.
+  */
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await api.get<{ staff: { id: string; name: string }[] }>(
+          `${base}/staff`,
+        );
+        setInstructors(res.staff);
+        if (!existing && res.staff.length === 1) {
+          setTeacherIds((current) => (current.length ? current : [res.staff[0]!.id]));
+        }
+      } catch {
+        setInstructors([]);
+      }
+    })();
+  }, [base, existing]);
+
+  function toggleTeacher(id: string) {
+    setTeacherIds((current) =>
+      current.includes(id) ? current.filter((t) => t !== id) : [...current, id],
+    );
+  }
 
   /**
    * An appointment is one-to-one by definition and the server refuses anything
@@ -426,16 +460,38 @@ export function ServiceForm({
     try {
       if (existing?.id) {
         await api.patch(`${base}/services/${existing.id}`, body);
+        /* Only when it changed: an untouched set is left exactly as it was,
+           including anybody added on Staff & Guides while this was open. */
+        const before = [...(existing.staffIds ?? [])].sort().join();
+        if ([...teacherIds].sort().join() !== before) {
+          await api.put(`${base}/services/${existing.id}/staff`, { staffIds: teacherIds });
+        }
       } else {
         const res = await api.post<{ service: { id: string } }>(
           `${base}/services`,
           body,
         );
+
+        /* The activity exists by now, so a failure here is reported rather
+           than thrown — same as the scheduling below. Throwing would show an
+           error beside an activity that did save, and it would be made twice. */
+        let teachers: string | null = null;
+        if (teacherIds.length > 0) {
+          try {
+            await api.put(`${base}/services/${res.service.id}/staff`, {
+              staffIds: teacherIds,
+            });
+          } catch {
+            teachers = 'The activity was saved, but who teaches it was not. Choose them on its card.';
+          }
+        }
+
         /* Handed to the page rather than shown here: saving closes this form,
            so a message set on it was never seen — including "no classes could
            be scheduled", which is the one that matters. */
         const scheduled = await generateSessions(res.service.id);
-        onSaved(scheduled ?? undefined);
+        const notice = [teachers, scheduled].filter(Boolean).join(' ');
+        onSaved(notice || undefined);
         return;
       }
       onSaved();
@@ -720,6 +776,60 @@ export function ServiceForm({
               The bit a map cannot tell them. Sent with the confirmation.
             </p>
           </div>
+        </div>
+
+        {/*
+          Who teaches it — asked here, while the activity is being made.
+
+          It used to be asked nowhere on this form. A One to one lesson is only
+          offered with somebody who teaches it, so every new one started out
+          unbookable, and the link had to be made one chip at a time on Staff &
+          Guides. A group class is booked from its dates and does not need it.
+        */}
+        <h3 className="form-section">Who teaches it</h3>
+
+        <div className="setting setting-stack">
+          {instructors === null ? (
+            <p className="tiny muted">Loading your team…</p>
+          ) : instructors.length === 0 ? (
+            <p className="tiny muted">
+              Nobody on your team yet. Add people on Staff &amp; Guides, then
+              choose them here.
+            </p>
+          ) : (
+            <div className="chips" role="group" aria-label="Who teaches it">
+              {instructors.map((person) => {
+                const on = teacherIds.includes(person.id);
+                return (
+                  <button
+                    type="button"
+                    key={person.id}
+                    className={`chip ${on ? 'on' : ''}`.trim()}
+                    aria-pressed={on}
+                    onClick={() => toggleTeacher(person.id)}
+                  >
+                    {person.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {isAppointment ? (
+            teacherIds.length === 0 ? (
+              <p className="tiny warn">
+                Choose at least one, or customers cannot book this — a One to
+                one lesson is only offered with somebody who teaches it.
+              </p>
+            ) : (
+              <p className="tiny muted">
+                Customers pick from these, inside their working hours.
+              </p>
+            )
+          ) : (
+            <p className="tiny muted">
+              Optional for group classes — they are booked from their dates.
+            </p>
+          )}
         </div>
 
         {!existing && (

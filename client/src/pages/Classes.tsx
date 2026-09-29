@@ -206,6 +206,9 @@ export default function Classes() {
          one it edits. Without this the form opens blank and the next save
          sends null, clearing a location the studio never touched. */
       locationId: svc.serviceLocations?.[0]?.locationId ?? null,
+      /* Read back for the same reason: the form only saves the set when it
+         differs from this, so a missing one would read as "changed to nobody". */
+      staffIds: svc.staffServices?.map((s) => s.staffId) ?? [],
     });
     setNotice(null);
     setShowForm(true);
