@@ -154,7 +154,7 @@ export async function markPublished(organizationId: string) {
  */
 export async function seedPotteryDefaults(
   organizationId: string,
-  input: { instructorName?: string; instructorEmail?: string } = {},
+  input: { instructorName?: string; instructorEmail?: string; actorUserId?: string } = {},
 ) {
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
@@ -197,13 +197,40 @@ export async function seedPotteryDefaults(
   });
 
   if (!staff) {
+    /*
+      The person who pressed the button, by default — the owner of a small
+      studio is almost always its first instructor. It was "Me", at a made-up
+      address (instructor@<slug>.local), linked to no login: the owner's own
+      My schedule was empty and the name customers saw was "Me".
+
+      Only somebody who is a MEMBER of this studio. A platform admin inside a
+      support session is signed in too, and must not become its instructor.
+    */
+    const member = input.actorUserId
+      ? await prisma.membership.findUnique({
+          where: { organizationId_userId: { organizationId, userId: input.actorUserId } },
+          select: { user: { select: { id: true, name: true, email: true } } },
+        })
+      : null;
+    const me = member?.user ?? null;
+
+    let email =
+      input.instructorEmail?.trim().toLowerCase() ||
+      me?.email.toLowerCase() ||
+      `instructor@${org.slug}.local`;
+    // A switched-off staff record may already hold that address; the address
+    // is unique within a studio, so fall back rather than fail setup.
+    if (await prisma.staff.findFirst({ where: { organizationId, email } })) {
+      email = `instructor@${org.slug}.local`;
+    }
+
     staff = await prisma.staff.create({
       data: {
         organizationId,
-        name: input.instructorName?.trim() || 'Me',
-        email:
-          input.instructorEmail?.trim().toLowerCase() ||
-          `instructor@${org.slug}.local`,
+        name: input.instructorName?.trim() || me?.name?.trim() || 'Me',
+        email,
+        // Linked to the login when it is theirs, so My schedule finds it.
+        userId: me && email === me.email.toLowerCase() ? me.id : null,
         timezone: org.timezone,
       },
     });
@@ -212,6 +239,22 @@ export async function seedPotteryDefaults(
     await prisma.staffLocation.create({
       data: { staffId: staff.id, locationId: location.id },
     });
+
+    /*
+      And they teach what nobody teaches yet. Setup only assigned the classes
+      it made itself, so a studio that had created its own first ended up with
+      an instructor who taught nothing — and a One to one nobody could book.
+    */
+    const untaught = await prisma.serviceType.findMany({
+      where: { organizationId, isActive: true, staffServices: { none: {} } },
+      select: { id: true },
+    });
+    if (untaught.length > 0) {
+      await prisma.staffService.createMany({
+        data: untaught.map((s) => ({ staffId: staff!.id, serviceTypeId: s.id })),
+        skipDuplicates: true,
+      });
+    }
   }
 
   // --- Cancellation terms --------------------------------------------------
