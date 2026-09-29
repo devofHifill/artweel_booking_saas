@@ -1,12 +1,6 @@
-# Managing Staff — User Guide
+# Managing staff
 
 How to add staff members, make them bookable, give them a dashboard login, and deactivate or remove them.
-
-> **Where things live**
-> - **Dashboard:** `https://app.bookaihub.com`
-> - **Public booking page:** `https://bookaihub.com/public/<your-studio-slug>`
->
-> Staging equivalents: `https://app.artweel.fillforge.cloud` and `https://artweel.fillforge.cloud`.
 
 ---
 
@@ -72,6 +66,8 @@ On their card, **click each activity chip** they teach so it turns on.
 
 > If no chip is on, the card shows **"Not bookable yet"**, and **nothing can be booked with them**.
 
+You can also choose who teaches an activity from the activity's side: the **Who teaches it** section of its form, or the **Who teaches** button on its card in **Activities**.
+
 ### Step 5: Check where they work
 *Matters for **One to one** activities.*
 
@@ -112,8 +108,9 @@ Pick **What**, the **Date**, and the **From / Until** times where needed, then a
 ## Part C: Put them on classes
 
 ### Step 9: Group classes: assign them to sessions
-- **Existing sessions:** **Activities → Scheduled classes**, then set the **Instructor**.
-- **New sessions:** **Activities → Schedule a class → Instructor**.
+Set the **Instructor** when you schedule the session (**Activities → Schedule a class → Instructor**).
+
+An existing session's instructor can't be changed yet. Cancel it and schedule it again with the right person.
 
 The **Unassigned this week** tile on Staff & Guides counts sessions that have nobody assigned.
 
@@ -154,7 +151,7 @@ Click **Send invitation**.
 ## Part E: Test
 
 ### Step 13: Check the booking page
-Open `https://bookaihub.com/public/<your-studio-slug>`.
+Open your booking page, `https://bookaihub.com/public/<your-studio-slug>`.
 
 | Activity type | What to check |
 |---|---|
@@ -226,7 +223,7 @@ Switch between **Cards** and **Table**.
 
 - Only **active** staff count towards the limit. Deactivating someone frees a slot.
 - **Downgrading never deactivates anyone.** You keep your existing staff, but can't add more until you're under the limit.
-- A **new** studio already uses its SOLO slot on the instructor created by **Set up my studio**. Edit that instructor rather than adding another.
+- A **new** studio already uses its SOLO slot on the instructor created by **Set up the basics** (you). Edit that instructor rather than adding another.
 - Upgrade in **Billing**. These are the default limits and can be changed by the platform admin.
 
 ---

@@ -3335,6 +3335,35 @@ td.strong { font-weight: 600; }
 /* A class nobody can teach. Colour is not the only signal — the words say it. */
 .warn { color: var(--danger, #b4442f); font-weight: 600; }
 
+/* --- Guides (Help & Support) ---------------------------------------------- */
+.guide-list { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-2); }
+.guide-list a {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--ink); text-decoration: none;
+}
+.guide-list a:hover { border-color: var(--clay); }
+
+/* A guide is prose with tables, not a form: readable measure, room between parts. */
+.guide { max-width: 860px; line-height: 1.6; }
+.guide h2 { margin-top: var(--space-6); padding-top: var(--space-3); border-top: 1px solid var(--line); }
+.guide h2:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
+.guide h3 { margin-top: var(--space-4); }
+.guide table { width: 100%; border-collapse: collapse; margin: var(--space-3) 0; font-size: var(--text-sm); }
+.guide th, .guide td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.guide th { color: var(--muted); font-weight: 600; }
+.guide blockquote {
+  margin: var(--space-3) 0; padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--clay); background: var(--clay-lt); border-radius: var(--radius-sm);
+}
+.guide pre { overflow-x: auto; padding: var(--space-3); background: var(--bg, #f6f7f9); border-radius: var(--radius-sm); font-size: var(--text-sm); }
+.guide code { font-size: .92em; }
+.guide hr { border: 0; border-top: 1px solid var(--line); margin: var(--space-5) 0; }
+/* Wide tables scroll inside the guide on a phone, not the whole page. */
+@media (max-width: 620px) {
+  .guide table { display: block; overflow-x: auto; }
+}
+
 /* Setup: where each step is done. */
 .setup-links { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: 6px; }
 

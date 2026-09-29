@@ -7,7 +7,7 @@ Use it as:
 - **sample data** for documentation, demos and testing
 - the **request bodies** if you set staff up through the API
 
-> See also: [user-guide-staff.md](user-guide-staff.md) for the step-by-step guide.
+> See also: the step-by-step guide, [client/src/guides/staff.md](../client/src/guides/staff.md), shown in the dashboard under Help & Support.
 
 ---
 

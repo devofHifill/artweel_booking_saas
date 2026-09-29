@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ApiError, api } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import {
@@ -349,6 +350,12 @@ export default function Staff() {
         lede="Who teaches, what they teach, and who your customers can see."
         actions={
           <>
+            {/* The guide for this screen, where the question comes up. */}
+            {isAdmin && (
+              <Link className="button-link" to="/help/guides/staff">
+                How this works
+              </Link>
+            )}
             <select
               value={statusFilter}
               aria-label="Filter by status"
