@@ -175,4 +175,13 @@ export const listServicesQuerySchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+
+  /**
+   * Whether customers can book each service right now, and if not, why not.
+   * Opt in for the same reason as `withStats`: only the catalogue shows it.
+   */
+  withReadiness: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });

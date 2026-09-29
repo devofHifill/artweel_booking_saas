@@ -159,7 +159,8 @@ export function requireCapacity(
   const limit = PLANS[plan][kind];
   if (limit === null || current < limit) return;
 
-  const label = kind === 'maxStaff' ? 'instructors' : 'locations';
+  const noun = kind === 'maxStaff' ? 'instructor' : 'location';
+  const label = limit === 1 ? noun : `${noun}s`;
   const next = kind === 'maxStaff' ? nextPlanWithMoreStaff(plan) : PLANS.PRO;
 
   throw new AppError(

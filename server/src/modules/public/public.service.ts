@@ -1,9 +1,10 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { DateTime } from 'luxon';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { AppError, BookingErrorCode } from '../../lib/app-error';
 import { getAvailability } from '../../scheduling/availability/availability.service';
-import { bookSeats, bookAppointment } from '../../scheduling/booking.service';
+import { bookSeats, bookAppointment, moveBooking } from '../../scheduling/booking.service';
 import { enrollInSeries } from '../../scheduling/series.service';
 import { haversineKm, type TravelFeeBand } from '../../scheduling/travel/travel';
 import { canAcceptBookings } from '../billing/plan';
@@ -1196,10 +1197,19 @@ export async function getBookingByToken(token: string) {
              booking page would be answering a question nobody has asked yet. */
           bookingInstructions: true,
           meetingPoint: true,
+          // How far ahead a new date may be, for the reschedule options.
+          maxHorizonDays: true,
         },
       },
       staff: { select: { id: true, name: true } },
       location: { select: { id: true, name: true, address: true, locationType: true } },
+      /* The class's location, for a booking made before the class had one —
+         the manage page falls back to it. */
+      session: {
+        select: {
+          location: { select: { id: true, name: true, address: true, locationType: true } },
+        },
+      },
       organization: {
         select: {
           id: true,
@@ -1303,92 +1313,143 @@ export async function cancelByToken(token: string) {
   };
 }
 
-export async function rescheduleByToken(token: string, newStartsAt: string) {
-  const { booking, policy, canReschedule } = await getBookingByToken(token);
-
-  if (booking.status === 'CANCELLED') {
-    throw AppError.badRequest('This booking has already been cancelled.');
-  }
+/** Why a booking cannot be moved by its customer, or null when it can. */
+function rescheduleRefusal(
+  data: Awaited<ReturnType<typeof getBookingByToken>>,
+): string | null {
+  const { booking, policy, canReschedule } = data;
+  if (booking.status === 'CANCELLED') return 'This booking has been cancelled.';
+  if (booking.startsAt <= new Date()) return 'This booking has already started.';
   if (!canReschedule) {
-    throw AppError.conflict(
-      policy?.allowReschedule === false
-        ? 'This booking cannot be rescheduled.'
-        : `Bookings must be changed at least ${policy?.rescheduleCutoffHours ?? 0} hours ahead.`,
-      'RESCHEDULE_NOT_ALLOWED',
-    );
+    return policy?.allowReschedule === false
+      ? `This booking cannot be changed online. Contact ${booking.organization.name} to move it.`
+      : `Bookings can be changed up to ${policy?.rescheduleCutoffHours ?? 0} hours before they start.`;
   }
-  if (booking.serviceType.bookingMode !== 'APPOINTMENT') {
-    throw AppError.badRequest(
-      'Class bookings cannot be moved. Cancel and book another date.',
-    );
+  if (!booking.sessionId && !booking.staffId) {
+    return `This booking cannot be changed online. Contact ${booking.organization.name} to move it.`;
   }
-  if (!booking.staffId) {
-    throw AppError.badRequest('This booking has no instructor assigned.');
-  }
+  return null;
+}
 
-  const startsAt = new Date(newStartsAt);
-  const endsAt = new Date(
-    startsAt.getTime() + booking.serviceType.durationMinutes * 60_000,
-  );
+/**
+ * What a customer could move their booking to: other dates of the same class,
+ * or other times with the same instructor for a One to one.
+ *
+ * Read from the booking page's own availability, so a customer is only ever
+ * offered what the page would sell to somebody new — working hours, notice,
+ * same-day rules and all. A class keeps to its location, when it has one: a
+ * move is not the moment to send somebody across town.
+ */
+export async function rescheduleOptionsByToken(token: string) {
+  const data = await getBookingByToken(token);
+  const refusal = rescheduleRefusal(data);
+  const { booking } = data;
 
-  /**
-   * Cancel then rebook, inside one transaction.
-   *
-   * Moving the existing rows in place would mean the instructor's time block
-   * briefly overlaps itself, and the exclusion constraint would reject the
-   * customer's own move. Releasing first makes the new slot genuinely free.
-   */
-  const { cancelBooking } = await import('../../scheduling/booking.service');
-  await cancelBooking(booking.organizationId, booking.id);
+  if (refusal) return { allowed: false as const, reason: refusal, sessions: [], slots: [] };
 
-  try {
-    const replacement = await bookAppointment({
-      organizationId: booking.organizationId,
-      staffId: booking.staffId,
-      serviceTypeId: booking.serviceTypeId,
-      customerId: booking.customerId,
+  const zone = booking.timezone;
+  const today = DateTime.now().setZone(zone);
+  const horizonDays = Math.min(booking.serviceType.maxHorizonDays ?? 90, 90);
+
+  const session = booking.sessionId
+    ? await prisma.session.findUnique({
+        where: { id: booking.sessionId },
+        select: { locationId: true },
+      })
+    : null;
+
+  const availability = await getPublicAvailability({
+    slug: booking.organization.slug,
+    serviceTypeId: booking.serviceTypeId,
+    fromLocalDate: today.toFormat('yyyy-MM-dd'),
+    toLocalDate: today.plus({ days: horizonDays }).toFormat('yyyy-MM-dd'),
+    locationId: (booking.sessionId ? session?.locationId : booking.locationId) ?? undefined,
+    staffId: booking.sessionId ? undefined : (booking.staffId ?? undefined),
+    seats: booking.seats,
+  });
+
+  const current = booking.startsAt.getTime();
+  return {
+    allowed: true as const,
+    reason: null,
+    timezone: zone,
+    sessions: booking.sessionId
+      ? availability.sessions
+          .filter((s) => s.sessionId !== booking.sessionId)
+          .map((s) => ({ sessionId: s.sessionId, startsAt: s.startsAt, seatsAvailable: s.seatsAvailable }))
+      : [],
+    slots: booking.sessionId
+      ? []
+      : availability.slots
+          .filter((s) => new Date(s.startsAt).getTime() !== current)
+          .map((s) => ({ startsAt: s.startsAt })),
+  };
+}
+
+/**
+ * Moves a booking for its customer.
+ *
+ * Only to something the options above would offer — checked again here, not
+ * trusted from the page, because a stale tab or a hand-made request must not
+ * be able to move a lesson outside working hours. Then moved IN PLACE (see
+ * `moveBooking`), so the payment, the reference and this very link carry on
+ * working. It used to cancel and rebook, which left any payment behind on the
+ * cancelled booking, where a later refund could not find it.
+ */
+export async function rescheduleByToken(
+  token: string,
+  target: { sessionId?: string; startsAt?: string },
+) {
+  const data = await getBookingByToken(token);
+  const refusal = rescheduleRefusal(data);
+  if (refusal) throw AppError.conflict(refusal, 'RESCHEDULE_NOT_ALLOWED');
+
+  const { booking } = data;
+  const options = await rescheduleOptionsByToken(token);
+
+  if (booking.sessionId) {
+    if (!target.sessionId) {
+      throw AppError.badRequest('Choose another date for this class.');
+    }
+    if (!options.sessions.some((s) => s.sessionId === target.sessionId)) {
+      throw AppError.conflict(
+        'That date is no longer available. Pick another.',
+        'RESCHEDULE_TARGET_UNAVAILABLE',
+      );
+    }
+    await moveBooking(booking.organizationId, booking.id, { sessionId: target.sessionId });
+  } else {
+    if (!target.startsAt) throw AppError.badRequest('Choose another time.');
+    const wanted = new Date(target.startsAt).getTime();
+    if (!options.slots.some((s) => new Date(s.startsAt).getTime() === wanted)) {
+      throw AppError.conflict(
+        'That time is no longer available. Pick another.',
+        'RESCHEDULE_TARGET_UNAVAILABLE',
+      );
+    }
+    const startsAt = new Date(wanted);
+    await moveBooking(booking.organizationId, booking.id, {
       startsAt,
-      endsAt,
-      timezone: booking.timezone,
-      locationId: booking.locationId,
-      source: 'reschedule',
+      endsAt: new Date(wanted + booking.serviceType.durationMinutes * 60_000),
     });
-
-    // The old booking's reminders were cancelled with it; the replacement
-    // needs its own, dated against the new time.
-    const { notifyReschedule, scheduleBookingNotifications } = await import(
-      '../notifications/notification.service'
-    );
-    await scheduleBookingNotifications(replacement!.id).catch(() => {});
-    await notifyReschedule(replacement!.id).catch((err) => {
-      logger.error({ err }, 'Failed to queue reschedule notice');
-    });
-
-    return {
-      rescheduled: true,
-      bookingId: replacement!.id,
-      token: encodeToken(replacement!.cancelToken),
-    };
-  } catch (err) {
-    // The new time was taken between the two steps. Put the original back so
-    // the customer is not left with nothing at all.
-    await bookAppointment({
-      organizationId: booking.organizationId,
-      staffId: booking.staffId,
-      serviceTypeId: booking.serviceTypeId,
-      customerId: booking.customerId,
-      startsAt: booking.startsAt,
-      endsAt: booking.endsAt,
-      timezone: booking.timezone,
-      locationId: booking.locationId,
-      source: 'reschedule-rollback',
-    }).catch(() => {
-      // If even the rollback fails the original slot was taken too; the
-      // thrown error below is still the right thing to surface.
-    });
-
-    throw err;
   }
+
+  // Reminders were dated against the old time: replace them, then tell the
+  // customer and the studio's calendar.
+  const { cancelPendingFor, notifyReschedule, scheduleBookingNotifications } =
+    await import('../notifications/notification.service');
+  await cancelPendingFor(booking.id).catch(() => 0);
+  await scheduleBookingNotifications(booking.id).catch(() => {});
+  await notifyReschedule(booking.id).catch((err) => {
+    logger.error({ err }, 'Failed to queue reschedule notice');
+  });
+  const { queueEventSync } = await import('../calendar/calendar.service');
+  await queueEventSync({ bookingId: booking.id, action: 'UPSERT' }).catch((err) => {
+    logger.error({ err }, 'Failed to queue calendar update');
+  });
+
+  // Same booking, same link.
+  return { rescheduled: true, bookingId: booking.id, token };
 }
 
 export { randomBytes };

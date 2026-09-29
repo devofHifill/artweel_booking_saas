@@ -26,7 +26,23 @@ const createLocationSchema = z.object({
   address: z.string().max(500).optional().nullable(),
   lat: z.number().min(-90).max(90).optional().nullable(),
   lng: z.number().min(-180).max(180).optional().nullable(),
-  timezone: z.string().max(64).default('America/New_York'),
+  /**
+   * Omitted means the STUDIO's zone, filled in by the service. This defaulted
+   * to America/New_York, and availability reads a location's zone for its
+   * times, so a location added anywhere else offered lessons hours out.
+   */
+  timezone: z
+    .string()
+    .max(64)
+    .refine((value) => {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: value });
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'Unknown timezone.')
+    .optional(),
   radiusMeters: z.number().int().positive().max(500_000).optional().nullable(),
   travelFeeBands: z.array(travelBandSchema).max(20).optional().nullable(),
   isActive: z.boolean().default(true),

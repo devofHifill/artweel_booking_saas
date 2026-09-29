@@ -436,9 +436,16 @@ async function loadBooking(bookingId: string) {
     where: { id: bookingId },
     include: {
       customer: true,
-      serviceType: { select: { name: true } },
+      serviceType: { select: { name: true, meetingPoint: true } },
       staff: { select: { name: true } },
       location: { select: { name: true, address: true, locationType: true } },
+      /* The class's own location, for a booking that has none — see
+         `buildContext`. */
+      session: {
+        select: {
+          location: { select: { name: true, address: true, locationType: true } },
+        },
+      },
       organization: {
         select: { id: true, name: true, slug: true, currency: true },
       },
@@ -450,6 +457,12 @@ async function buildContext(
   booking: LoadedBooking,
   opts: { refundCents?: number } = {},
 ): Promise<BookingContext> {
+  /* A class booking takes its place from the CLASS when it has none of its
+     own. The booking's copy is written at checkout, so one made before the
+     class had a location — any class scheduled before the studio's first
+     location existed — said "Where: Details to follow" for good. */
+  const place = booking.location ?? booking.session?.location ?? null;
+
   return {
     customerName: booking.customer.name,
     studioName: booking.organization.name,
@@ -458,10 +471,9 @@ async function buildContext(
     timezone: booking.timezone,
     // A mobile booking's "location" is the customer's own address, which they
     // already know; naming our service area back at them is noise.
-    locationName:
-      booking.location?.locationType === 'FIXED' ? booking.location.name : null,
-    locationAddress:
-      booking.location?.locationType === 'FIXED' ? booking.location.address : null,
+    locationName: place?.locationType === 'FIXED' ? place.name : null,
+    locationAddress: place?.locationType === 'FIXED' ? place.address : null,
+    meetingPoint: booking.serviceType.meetingPoint,
     staffName: booking.staff?.name ?? null,
     seats: booking.seats,
     totalCents: booking.totalCents,

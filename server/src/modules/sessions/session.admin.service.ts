@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { AppError } from '../../lib/app-error';
+import { onlyLocationId } from '../locations/location.service';
 import { markAttendance } from '../bookings/booking.admin.service';
 import { createSession, cancelSession } from '../../scheduling/session.service';
 import { cancelBooking } from '../../scheduling/booking.service';
@@ -217,14 +218,25 @@ export async function createClass(
     if (!staff) throw AppError.badRequest('Instructor not found.');
   }
 
-  const location = input.locationId
+  /*
+    No location given: a studio with exactly one takes that one.
+
+    The booking page asks for sessions AT a location as soon as the studio has
+    one, so a session with no location is invisible to customers. With one
+    location there is nowhere else the class could be, and "Not set" — the
+    Schedule form's default — would hide it for no reason. With several, which
+    room it is in is a real choice, so nothing is guessed.
+  */
+  const locationId = input.locationId ?? (await onlyLocationId(organizationId));
+
+  const location = locationId
     ? await prisma.location.findFirst({
-        where: { id: input.locationId, organizationId },
+        where: { id: locationId, organizationId },
         select: { id: true, lat: true, lng: true },
       })
     : null;
 
-  if (input.locationId && !location) {
+  if (locationId && !location) {
     throw AppError.badRequest('Location not found.');
   }
 
@@ -283,7 +295,7 @@ export async function createClass(
            the note where `capacity` is computed. */
         capacity,
         staffId: input.staffId ?? null,
-        locationId: input.locationId ?? null,
+        locationId,
         paddingBeforeMinutes: service.paddingBeforeMinutes,
         paddingAfterMinutes: service.paddingAfterMinutes,
         lat: location?.lat ?? null,
@@ -360,6 +372,17 @@ export async function updateClass(
         'schedule it again with the right person.',
       'STAFF_CHANGE_UNSUPPORTED',
     );
+  }
+
+  /* The studio's own location, checked — the same check `createClass` makes.
+     Without it a session could be pointed at another studio's location, which
+     a booking page would then offer the class at. */
+  if (input.locationId) {
+    const location = await prisma.location.findFirst({
+      where: { id: input.locationId, organizationId },
+      select: { id: true },
+    });
+    if (!location) throw AppError.badRequest('Location not found.');
   }
 
   return prisma.session.update({

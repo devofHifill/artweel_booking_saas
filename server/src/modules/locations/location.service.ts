@@ -56,13 +56,16 @@ export async function createLocation(
 
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
-    select: { plan: true },
+    select: { plan: true, timezone: true },
   });
 
   const activeLocations = await prisma.location.count({
     where: { organizationId, isActive: true },
   });
-  requireCapacity(org.plan as PlanId, 'maxLocations', activeLocations);
+  // A location created switched off does not use a plan slot yet.
+  if (input.isActive !== false) {
+    requireCapacity(org.plan as PlanId, 'maxLocations', activeLocations);
+  }
 
   // Mobile work is the product's differentiator and the reason to move up a
   // plan, so it is gated rather than merely limited.
@@ -73,13 +76,59 @@ export async function createLocation(
   const location = await prisma.location.create({
     data: {
       ...(input as Prisma.LocationUncheckedCreateInput),
+      // The studio's zone unless somebody chose otherwise. See the route schema.
+      timezone: (input.timezone as string | undefined) ?? org.timezone,
       organizationId,
     },
   });
 
-  if (location.isActive) await placeUnplacedStaff(organizationId, location.id);
+  if (location.isActive) {
+    await placeUnplacedStaff(organizationId, location.id);
+    if (activeLocations === 0) {
+      await adoptSessionsWithoutLocation(organizationId, location.id);
+    }
+  }
 
   return location;
+}
+
+/** The studio's location, when it has exactly one active one; otherwise null. */
+export async function onlyLocationId(organizationId: string): Promise<string | null> {
+  const locations = await prisma.location.findMany({
+    where: { organizationId, isActive: true },
+    select: { id: true },
+    take: 2,
+  });
+  return locations.length === 1 ? locations[0]!.id : null;
+}
+
+/**
+ * Gives a studio's FIRST location to its upcoming sessions that have none.
+ *
+ * Before a studio has a location, the booking page does not ask by location,
+ * so sessions with none are shown and booked. The moment it gets one, the page
+ * picks it and asks for sessions AT it — and every session made before that
+ * matched nothing and vanished, confirmed bookings included, while the
+ * dashboard still listed them as normal. With a single location they can only
+ * have been there, so this says so.
+ *
+ * Upcoming only: a class that already ran is history, and a location on it
+ * now would be a claim about the past that nobody made.
+ */
+export async function adoptSessionsWithoutLocation(
+  organizationId: string,
+  locationId: string,
+) {
+  const { count } = await prisma.session.updateMany({
+    where: {
+      organizationId,
+      locationId: null,
+      courseSeriesId: null,
+      startsAt: { gte: new Date() },
+    },
+    data: { locationId },
+  });
+  return count;
 }
 
 export async function updateLocation(
@@ -94,6 +143,39 @@ export async function updateLocation(
   // still satisfy that type's requirements using the existing coordinates.
   validateGeometry({ ...existing, ...input });
 
+  /*
+    Switching a location off with classes still to run at it is refused.
+
+    The booking page only offers active locations, so those classes would
+    vanish from it — confirmed bookings included — while the dashboard went on
+    listing them. The same reason staff with upcoming work cannot be
+    deactivated. Move or cancel them first.
+  */
+  if (input.isActive === false && existing.isActive) {
+    const upcoming = await upcomingClassesAt(organizationId, id);
+    if (upcoming > 0) {
+      throw AppError.conflict(
+        `${upcoming} upcoming ${upcoming === 1 ? 'class is' : 'classes are'} at ` +
+          `${existing.name}. Move or cancel ${upcoming === 1 ? 'it' : 'them'} ` +
+          `before switching the location off, or customers can no longer book ` +
+          `${upcoming === 1 ? 'it' : 'them'}.`,
+        'LOCATION_HAS_UPCOMING',
+      );
+    }
+  }
+
+  // Switching one back on takes a plan slot, the same as adding one.
+  if (input.isActive === true && !existing.isActive) {
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { plan: true },
+    });
+    const active = await prisma.location.count({
+      where: { organizationId, isActive: true },
+    });
+    requireCapacity(org.plan as PlanId, 'maxLocations', active);
+  }
+
   return prisma.location.update({
     where: { id },
     data: input as Prisma.LocationUncheckedUpdateInput,
@@ -104,17 +186,38 @@ export async function deleteLocation(organizationId: string, id: string) {
   const location = await prisma.location.findFirst({ where: { id, organizationId } });
   if (!location) throw AppError.notFound('Location not found.');
 
-  const bookings = await prisma.booking.count({ where: { locationId: id } });
-  if (bookings > 0) {
+  /*
+    Classes count as history too, not only bookings. Deleting sets each class's
+    location to nothing (`onDelete: SetNull`), and a class with no location is
+    hidden from the booking page once the studio has any — so an upcoming class
+    here would silently stop selling, and a past one would lose where it ran.
+  */
+  const [bookings, sessions] = await Promise.all([
+    prisma.booking.count({ where: { locationId: id } }),
+    prisma.session.count({ where: { locationId: id } }),
+  ]);
+  if (bookings + sessions > 0) {
     throw AppError.conflict(
-      'This location has booking history and cannot be deleted. ' +
-        'Deactivate it instead.',
+      'This location has classes or bookings and cannot be deleted. ' +
+        'Switch it off instead.',
       'LOCATION_IN_USE',
     );
   }
 
   await prisma.location.delete({ where: { id } });
   return { deleted: true };
+}
+
+/** Classes still to run at a location, not counting cancelled ones. */
+async function upcomingClassesAt(organizationId: string, locationId: string) {
+  return prisma.session.count({
+    where: {
+      organizationId,
+      locationId,
+      status: 'SCHEDULED',
+      startsAt: { gte: new Date() },
+    },
+  });
 }
 
 /**

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useOrgBase } from '../lib/auth';
 import { LoadingRegion, SkeletonList } from '../components/states';
@@ -22,6 +23,25 @@ type Step = {
   description: string;
   done: boolean;
   optional: boolean;
+};
+
+/**
+ * Where each step is done.
+ *
+ * The steps were labels: "Add a class" said what to do and not where, so a new
+ * operator had to go and find Activities themselves, and the only thing on the
+ * page you could press was the ceramics quick start. Each now goes to the
+ * screen that completes it. "Name your studio" needs a location as well as a
+ * name — the server counts both — so it offers both.
+ */
+const STEP_LINKS: Record<string, { to: string; todo: string; done: string }[]> = {
+  studio: [
+    { to: '/settings?section=studio', todo: 'Business information', done: 'Edit business information' },
+    { to: '/settings?section=locations', todo: 'Add a location', done: 'Manage locations' },
+  ],
+  service: [{ to: '/classes', todo: 'Go to Activities', done: 'Manage activities' }],
+  hours: [{ to: '/staff', todo: 'Set hours on Staff & Guides', done: 'Manage hours' }],
+  payments: [{ to: '/integrations', todo: 'Connect Stripe', done: 'Stripe settings' }],
 };
 
 type State = {
@@ -167,6 +187,19 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       <div className="sub" style={{ fontSize: '.85rem' }}>
                         {step.description}
                       </div>
+                      {STEP_LINKS[step.id] && (
+                        <div className="setup-links">
+                          {STEP_LINKS[step.id]!.map((link) => (
+                            <Link
+                              key={link.to}
+                              to={link.to}
+                              className={step.done ? 'tiny muted' : 'tiny'}
+                            >
+                              {step.done ? link.done : `${link.todo} →`}
+                            </Link>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </li>

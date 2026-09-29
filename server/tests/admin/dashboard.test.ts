@@ -215,11 +215,15 @@ describe('rescheduling', () => {
       AT('2026-09-15T16:00:00Z'),
     );
 
-    // Cancel-then-rebook leaves the original as an audit record.
-    const original = await prisma.booking.findUniqueOrThrow({
+    // Moved in place: the SAME booking, so a payment on it stays on it. It
+    // used to be cancel-then-rebook, which stranded the payment on the
+    // cancelled original where a later refund could not find it.
+    expect(res.body.booking.id).toBe(booked.body.booking.id);
+    const moved = await prisma.booking.findUniqueOrThrow({
       where: { id: booked.body.booking.id },
     });
-    expect(original.status).toBe('CANCELLED');
+    expect(moved.status).toBe('CONFIRMED');
+    expect(moved.startsAt.toISOString()).toBe(AT('2026-09-15T16:00:00Z'));
   });
 
   it('refuses a move onto a time the instructor is already busy', async () => {
@@ -233,12 +237,13 @@ describe('rescheduling', () => {
 
     expect(res.status).toBe(409);
 
-    // And the original survives the failed move — the customer is not left
-    // with nothing at all.
+    // And the original is untouched by the failed move — still booked, at its
+    // own time. (It used to be cancelled and a copy rebooked in its place.)
     const original = await prisma.booking.findUniqueOrThrow({
       where: { id: first.body.booking.id },
     });
-    expect(original.status).toBe('CANCELLED');
+    expect(original.status).toBe('CONFIRMED');
+    expect(original.startsAt.toISOString()).toBe(AT('2026-09-15T14:00:00Z'));
 
     const active = await prisma.booking.count({
       where: {

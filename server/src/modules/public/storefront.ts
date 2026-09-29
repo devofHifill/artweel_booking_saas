@@ -298,10 +298,18 @@ export function renderHome(
     .filter(Boolean)
     .join('');
 
+  /* Payment claims only when they are true. Every studio was told "Secure card
+     payment… handled by Stripe" and "held the moment you pay", including ones
+     that take no payment online — whose booking form then said "Payable on the
+     day". Same test as the booking page, so the two cannot disagree. */
+  const pays = store.acceptsPayment;
+
   const features = [
     [
       'Instant confirmation',
-      'Your place is held the moment you pay — no waiting for someone to reply to an email.',
+      pays
+        ? 'Your place is held the moment you pay — no waiting for someone to reply to an email.'
+        : 'Your place is held the moment you book — no waiting for someone to reply to an email.',
     ],
     hours !== null
       ? [
@@ -317,10 +325,12 @@ export function renderHome(
       'Local instructors',
       'The people running these classes work here. They are not reading a script.',
     ],
-    [
-      'Secure card payment',
-      'Card payments are handled by Stripe. We never see your card details.',
-    ],
+    pays
+      ? [
+          'Secure card payment',
+          'Card payments are handled by Stripe. We never see your card details.',
+        ]
+      : ['Nothing to pay online', 'Any payment is taken on the day, when you come.'],
     org.contactPhone
       ? [
           'Real humans',

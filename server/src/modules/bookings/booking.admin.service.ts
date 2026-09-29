@@ -10,7 +10,12 @@ import { outstandingCentsOf, paidCentsOf } from '../analytics/analytics.service'
 import { priceBooking } from '../payments/money';
 import { AppError } from '../../lib/app-error';
 import { logger } from '../../lib/logger';
-import { bookAppointment, bookSeats, cancelBooking } from '../../scheduling/booking.service';
+import {
+  bookAppointment,
+  bookSeats,
+  cancelBooking,
+  moveBooking,
+} from '../../scheduling/booking.service';
 import { getAvailability } from '../../scheduling/availability/availability.service';
 
 /**
@@ -649,12 +654,16 @@ export async function cancelBookingAsStudio(
 }
 
 /**
- * Moves an appointment.
+ * Moves an appointment, in place.
  *
- * Cancel-then-rebook rather than an in-place update, for the same reason the
- * customer-facing path does it: editing the rows would leave the instructor's
- * time block briefly overlapping itself, and the exclusion constraint would
- * reject the studio's own move.
+ * It was cancel-then-rebook, and the replacement booking had nothing attached
+ * — a payment stayed on the cancelled one, where the refund path could not
+ * find it, so a customer who paid and was moved was refunded nothing if they
+ * later cancelled. `moveBooking` shifts the one booking and its time block,
+ * with the exclusion constraint still deciding clashes.
+ *
+ * The studio is not held to the booking page's hours or notice: it is moving
+ * its own diary. Only a real clash is refused.
  */
 export async function rescheduleBooking(
   organizationId: string,
@@ -683,55 +692,21 @@ export async function rescheduleBooking(
     newStartsAt.getTime() + booking.serviceType.durationMinutes * 60_000,
   );
 
-  await cancelBooking(organizationId, bookingId);
+  const moved = await moveBooking(organizationId, bookingId, {
+    startsAt: newStartsAt,
+    endsAt,
+  });
 
-  try {
-    const replacement = await bookAppointment({
-      organizationId,
-      staffId: booking.staffId,
-      serviceTypeId: booking.serviceTypeId,
-      customerId: booking.customerId,
-      startsAt: newStartsAt,
-      endsAt,
-      timezone: booking.timezone,
-      locationId: booking.locationId,
-      paddingBeforeMinutes: booking.serviceType.paddingBeforeMinutes,
-      paddingAfterMinutes: booking.serviceType.paddingAfterMinutes,
-      source: 'admin-reschedule',
-    });
+  await afterBookingChange(bookingId, 'UPSERT');
 
-    await prisma.booking.update({
-      where: { id: replacement!.id },
-      data: { totalCents: booking.totalCents, notes: booking.notes },
-    });
+  // Reminders were dated against the old time: replace them, then tell them.
+  const { cancelPendingFor, notifyReschedule, scheduleBookingNotifications } =
+    await import('../notifications/notification.service');
+  await cancelPendingFor(bookingId).catch(() => 0);
+  await scheduleBookingNotifications(bookingId).catch(() => {});
+  await notifyReschedule(bookingId).catch(() => {});
 
-    await afterBookingChange(bookingId, 'DELETE');
-    await afterBookingChange(replacement!.id, 'UPSERT');
-
-    const { notifyReschedule, scheduleBookingNotifications } = await import(
-      '../notifications/notification.service'
-    );
-    await scheduleBookingNotifications(replacement!.id).catch(() => {});
-    await notifyReschedule(replacement!.id).catch(() => {});
-
-    return replacement;
-  } catch (err) {
-    // Put the original back so a failed move does not leave the customer with
-    // nothing at all.
-    await bookAppointment({
-      organizationId,
-      staffId: booking.staffId,
-      serviceTypeId: booking.serviceTypeId,
-      customerId: booking.customerId,
-      startsAt: booking.startsAt,
-      endsAt: booking.endsAt,
-      timezone: booking.timezone,
-      locationId: booking.locationId,
-      source: 'admin-reschedule-rollback',
-    }).catch(() => {});
-
-    throw err;
-  }
+  return moved;
 }
 
 /**

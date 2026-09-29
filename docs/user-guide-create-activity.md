@@ -34,8 +34,8 @@ These cause most "my activity isn't showing" problems. Read them first.
 
 | # | Rule | What happens if you miss it |
 |---|------|-----------------------------|
-| 1 | **No dashboard screen can create a location.** The only way to get one is the **Set up my studio** button on the Setup page (`/setup`). | You can't pick a location for your activity. |
-| 2 | **Every class session must have a location.** | The session appears on your calendar but **never appears on the booking page or widget**. |
+| 1 | **Add your location first**, in **Settings → Locations** (or with **Set up my studio** on `/setup`). | You can't pick a location for your activity. |
+| 2 | **With more than one location, every class session needs one.** With a single location, sessions go there automatically, including ones scheduled before it existed. | With several locations, a session left on *"Not set"* appears on your calendar but **not on the booking page or widget**. |
 | 3 | **A staff member needs at least one activity assigned.** | They show *"Not bookable yet"* and customers can't book them. |
 | 4 | **Set the studio timezone before scheduling anything.** | Start times are saved in the wrong timezone. Fixing the timezone later does **not** move sessions already created. |
 | 5 | **New studios start on the SOLO plan:** 1 instructor, 1 location, no mobile bookings. | You can't add a second instructor. Edit the one created during setup instead. |
@@ -53,7 +53,7 @@ Go to the dashboard and sign in, or register a new studio.
 
 It **only adds what is missing and never overwrites** anything you've already set up. On a new studio it creates:
 
-- a location called **The studio** (you can't create this any other way)
+- a location called **The studio** (you can also add and rename locations in **Settings → Locations**)
 - an instructor called **Me**, with working hours **Tue–Sat, 10:00–18:00**
 - a cancellation policy called **Standard**
 - equipment (pottery wheels and a kiln)
@@ -185,7 +185,7 @@ In **Activities → Schedule a class**:
 | Date / time | Start |
 | Capacity | Up to the activity's maximum capacity |
 | Instructor | Pick one, or "Nobody yet" |
-| **Location** | **Must not be "Not set"** |
+| **Location** | With one location, leave it: the class goes there. With several, **pick one**. *"Not set"* hides the class from customers |
 | Repeat weekly | Tick and pick weekdays to create a recurring series |
 
 Use this to schedule beyond 12 weeks, or to add one-off dates.
@@ -378,7 +378,6 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 
 | Limitation | Workaround |
 |---|---|
-| **No screen to create a location** | Use **Set up my studio** on `/setup`, or ask the platform admin |
 | **Minimum guests is saved but not enforced.** A booking below the minimum is still accepted | State the minimum clearly in the description |
 | **Group sessions aren't private.** If a host books 6 of 10 seats, others can book the remaining 4 | Set **Maximum capacity** to the full party size you expect |
 | **Availability creates at most 12 weeks** of sessions | Add more with **Schedule a class → Repeat weekly** |
@@ -393,7 +392,7 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 | Symptom | Cause | Fix |
 |---|---|---|
 | Activity not on the booking page | Status is **Draft** | Set **Status: Active** |
-| Activity listed but **no dates** | Sessions have **no location** | Schedule again with **Location: The studio** |
+| Activity listed but **no dates** | You have several locations and the sessions have **none** | Edit each session and pick its location |
 | No dates in the next day or two | **Minimum notice** hides them | Expected. Lower the minimum notice if needed |
 | Later dates missing | **Bookable up to (days ahead)** is too short | Increase it |
 | Dates stop after 12 weeks | Availability limit | **Schedule a class → Repeat weekly** |
@@ -403,7 +402,7 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 | Times are off by hours | Wrong studio timezone | Settings → Localisation, then reschedule |
 | "This class has to be paid for when you book it" | Stripe connected and pay on arrival is off | Complete payment, or enable **Allow pay on arrival** |
 | Can't add a second instructor | SOLO plan limit | Edit the existing one, or upgrade |
-| Can't pick a location | No location exists | `/setup` → **Set up my studio** |
+| Can't pick a location | No location exists | **Settings → Locations → Add a location** |
 | Can't delete an activity | It has bookings or sessions | Set **Status: Draft** instead |
 | Widget area is blank | Wrong slug in `data-studio` | Copy the snippet again from **Booking Widget** |
 | Widget has a scrollbar / wrong height | Using a plain iframe | Use the snippet (it resizes itself), or raise the iframe height |

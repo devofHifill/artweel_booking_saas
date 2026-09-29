@@ -235,7 +235,7 @@ Switch between **Cards** and **Table**.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| *"The Solo plan includes 1 instructors. Upgrade to Studio to add more."* | Plan limit reached | Upgrade, or deactivate someone |
+| *"The Solo plan includes 1 instructor. Upgrade to Studio to add more."* | Plan limit reached | Upgrade, or deactivate someone |
 | *"A staff member with that email already exists at this studio."* | Duplicate email | Use a different email, or edit the existing record |
 | No **Add staff** button | You're not an Owner or Admin | Ask an Owner or Admin |
 | Card says **Not bookable yet** | No activities assigned | Step 4 |

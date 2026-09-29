@@ -693,13 +693,34 @@ publicRouter.post(
   }),
 );
 
+/**
+ * What the booking could move to. A class moves to another of its dates; a
+ * One to one to another time with the same instructor.
+ */
+publicRouter.get(
+  '/bookings/:token/reschedule-options',
+  readLimit,
+  asyncHandler(async (req, res) => {
+    res.json(await service.rescheduleOptionsByToken(param(req, 'token')));
+  }),
+);
+
 publicRouter.post(
   '/bookings/:token/reschedule',
   writeLimit,
-  validateBody(z.object({ startsAt: z.string().datetime() })),
+  validateBody(
+    z
+      .object({
+        /** A class booking: the date to move to. */
+        sessionId: z.string().uuid().optional(),
+        /** A One to one: the new start. */
+        startsAt: z.string().datetime().optional(),
+      })
+      .refine((b) => Boolean(b.sessionId) !== Boolean(b.startsAt), {
+        message: 'Send either a sessionId or a startsAt.',
+      }),
+  ),
   asyncHandler(async (req, res) => {
-    res.json(
-      await service.rescheduleByToken(param(req, 'token'), req.body.startsAt),
-    );
+    res.json(await service.rescheduleByToken(param(req, 'token'), req.body));
   }),
 );

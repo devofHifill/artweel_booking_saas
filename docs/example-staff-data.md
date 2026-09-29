@@ -264,7 +264,7 @@ Formula: `hours × 60 + minutes`. For example, 16:30 = `16 × 60 + 30` = `990`.
 
 | Message | Cause |
 |---|---|
-| *The Solo plan includes 1 instructors. Upgrade to Studio to add more.* | Plan limit reached on active staff |
+| *The Solo plan includes 1 instructor. Upgrade to Studio to add more.* | Plan limit reached on active staff |
 | *A staff member with that email already exists at this studio.* | Duplicate email |
 | *A day off cannot carry a time window.* | Day off sent with From/Until |
 | *[Name] has taught classes, so their record has to be kept.* | Tried to remove someone with history. Deactivate instead |

@@ -765,6 +765,33 @@ export const clientScript = String.raw`
   }
 
   /*
+    Where it happens, as one summary row, or '' when nothing is known.
+
+    Nothing on the way in or on the confirmation said where to go — a
+    customer booked, got a reference, and had to wait for an email or guess.
+    In order: the customer's own address for a visit to them; the location
+    they picked; the class's own location when the page picked none (a studio
+    with no locations set up yet). The name AND the address, because a name
+    alone gets nobody to a building they have not been to.
+  */
+  function whereRow() {
+    if (state.address) {
+      return '<div><span>Where</span><span>' +
+        esc([state.address.line1, state.address.city].filter(Boolean).join(', ')) +
+        '</span></div>';
+    }
+    var place = state.location;
+    if (!place && state.session && state.session.locationId) {
+      for (var i = 0; i < DATA.locations.length; i++) {
+        if (DATA.locations[i].id === state.session.locationId) place = DATA.locations[i];
+      }
+    }
+    if (!place) return '';
+    return '<div><span>Where</span><span>' +
+      esc([place.name, place.address].filter(Boolean).join(', ')) + '</span></div>';
+  }
+
+  /*
     The running total.
 
     Every number comes from /quote, which runs the same priceBooking the
@@ -826,10 +853,16 @@ export const clientScript = String.raw`
       ? '<p class="hint">You will be taken to our payment page to pay ' +
         money(q.dueNowCents) + '.</p>'
       : q.totalCents > 0
-        ? '<p class="hint">Payable at the studio.</p>'
+        /* "On the day", not "at the studio": for a tour or a visit to the
+           customer there is no studio to pay at. */
+        ? '<p class="hint">Payable on the day.</p>'
         : '';
 
-    return '<div class="summary">' + rows + '</div>' + note + terms(state.service);
+    /* Where goes first: it is the question after "how much", and a course
+       states its own venue elsewhere. */
+    var where = course ? '' : whereRow();
+
+    return '<div class="summary">' + where + rows + '</div>' + note + terms(state.service);
   }
 
   /** Asks the server what this costs. Never computes it. */
@@ -1049,6 +1082,12 @@ export const clientScript = String.raw`
         '<div><span>When</span><span>' + esc(dayIn(res.booking.startsAt, tz)) +
           ' at ' + esc(timeIn(res.booking.startsAt, tz)) + '</span></div>' +
         (state.staff ? '<div><span>With</span><span>' + esc(state.staff.name) + '</span></div>' : '') +
+        whereRow() +
+        /* The meeting point now they have booked — the manage page shows it
+           too, and it is the "which door" a map cannot answer. */
+        (state.service.meetingPoint
+          ? '<div><span>Meeting point</span><span>' + esc(state.service.meetingPoint) + '</span></div>'
+          : '') +
         (res.booking.seats > 1
           ? '<div><span>Places</span><span>' + res.booking.seats + '</span></div>' : '') +
         (res.booking.travelFeeCents
