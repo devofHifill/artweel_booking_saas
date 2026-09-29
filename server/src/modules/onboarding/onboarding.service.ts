@@ -162,6 +162,8 @@ export async function getOnboardingState(organizationId: string) {
       name: org.name,
       slug: org.slug,
       timezone: org.timezone,
+      // So setup can offer the ceramics examples to a ceramics studio only.
+      businessType: org.businessType,
     },
   };
 }
@@ -182,8 +184,15 @@ export async function markPublished(organizationId: string) {
  */
 export async function seedPotteryDefaults(
   organizationId: string,
-  input: { instructorName?: string; instructorEmail?: string; actorUserId?: string } = {},
+  input: {
+    instructorName?: string;
+    instructorEmail?: string;
+    actorUserId?: string;
+    /** The example ceramics classes and equipment. See the route. */
+    examples?: boolean;
+  } = {},
 ) {
+  const examples = input.examples !== false;
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
   });
@@ -313,7 +322,8 @@ export async function seedPotteryDefaults(
   // --- Equipment -----------------------------------------------------------
   const existingResources = await prisma.resource.count({ where: { organizationId } });
 
-  if (existingResources === 0) {
+  // Wheels and a kiln are the ceramics example, not the basics.
+  if (examples && existingResources === 0) {
     await prisma.resource.create({
       data: {
         organizationId,
@@ -342,7 +352,8 @@ export async function seedPotteryDefaults(
     where: { organizationId },
   });
 
-  if (existingServices === 0) {
+  // The three ceramics classes are the example; a kayak business says no.
+  if (examples && existingServices === 0) {
     const defaults = [
       {
         name: 'Beginner Wheel Throwing',
