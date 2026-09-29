@@ -36,6 +36,7 @@ export async function listServices(
     includeInactive?: boolean;
     bookingMode?: string;
     withStats?: boolean;
+    withReadiness?: boolean;
   } = {},
 ) {
   const services = await prisma.serviceType.findMany({
@@ -58,12 +59,23 @@ export async function listServices(
         anywhere. The count alone cannot prefill that field.
       */
       serviceLocations: { select: { locationId: true } },
+      /* Who teaches it, so the catalogue can show and change the set in place
+         rather than sending the studio to Staff & Guides, one chip per person. */
+      staffServices: { select: { staffId: true } },
       _count: { select: { staffServices: true, serviceLocations: true } },
     },
     orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
   });
 
-  if (!opts.withStats) return services;
+  const readiness = opts.withReadiness
+    ? await readinessFor(organizationId, services)
+    : null;
+
+  if (!opts.withStats) {
+    return readiness
+      ? services.map((service) => ({ ...service, readiness: readiness.get(service.id)! }))
+      : services;
+  }
 
   /*
     Merged here rather than joined in the query above. Revenue is payments net
@@ -77,6 +89,7 @@ export async function listServices(
 
   return services.map((service) => ({
     ...service,
+    ...(readiness ? { readiness: readiness.get(service.id)! } : {}),
     // Zero rather than absent for a class nobody has booked: the card prints
     // this, and a missing figure renders as "undefined bookings".
     stats: stats.get(service.id) ?? {
@@ -86,6 +99,129 @@ export async function listServices(
       revenueCents: 0,
     },
   }));
+}
+
+/**
+ * Why customers cannot book a service right now, or null when they can.
+ *
+ * Asks what the booking page itself asks, by kind:
+ *
+ *   Group class  — a date the page will show: upcoming, within how far ahead
+ *                  the service takes bookings, and at a location once the
+ *                  studio has one (the page asks by location from then on).
+ *                  An instructor is NOT needed; a group class is booked from
+ *                  its dates and never asks "who with?".
+ *   One to one   — an active instructor who teaches it, with working hours,
+ *                  and — once the studio has locations — working at one the
+ *                  service is offered at. Checked in that order, so the reason
+ *                  given is the first thing to fix.
+ *
+ * Replaced "No instructor assigned", which was the one warning the catalogue
+ * had: true of group classes that were selling fine, and silent about the
+ * reasons One to one lessons really failed.
+ */
+export type ReadinessProblem = 'NO_DATES' | 'NO_INSTRUCTOR' | 'NO_HOURS' | 'NO_LOCATION';
+export type Readiness = { bookable: boolean; problem: ReadinessProblem | null };
+
+async function readinessFor(
+  organizationId: string,
+  services: {
+    id: string;
+    bookingMode: string;
+    isActive: boolean;
+    maxHorizonDays: number;
+    serviceLocations: { locationId: string }[];
+  }[],
+): Promise<Map<string, Readiness>> {
+  const now = new Date();
+  const live = services.filter((s) => s.isActive);
+  const groupIds = live.filter((s) => s.bookingMode === 'EVENT').map((s) => s.id);
+  const oneToOneIds = live
+    .filter((s) => s.bookingMode === 'APPOINTMENT')
+    .map((s) => s.id);
+
+  const locationIds = (
+    await prisma.location.findMany({
+      where: { organizationId, isActive: true },
+      select: { id: true },
+    })
+  ).map((l) => l.id);
+  const hasLocations = locationIds.length > 0;
+
+  const [nextDates, teachers] = await Promise.all([
+    groupIds.length === 0
+      ? Promise.resolve([])
+      : prisma.session.groupBy({
+          by: ['serviceTypeId'],
+          where: {
+            organizationId,
+            serviceTypeId: { in: groupIds },
+            status: 'SCHEDULED',
+            courseSeriesId: null,
+            startsAt: { gte: now },
+            ...(hasLocations ? { locationId: { not: null } } : {}),
+          },
+          _min: { startsAt: true },
+        }),
+    oneToOneIds.length === 0
+      ? Promise.resolve([])
+      : prisma.staffService.findMany({
+          where: { serviceTypeId: { in: oneToOneIds }, staff: { isActive: true } },
+          select: {
+            serviceTypeId: true,
+            staff: {
+              select: {
+                _count: {
+                  select: { availabilityRules: { where: { ruleType: 'WORKING' } } },
+                },
+                staffLocations: { select: { locationId: true } },
+              },
+            },
+          },
+        }),
+  ]);
+
+  const firstDate = new Map(nextDates.map((row) => [row.serviceTypeId, row._min.startsAt]));
+
+  const result = new Map<string, Readiness>();
+  for (const service of services) {
+    let problem: ReadinessProblem | null = null;
+
+    if (!service.isActive || service.bookingMode === 'COURSE_SERIES') {
+      // Switched off is its own state, and a course sells as a cohort.
+      result.set(service.id, { bookable: false, problem: null });
+      continue;
+    }
+
+    if (service.bookingMode === 'EVENT') {
+      const first = firstDate.get(service.id);
+      const horizon = now.getTime() + service.maxHorizonDays * 86_400_000;
+      if (!first || first.getTime() > horizon) problem = 'NO_DATES';
+    } else {
+      const mine = teachers.filter((t) => t.serviceTypeId === service.id);
+      const withHours = mine.filter((t) => t.staff._count.availabilityRules > 0);
+      /* Where the service is offered: its own list when it has one, and
+         anywhere the studio runs when it does not. */
+      const offeredAt = service.serviceLocations.length
+        ? service.serviceLocations.map((l) => l.locationId).filter((id) => locationIds.includes(id))
+        : locationIds;
+
+      if (mine.length === 0) problem = 'NO_INSTRUCTOR';
+      else if (withHours.length === 0) problem = 'NO_HOURS';
+      else if (
+        hasLocations &&
+        !withHours.some((t) =>
+          t.staff.staffLocations.some((l) => offeredAt.includes(l.locationId)),
+        )
+      ) {
+        problem = 'NO_LOCATION';
+      }
+    }
+
+    result.set(service.id, { bookable: problem === null, problem });
+  }
+
+  return result;
 }
 
 export async function getService(organizationId: string, id: string) {

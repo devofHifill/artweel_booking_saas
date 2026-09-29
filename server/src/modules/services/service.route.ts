@@ -69,6 +69,7 @@ serviceRouter.get(
           includeInactive?: boolean;
           bookingMode?: string;
           withStats?: boolean;
+          withReadiness?: boolean;
         },
       ),
     });

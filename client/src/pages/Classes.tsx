@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, dateIn, money, plusDays, timeIn, todayIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import {
@@ -66,6 +67,23 @@ type ServiceOption = {
   /** Lifetime, and only present when the list was asked for `withStats`. */
   stats?: { bookings: number; seats: number; revenueCents: number };
   _count?: { staffServices: number; serviceLocations: number };
+  /** Who teaches it — the instructor picker on the card reads and replaces this. */
+  staffServices?: { staffId: string }[];
+  /**
+   * Whether customers can book it right now, worked out on the server by the
+   * booking page's own rules. See `readinessFor` in service.service.ts.
+   */
+  readiness?: { bookable: boolean; problem: ReadinessProblem | null } | null;
+};
+
+type ReadinessProblem = 'NO_DATES' | 'NO_INSTRUCTOR' | 'NO_HOURS' | 'NO_LOCATION';
+
+/** What each problem means, in the operator's words. */
+const PROBLEM_TEXT: Record<ReadinessProblem, string> = {
+  NO_DATES: 'Not bookable: no upcoming dates',
+  NO_INSTRUCTOR: 'Not bookable: nobody teaches it',
+  NO_HOURS: 'Not bookable: its instructors have no working hours',
+  NO_LOCATION: 'Not bookable: its instructors do not work where it runs',
 };
 
 type SessionRow = {
@@ -201,6 +219,31 @@ export default function Classes() {
    * will too once scheduling lives there — at which point this becomes a
    * route change and the form it scrolls to is gone.
    */
+  /**
+   * Adds or removes one instructor from an activity.
+   *
+   * The same link Staff & Guides makes from the person's side, made from the
+   * activity's — so "nobody teaches it" is fixed on the card that says so, not
+   * one chip per person on another page. Each toggle is a save.
+   */
+  async function toggleTeacher(svc: ServiceOption, staffId: string) {
+    const current = (svc.staffServices ?? []).map((s) => s.staffId);
+    const next = current.includes(staffId)
+      ? current.filter((id) => id !== staffId)
+      : [...current, staffId];
+
+    setBusy(true);
+    try {
+      await api.put(`${base}/services/${svc.id}/staff`, { staffIds: next });
+      await loadServices();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not change the instructors.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function scheduleFor(svc: ServiceOption) {
     setServiceTypeId(svc.id);
     /* Capacity follows the class, because that is the answer the owner would
@@ -249,10 +292,17 @@ export default function Classes() {
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [staff, setStaff] = useState<{ id: string; name: string }[]>([]);
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  /** The activity whose instructor picker is open, if any. */
+  const [teachersFor, setTeachersFor] = useState<string | null>(null);
 
   /** What a studio can actually schedule today. */
   const bookable = services.filter((s) => s.isActive !== false);
   const inactive = services.length - bookable.length;
+  /* Of the live ones, how many customers can book right now. Readiness is
+     absent only if the server predates it; count those as bookable rather
+     than alarm anybody. */
+  const readyCount = bookable.filter((s) => s.readiness?.bookable ?? true).length;
+  const notReady = bookable.length - readyCount;
 
   /**
    * The categories actually in use, for the filter's dropdown.
@@ -377,7 +427,7 @@ export default function Classes() {
          numbers. Every other caller of /services — the booking form's class
          picker, onboarding — leaves it off and does not pay for the read. */
       const s = await api.get<{ services: ServiceOption[] }>(
-        `${base}/services?includeInactive=true&withStats=true`,
+        `${base}/services?includeInactive=true&withStats=true&withReadiness=true`,
       );
       // A course service cannot take a loose class, so it is not offered.
       setServices(s.services.filter((x) => x.bookingMode !== 'COURSE_SERIES'));
@@ -652,12 +702,22 @@ export default function Classes() {
         answers better.
       */}
       <StatGrid>
+        {/*
+          Counts what customers can actually book, by the booking page's own
+          rules — not everything switched on. It said "Bookable right now" over
+          a count of active activities, beside a card that could not be booked.
+        */}
         <Kpi
-          label="Live activities"
-          value={String(bookable.length)}
+          label="Bookable now"
+          value={String(readyCount)}
           icon="classes"
+          tone={notReady > 0 ? 'amber' : undefined}
           foot={
-            services.length === 0 ? 'Nothing set up yet' : 'Bookable right now'
+            services.length === 0
+              ? 'Nothing set up yet'
+              : notReady > 0
+                ? `${notReady} live ${notReady === 1 ? 'activity cannot' : 'activities cannot'} be booked yet`
+                : 'Every live activity'
           }
         />
         <Kpi
@@ -780,7 +840,7 @@ export default function Classes() {
                    rather than a flat block. */
                 const accent =
                   svc.colorAccent ?? `color-mix(in srgb, ${colour} 65%, #000)`;
-                const unstaffed = svc._count?.staffServices === 0;
+                const problem = svc.readiness?.problem ?? null;
 
                 return (
                   <article className="cat-card" key={svc.id}>
@@ -851,16 +911,19 @@ export default function Classes() {
 
                       <div className="cat-foot">
                         {/*
-                          The unstaffed warning WINS over the sales figures.
+                          Why it cannot be booked WINS over the sales figures.
 
-                          Not a decoration: a class nobody can teach takes no
-                          bookings and says nothing about it — the silent fault
-                          the parity pass found with instructor hours. "0
+                          Not a decoration: an activity customers cannot book
+                          takes no bookings and says nothing about it. "0
                           bookings" beside it would look like a marketing
-                          problem, which is the wrong thing to go and fix.
+                          problem, which is the wrong thing to go and fix. The
+                          reason comes from the server, by the booking page's own
+                          rules — it used to be "No instructor assigned", which
+                          was true of group classes selling fine and silent about
+                          why One to one lessons really failed.
                         */}
-                        {unstaffed ? (
-                          <span className="tiny warn">No instructor assigned</span>
+                        {problem ? (
+                          <span className="tiny warn">{PROBLEM_TEXT[problem]}</span>
                         ) : (
                           <span className="tiny muted">
                             {svc.stats
@@ -877,6 +940,17 @@ export default function Classes() {
 
                         {isAdmin && (
                           <span className="cat-actions">
+                            <button
+                              className="icon-btn"
+                              title={`Who teaches ${svc.name}`}
+                              aria-label={`Who teaches ${svc.name}`}
+                              aria-expanded={teachersFor === svc.id}
+                              onClick={() =>
+                                setTeachersFor(teachersFor === svc.id ? null : svc.id)
+                              }
+                            >
+                              <Icon name="staff" size={15} />
+                            </button>
                             <button
                               className="icon-btn"
                               title={`Schedule ${svc.name}`}
@@ -904,6 +978,66 @@ export default function Classes() {
                           </span>
                         )}
                       </div>
+
+                      {/* The fix, next to the reason. Instructors are fixed
+                          here; hours and locations belong to the person, so
+                          those go to Staff & Guides. */}
+                      {isAdmin && problem && (
+                        <div className="cat-fix">
+                          {problem === 'NO_DATES' && (
+                            <button className="link" onClick={() => scheduleFor(svc)}>
+                              Schedule dates
+                            </button>
+                          )}
+                          {problem === 'NO_INSTRUCTOR' && teachersFor !== svc.id && (
+                            <button className="link" onClick={() => setTeachersFor(svc.id)}>
+                              Choose who teaches it
+                            </button>
+                          )}
+                          {(problem === 'NO_HOURS' || problem === 'NO_LOCATION') && (
+                            <Link to="/staff">
+                              {problem === 'NO_HOURS'
+                                ? 'Set their hours on Staff & Guides'
+                                : 'Set where they work on Staff & Guides'}
+                            </Link>
+                          )}
+                        </div>
+                      )}
+
+                      {isAdmin && teachersFor === svc.id && (
+                        <div className="cat-fix" role="group" aria-label={`Who teaches ${svc.name}`}>
+                          <span className="tiny muted">Who teaches it</span>
+                          {staff.length === 0 ? (
+                            <Link to="/staff">Add someone on Staff & Guides first</Link>
+                          ) : (
+                            <span className="chips">
+                              {staff.map((person) => {
+                                const on = (svc.staffServices ?? []).some(
+                                  (s) => s.staffId === person.id,
+                                );
+                                return (
+                                  <button
+                                    type="button"
+                                    key={person.id}
+                                    className={`chip ${on ? 'on' : ''}`.trim()}
+                                    aria-pressed={on}
+                                    disabled={busy}
+                                    onClick={() => void toggleTeacher(svc, person.id)}
+                                  >
+                                    {person.name}
+                                  </button>
+                                );
+                              })}
+                            </span>
+                          )}
+                          {svc.bookingMode !== 'APPOINTMENT' && (
+                            <span className="tiny muted">
+                              Group classes can be booked without this. It
+                              records who teaches them.
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </article>
                 );
