@@ -77,9 +77,53 @@ export async function createLocation(
     },
   });
 
-  if (location.isActive) await placeUnplacedStaff(organizationId, location.id);
+  if (location.isActive) {
+    await placeUnplacedStaff(organizationId, location.id);
+    if (activeLocations === 0) {
+      await adoptSessionsWithoutLocation(organizationId, location.id);
+    }
+  }
 
   return location;
+}
+
+/** The studio's location, when it has exactly one active one; otherwise null. */
+export async function onlyLocationId(organizationId: string): Promise<string | null> {
+  const locations = await prisma.location.findMany({
+    where: { organizationId, isActive: true },
+    select: { id: true },
+    take: 2,
+  });
+  return locations.length === 1 ? locations[0]!.id : null;
+}
+
+/**
+ * Gives a studio's FIRST location to its upcoming sessions that have none.
+ *
+ * Before a studio has a location, the booking page does not ask by location,
+ * so sessions with none are shown and booked. The moment it gets one, the page
+ * picks it and asks for sessions AT it — and every session made before that
+ * matched nothing and vanished, confirmed bookings included, while the
+ * dashboard still listed them as normal. With a single location they can only
+ * have been there, so this says so.
+ *
+ * Upcoming only: a class that already ran is history, and a location on it
+ * now would be a claim about the past that nobody made.
+ */
+export async function adoptSessionsWithoutLocation(
+  organizationId: string,
+  locationId: string,
+) {
+  const { count } = await prisma.session.updateMany({
+    where: {
+      organizationId,
+      locationId: null,
+      courseSeriesId: null,
+      startsAt: { gte: new Date() },
+    },
+    data: { locationId },
+  });
+  return count;
 }
 
 export async function updateLocation(

@@ -792,7 +792,9 @@ export function ServiceForm({
                   ? 'Pick days and times and the classes are put on your calendar when you save. Or leave this and schedule them below.'
                   : `${Math.min(52, days.length * weeks) * times.length} classes go on your calendar when you save.`}
               </p>
-              {days.length > 0 && times.length > 0 && !locationId && (
+              {/* Only with several locations. With one, the server puts the
+                  classes there; with none, the booking page shows them anyway. */}
+              {days.length > 0 && times.length > 0 && !locationId && locations.length > 1 && (
                 <p className="tiny muted">
                   Pick a location above, or these classes will not appear on
                   your booking page — it only shows classes at a location.

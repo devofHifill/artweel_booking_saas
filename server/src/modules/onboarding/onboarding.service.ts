@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config';
 import { placeUnplacedStaff } from '../staff/staff.service';
+import { adoptSessionsWithoutLocation } from '../locations/location.service';
 
 /**
  * Getting a studio from signup to a live booking page.
@@ -150,8 +151,10 @@ export async function seedPotteryDefaults(
     });
     created.location = true;
 
-    // Anybody added on Staff & Guides before setup ran works here too.
+    // Anybody added on Staff & Guides before setup ran works here too, and so
+    // does any class scheduled before there was anywhere to put it.
     await placeUnplacedStaff(organizationId, location.id);
+    await adoptSessionsWithoutLocation(organizationId, location.id);
   }
 
   // --- Instructor ----------------------------------------------------------

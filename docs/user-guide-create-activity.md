@@ -35,7 +35,7 @@ These cause most "my activity isn't showing" problems. Read them first.
 | # | Rule | What happens if you miss it |
 |---|------|-----------------------------|
 | 1 | **No dashboard screen can create a location.** The only way to get one is the **Set up my studio** button on the Setup page (`/setup`). | You can't pick a location for your activity. |
-| 2 | **Every class session must have a location.** | The session appears on your calendar but **never appears on the booking page or widget**. |
+| 2 | **With more than one location, every class session needs one.** With a single location, sessions go there automatically, including ones scheduled before it existed. | With several locations, a session left on *"Not set"* appears on your calendar but **not on the booking page or widget**. |
 | 3 | **A staff member needs at least one activity assigned.** | They show *"Not bookable yet"* and customers can't book them. |
 | 4 | **Set the studio timezone before scheduling anything.** | Start times are saved in the wrong timezone. Fixing the timezone later does **not** move sessions already created. |
 | 5 | **New studios start on the SOLO plan:** 1 instructor, 1 location, no mobile bookings. | You can't add a second instructor. Edit the one created during setup instead. |
@@ -185,7 +185,7 @@ In **Activities → Schedule a class**:
 | Date / time | Start |
 | Capacity | Up to the activity's maximum capacity |
 | Instructor | Pick one, or "Nobody yet" |
-| **Location** | **Must not be "Not set"** |
+| **Location** | With one location, leave it: the class goes there. With several, **pick one**. *"Not set"* hides the class from customers |
 | Repeat weekly | Tick and pick weekdays to create a recurring series |
 
 Use this to schedule beyond 12 weeks, or to add one-off dates.
@@ -393,7 +393,7 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 | Symptom | Cause | Fix |
 |---|---|---|
 | Activity not on the booking page | Status is **Draft** | Set **Status: Active** |
-| Activity listed but **no dates** | Sessions have **no location** | Schedule again with **Location: The studio** |
+| Activity listed but **no dates** | You have several locations and the sessions have **none** | Edit each session and pick its location |
 | No dates in the next day or two | **Minimum notice** hides them | Expected. Lower the minimum notice if needed |
 | Later dates missing | **Bookable up to (days ahead)** is too short | Increase it |
 | Dates stop after 12 weeks | Availability limit | **Schedule a class → Repeat weekly** |

@@ -41,6 +41,17 @@ export async function getStorefront(slug: string) {
   const now = new Date();
   const horizon = new Date(now.getTime() + LOOKAHEAD_DAYS * 86_400_000);
 
+  /*
+    The booking page's rule, applied here too. Once a studio has a location,
+    booking asks for sessions AT one, and a session with none can never be
+    booked. Listing it anyway put "Next: 3 Oct — Book now" on a card whose
+    Book now led to "No dates scheduled yet".
+  */
+  const hasLocations =
+    (await prisma.location.count({
+      where: { organizationId: organization.id, isActive: true },
+    })) > 0;
+
   const [services, staff, guestsHosted, policy, pages] = await Promise.all([
     prisma.serviceType.findMany({
       where: {
@@ -82,6 +93,7 @@ export async function getStorefront(slug: string) {
           where: {
             status: { not: 'CANCELLED' },
             startsAt: { gte: now, lte: horizon },
+            ...(hasLocations ? { locationId: { not: null } } : {}),
           },
           orderBy: { startsAt: 'asc' },
           take: 6,
