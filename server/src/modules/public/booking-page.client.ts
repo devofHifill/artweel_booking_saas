@@ -383,6 +383,56 @@ export const clientScript = String.raw`
     });
   }
 
+  /*
+    When there is nothing to book here, what the customer CAN do.
+
+    These screens used to end the conversation: "No dates scheduled yet.
+    Check back soon." and nothing else, or "Please contact the studio" with no
+    way to. Now they offer the studio's own email and phone as links, and the
+    studio's other activities as buttons, so the customer's next step is on the
+    page rather than in their head.
+  */
+  function deadEnd(message) {
+    var html = '<p class="empty">' + esc(message) + '</p>';
+
+    var ways = [];
+    if (DATA.contactEmail) {
+      ways.push('<a href="mailto:' + esc(DATA.contactEmail) + '">' + esc(DATA.contactEmail) + '</a>');
+    }
+    if (DATA.contactPhone) {
+      ways.push('<a href="tel:' + esc(DATA.contactPhone.replace(/[^+\d]/g, '')) + '">' +
+        esc(DATA.contactPhone) + '</a>');
+    }
+    if (ways.length) {
+      html += '<p class="hint">Ask ' + esc(DATA.studioName) + ' about it: ' + ways.join(' or ') + '</p>';
+    }
+
+    var others = DATA.services.filter(function (s) { return s.id !== state.service.id; });
+    if (others.length) {
+      // The same card buttons every other choice on this page uses.
+      html += '<h3>Or book something else</h3>' +
+        others.slice(0, 4).map(function (s) {
+          return '<button class="card" type="button" data-service="' + esc(s.id) + '">' +
+            '<span class="swatch" style="background:' + esc(s.color || 'var(--clay)') + '"></span>' +
+            '<span><h3>' + esc(s.name) + '</h3></span></button>';
+        }).join('');
+    }
+    return html;
+  }
+
+  /** Wires the "book something else" buttons deadEnd() drew. */
+  function wireOthers() {
+    var buttons = app.querySelectorAll('button[data-service]');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener('click', function () {
+        var id = this.getAttribute('data-service');
+        state = { service: null, location: null, staff: null, slot: null,
+                  session: null, address: null, coverage: null, seats: 1, children: 0 };
+        pickService(id);
+      });
+    }
+  }
+
   // --- Step 3: instructor -------------------------------------------------
   function showStaff() {
     drawSteps('Instructor');
@@ -394,8 +444,9 @@ export const clientScript = String.raw`
         if (!res.staff.length) {
           app.innerHTML = back() +
             '<h2>Who with?</h2>' +
-            '<p class="empty">Nobody is set up to teach this yet. Please contact the studio.</p>';
+            deadEnd('Nobody is set up to teach this yet.');
           wireBack(start);
+          wireOthers();
           return;
         }
         if (res.staff.length === 1) { state.staff = res.staff[0]; showTimes(); return; }
@@ -627,11 +678,12 @@ export const clientScript = String.raw`
       : !times.sessions.length;
 
     if (empty) {
-      app.innerHTML = html + '<p class="empty">' +
-        (times.mode === 'APPOINTMENT'
+      app.innerHTML = html + deadEnd(
+        times.mode === 'APPOINTMENT'
           ? 'No times available in the next three months.'
-          : 'No dates scheduled yet. Check back soon.') + '</p>';
+          : 'No dates scheduled yet.');
       wireBack(start);
+      wireOthers();
       return;
     }
 
