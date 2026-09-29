@@ -63,6 +63,64 @@ describe('naming the studio and adding its location', () => {
     expect(res.body.error.message).not.toContain('Name your studio');
   });
 
+  it('is not ready while nothing can be booked, even with every step ticked', async () => {
+    // Every step's condition met: a name, a location, a class, somebody with hours.
+    await request(app).post(`${studio.base}/locations`).set(studio.headers).send({ name: 'The boathouse' }).expect(201);
+    const classId = (
+      await request(app)
+        .post(`${studio.base}/services`)
+        .set(studio.headers)
+        .send({ name: 'Sunset kayak tour', bookingMode: 'EVENT', durationMinutes: 120, capacityMax: 10 })
+        .expect(201)
+    ).body.service.id;
+    const staffId = (
+      await request(app)
+        .post(`${studio.base}/staff`)
+        .set(studio.headers)
+        .send({ name: 'Rowan Pike', email: 'rowan@clay.test' })
+        .expect(201)
+    ).body.staff.id;
+    await prisma.availabilityRule.create({
+      data: {
+        organizationId: studio.organizationId,
+        staffId,
+        rrule: 'FREQ=WEEKLY;BYDAY=SA',
+        startMinute: 600,
+        endMinute: 1080,
+        timezone: 'Europe/London',
+        effectiveFrom: new Date(),
+      },
+    });
+
+    // ...but the class has no dates, so the booking page has nothing to sell.
+    const before = (await request(app).get(`${studio.base}/onboarding`).set(studio.headers).expect(200)).body;
+    expect(before.steps.filter((s: { done: boolean; optional: boolean; id: string }) => !s.done && !s.optional && s.id !== 'publish')).toEqual([]);
+    expect(before.readyToPublish).toBe(false);
+    expect(before.bookable).toEqual({
+      count: 0,
+      stuck: [{ id: classId, name: 'Sunset kayak tour', problem: 'NO_DATES' }],
+    });
+
+    const refused = await request(app).post(`${studio.base}/onboarding/publish`).set(studio.headers).expect(400);
+    expect(refused.body.error.message).toContain('an activity customers can book');
+
+    // A date makes it ready.
+    await request(app)
+      .post(`${studio.base}/sessions`)
+      .set(studio.headers)
+      .send({
+        serviceTypeId: classId,
+        startLocalDate: new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10),
+        localStartTime: '17:00',
+        capacity: 10,
+      })
+      .expect(201);
+
+    const after = (await request(app).get(`${studio.base}/onboarding`).set(studio.headers).expect(200)).body;
+    expect(after.readyToPublish).toBe(true);
+    expect(after.bookable).toEqual({ count: 1, stuck: [] });
+  });
+
   it('keeps the order a studio meets them in', async () => {
     expect((await steps()).map((s) => s.id)).toEqual([
       'studio',

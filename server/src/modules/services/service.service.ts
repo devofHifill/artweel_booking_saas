@@ -224,6 +224,27 @@ async function readinessFor(
   return result;
 }
 
+/**
+ * Every live activity, and whether customers can book it — for setup's "are
+ * you ready" answer, which must agree with the catalogue's cards.
+ */
+export async function activityReadiness(organizationId: string) {
+  const services = await prisma.serviceType.findMany({
+    where: { organizationId, isActive: true, bookingMode: { not: 'COURSE_SERIES' } },
+    select: {
+      id: true,
+      name: true,
+      bookingMode: true,
+      isActive: true,
+      maxHorizonDays: true,
+      serviceLocations: { select: { locationId: true } },
+    },
+    orderBy: { name: 'asc' },
+  });
+  const readiness = await readinessFor(organizationId, services);
+  return services.map((s) => ({ id: s.id, name: s.name, readiness: readiness.get(s.id)! }));
+}
+
 export async function getService(organizationId: string, id: string) {
   const service = await prisma.serviceType.findFirst({
     where: { id, organizationId },

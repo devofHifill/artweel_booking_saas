@@ -49,6 +49,8 @@ onboardingRouter.post(
       const missing = state.steps
         .filter((s) => !s.optional && !s.done && s.id !== 'publish')
         .map((s) => s.title);
+      // Every step can be ticked with nothing yet bookable; say that too.
+      if (state.bookable.count === 0) missing.push('an activity customers can book');
 
       throw AppError.badRequest(
         `Still to do: ${missing.join(', ')}.`,
