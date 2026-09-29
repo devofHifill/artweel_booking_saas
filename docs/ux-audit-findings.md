@@ -38,7 +38,7 @@ Every finding below was **seen in the app** unless marked *(code only)*.
 
 | # | Problem | Why it matters | Where |
 |---|---|---|---|
-| 2 | Setup checklist steps are plain text. None of the four is clickable. | A new operator has to find each screen themselves | `client/src/pages/Onboarding.tsx` |
+| 2 | **Fixed** (`fix/setup-steps-link`): every step links to the screen that completes it (Business information and Locations, Activities, Staff & Guides, Integrations for Stripe). *Was:* setup checklist steps were plain text. None of the four is clickable. | A new operator has to find each screen themselves | `client/src/pages/Onboarding.tsx` |
 | 9 | "Name your studio" stays unticked even though the studio was named at signup. It is really waiting for a **location**, which the step never mentions. | The operator can't tell what's missing | `getOnboardingState` in `server/src/modules/onboarding/onboarding.service.ts` (`org.name && locations > 0`) |
 | 4 | The only quick start, **Set up my studio**, is described as adding "a ceramics studio". *Correction:* it adds no pottery classes if the operator has already created an activity, but it is still the only way to get a location. | A non-pottery business either takes the ceramics defaults or has no location | `seedPotteryDefaults` in `onboarding.service.ts` |
 | 17 | After **Set up my studio**, setup says *"Everything needed is in place. Publish to start taking bookings"*, while the booking page shows no dates (#16) and the only instructor teaches nothing (#18) | The one screen meant to say "you're ready" is wrong | `getOnboardingState` |

@@ -3335,6 +3335,9 @@ td.strong { font-weight: 600; }
 /* A class nobody can teach. Colour is not the only signal — the words say it. */
 .warn { color: var(--danger, #b4442f); font-weight: 600; }
 
+/* Setup: where each step is done. */
+.setup-links { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: 6px; }
+
 /* Settings → Locations. */
 .loc-list { list-style: none; margin: var(--space-3) 0; padding: 0; }
 .loc-list > li { padding: var(--space-3) 0; border-top: 1px solid var(--line); }
