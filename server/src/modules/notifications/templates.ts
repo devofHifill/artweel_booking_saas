@@ -248,6 +248,8 @@ export type BookingContext = {
   timezone: string;
   locationName?: string | null;
   locationAddress?: string | null;
+  /** The activity's "second door on the left" — finishes the Where line. */
+  meetingPoint?: string | null;
   staffName?: string | null;
   seats: number;
   totalCents: number;
@@ -276,9 +278,14 @@ export function buildValues(ctx: BookingContext): Record<string, string> {
   // dangling label like "With:" on its own.
   const staffLine = ctx.staffName ? `\nWith: ${ctx.staffName}` : '';
   const seatsLine = ctx.seats > 1 ? `\nPlaces: ${ctx.seats}` : '';
+  /* The meeting point rides on the same line, because it finishes the same
+     answer — and every template that says "Where:" then carries it, without
+     any studio's edited template having to learn a new placeholder. */
+  const place = [ctx.locationName, ctx.locationAddress].filter(Boolean).join(' — ');
   const locationLine =
-    [ctx.locationName, ctx.locationAddress].filter(Boolean).join(' — ') ||
-    'Details to follow';
+    [place, ctx.meetingPoint ? `Meeting point: ${ctx.meetingPoint}` : '']
+      .filter(Boolean)
+      .join('. ') || 'Details to follow';
 
   const refundLine =
     ctx.refundCents === undefined

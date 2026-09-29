@@ -1200,6 +1200,13 @@ export async function getBookingByToken(token: string) {
       },
       staff: { select: { id: true, name: true } },
       location: { select: { id: true, name: true, address: true, locationType: true } },
+      /* The class's location, for a booking made before the class had one —
+         the manage page falls back to it. */
+      session: {
+        select: {
+          location: { select: { id: true, name: true, address: true, locationType: true } },
+        },
+      },
       organization: {
         select: {
           id: true,

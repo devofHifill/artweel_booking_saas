@@ -68,9 +68,9 @@ Every finding below was **seen in the app** unless marked *(code only)*.
 
 | # | Problem | Why it matters | Where |
 |---|---|---|---|
-| 14 | Nothing tells the customer **where** to go: not the booking form, the confirmation or the manage page. The form says "Payable at the studio" but gives no address or meeting point. | For a kayak tour, "the studio" means nothing | Booking page, confirmation and manage page (`server/src/modules/public/`) |
+| 14 | **Fixed** (`fix/tell-customers-where`): the booking form, confirmation, manage page and emails give the place with its address and the meeting point, falling back to the class's location when the booking has none; the manage page says so when nothing is known yet. *Was:* nothing told the customer **where** to go: not the booking form, the confirmation or the manage page. The form says "Payable at the studio" but gives no address or meeting point. | For a kayak tour, "the studio" means nothing | Booking page, confirmation and manage page (`server/src/modules/public/`) |
 | 13 | The public home page promises *"Secure card payment… handled by Stripe"* while the booking form says "Payable at the studio" (this studio has no Stripe) | Two pages contradict each other | Storefront home (`server/src/modules/marketing` / public templates) |
-| 15 | The manage page lets a customer **cancel** but not **reschedule**. The status also shows as a raw code ("CONFIRMED"). | A customer who needs a different date must cancel and rebook, and may not bother | Public manage page |
+| 15 | The manage page lets a customer **cancel** but not **reschedule**. (The raw status code is fixed with #14: it now reads "Confirmed".) | A customer who needs a different date must cancel and rebook, and may not bother | Public manage page |
 | 5 | *(code only)* An activity with no bookable times ends at "No dates scheduled yet. Check back soon.", with no waitlist offer or studio contact | A dead end. Seen for real in #16. | `booking-page.client.ts` |
 
 ## Worked well

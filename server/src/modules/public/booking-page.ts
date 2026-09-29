@@ -507,7 +507,10 @@ type ManageData = {
       meetingPoint?: string | null;
     };
     staff: { name: string } | null;
-    location: { name: string; address: string | null } | null;
+    location: { name: string; address: string | null; locationType?: string } | null;
+    session?: {
+      location: { name: string; address: string | null; locationType?: string } | null;
+    } | null;
     organization: {
       name: string;
       slug: string;
@@ -519,6 +522,15 @@ type ManageData = {
   };
   cancellationQuote: { refundCents: number; creditCents: number } | null;
   canReschedule: boolean;
+};
+
+/** A booking's status as a customer reads it, not as the database stores it. */
+const STATUS_WORDS: Record<string, string> = {
+  PENDING: 'Not confirmed yet',
+  CONFIRMED: 'Confirmed',
+  ATTENDED: 'Attended',
+  NO_SHOW: 'Missed',
+  CANCELLED: 'Cancelled',
 };
 
 /** Where the "manage your booking" link in a confirmation email lands. */
@@ -538,6 +550,7 @@ export function renderManagePage(data: ManageData, token: string): string {
   }).format(b.startsAt);
 
   const cancelled = b.status === 'CANCELLED';
+  const place = b.location ?? b.session?.location ?? null;
 
   return `<!doctype html>
 <html lang="en">
@@ -568,7 +581,19 @@ export function renderManagePage(data: ManageData, token: string): string {
     <div><span>Class</span><span>${escapeHtml(b.serviceType.name)}</span></div>
     <div><span>When</span><span>${escapeHtml(when)}</span></div>
     ${b.staff ? `<div><span>With</span><span>${escapeHtml(b.staff.name)}</span></div>` : ''}
-    ${b.location ? `<div><span>Where</span><span>${escapeHtml(b.location.name)}</span></div>` : ''}
+    ${
+      /* Where, with the address — a name alone gets nobody to a building they
+         have not been to. The class's location when the booking has none of
+         its own (it was made before the class had one). When nothing is known
+         yet, say so rather than leave the question unanswered. */
+      place
+        ? `<div><span>Where</span><span>${escapeHtml(
+            [place.name, place.address].filter(Boolean).join(', '),
+          )}</span></div>`
+        : b.serviceType.meetingPoint
+          ? ''
+          : `<div><span>Where</span><span>${escapeHtml(b.organization.name)} will send the details</span></div>`
+    }
     ${
       /* Directly under Where, because it finishes that answer rather than
          starting a new one. "Gowanus Studio" gets somebody to the building;
@@ -579,7 +604,7 @@ export function renderManagePage(data: ManageData, token: string): string {
     }
     ${b.seats > 1 ? `<div><span>Places</span><span>${b.seats}</span></div>` : ''}
     <div><span>Total</span><span>${money(b.totalCents, currency)}</span></div>
-    <div><span>Status</span><span>${escapeHtml(b.status)}</span></div>
+    <div><span>Status</span><span>${escapeHtml(STATUS_WORDS[b.status] ?? b.status)}</span></div>
   </div>
 
   ${
