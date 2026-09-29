@@ -16,6 +16,8 @@ import {
   SmsSettingsSection,
 } from '../components/settings-sections';
 import { CancellationPolicySection } from '../components/CancellationPolicyForm';
+import { LocationsSection } from '../components/LocationsSection';
+import { useSearchParams } from 'react-router-dom';
 
 /**
  * Settings.
@@ -64,6 +66,7 @@ const THEMES: { value: Theme; label: string }[] = [
  */
 const SECTIONS = [
   { id: 'studio', label: 'Business Information' },
+  { id: 'locations', label: 'Locations' },
   { id: 'booking', label: 'Booking Settings' },
   { id: 'payments', label: 'Payment Settings' },
   { id: 'cancellation', label: 'Cancellation Policy' },
@@ -80,7 +83,14 @@ const SECTIONS = [
 type SectionId = (typeof SECTIONS)[number]['id'];
 
 export default function Settings() {
-  const [section, setSection] = useState<SectionId>('studio');
+  /* `?section=locations` opens at that section, so another screen can send
+     somebody to the exact setting it is talking about rather than to the top
+     of Settings. Unknown values fall back to the first section. */
+  const [params] = useSearchParams();
+  const requested = params.get('section');
+  const [section, setSection] = useState<SectionId>(
+    SECTIONS.some((s) => s.id === requested) ? (requested as SectionId) : 'studio',
+  );
 
   return (
     <>
@@ -106,6 +116,7 @@ export default function Settings() {
 
         <div className="settings-panel">
           {section === 'studio' && <StudioSection />}
+          {section === 'locations' && <LocationsSection />}
           {section === 'booking' && <BookingSettingsSection />}
           {section === 'payments' && <PaymentSettingsSection />}
           {section === 'email' && <EmailSettingsSection />}

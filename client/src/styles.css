@@ -3335,6 +3335,15 @@ td.strong { font-weight: 600; }
 /* A class nobody can teach. Colour is not the only signal — the words say it. */
 .warn { color: var(--danger, #b4442f); font-weight: 600; }
 
+/* Settings → Locations. */
+.loc-list { list-style: none; margin: var(--space-3) 0; padding: 0; }
+.loc-list > li { padding: var(--space-3) 0; border-top: 1px solid var(--line); }
+.loc-list > li:first-child { border-top: 0; }
+.loc-list > li.row-inactive strong { color: var(--muted); }
+.loc-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.loc-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.loc-add { margin-top: var(--space-4); }
+
 /* The fix under the reason on a card, and the instructor picker. */
 .cat-fix {
   display: flex;

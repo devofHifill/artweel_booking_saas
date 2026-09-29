@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Modal } from './layout';
 
@@ -757,9 +758,14 @@ export function ServiceForm({
               ))}
             </select>
             <p className="tiny muted">
-              {locations.length === 0
-                ? 'None set up. Add them in Settings.'
-                : 'Where this one runs.'}
+              {locations.length === 0 ? (
+                <>
+                  None set up yet.{' '}
+                  <Link to="/settings?section=locations">Add one in Settings</Link>
+                </>
+              ) : (
+                'Where this one runs.'
+              )}
             </p>
           </div>
 

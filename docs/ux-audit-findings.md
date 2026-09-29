@@ -49,8 +49,8 @@ Every finding below was **seen in the app** unless marked *(code only)*.
 
 | # | Problem | Why it matters | Where |
 |---|---|---|---|
-| 10 | The **Create activity** form's Where section says *"None set up. Add them in Settings."* **Settings has no location section**: none of its 12 tabs, nor Website or Integrations, can create one. | The app sends new operators to a screen that doesn't exist | `client/src/pages/Classes.tsx` (activity editor, Where) |
-| — | There's no location screen anywhere in the dashboard. The only way to get one is **Set up my studio** (also listed in `user-guide-create-activity.md`). | Every location problem above traces back to this | — |
+| 10 | **Fixed** (`feature/locations-settings`): **Settings → Locations** lists, adds, edits, switches off and removes locations, and the activity form links straight to it. New locations get the studio's timezone (they defaulted to New York); switching one off or removing it is refused while classes are still to run there. *Was:* the **Create activity** form's Where section said *"None set up. Add them in Settings."* **Settings has no location section**: none of its 12 tabs, nor Website or Integrations, can create one. | The app sends new operators to a screen that doesn't exist | `client/src/pages/Classes.tsx` (activity editor, Where) |
+| — | **Fixed** with #10. *Was:* there was no location screen anywhere in the dashboard. The only way to get one is **Set up my studio** (also listed in `user-guide-create-activity.md`). | Every location problem above traces back to this | — |
 
 ## Activities
 
