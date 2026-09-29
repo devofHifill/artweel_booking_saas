@@ -121,6 +121,49 @@ describe('naming the studio and adding its location', () => {
     expect(after.bookable).toEqual({ count: 1, stuck: [] });
   });
 
+  it('is not done while a One to one instructor has no hours, and says who (#3)', async () => {
+    const addStaff = async (name: string, email: string) =>
+      (
+        await request(app)
+          .post(`${studio.base}/staff`)
+          .set(studio.headers)
+          .send({ name, email })
+          .expect(201)
+      ).body.staff.id as string;
+    const hours = (staffId: string) =>
+      prisma.availabilityRule.create({
+        data: {
+          organizationId: studio.organizationId,
+          staffId,
+          rrule: 'FREQ=WEEKLY;BYDAY=SA',
+          startMinute: 600,
+          endMinute: 1080,
+          timezone: 'Europe/London',
+          effectiveFrom: new Date(),
+        },
+      });
+
+    const rowan = await addStaff('Rowan Pike', 'rowan@clay.test');
+    await hours(rowan);
+    const sam = await addStaff('Sam Ortega', 'sam@clay.test');
+    const lesson = (
+      await request(app)
+        .post(`${studio.base}/services`)
+        .set(studio.headers)
+        .send({ name: 'Private lesson', bookingMode: 'APPOINTMENT', durationMinutes: 60 })
+        .expect(201)
+    ).body.service.id;
+    await request(app).put(`${studio.base}/services/${lesson}/staff`).set(studio.headers).send({ staffIds: [sam] }).expect(200);
+
+    // Somebody has hours — which used to be enough — but not the one who teaches it.
+    const before = await step('hours');
+    expect(before.done).toBe(false);
+    expect((before as unknown as { description: string }).description).toContain('Sam Ortega');
+
+    await hours(sam);
+    expect((await step('hours')).done).toBe(true);
+  });
+
   it('keeps the order a studio meets them in', async () => {
     expect((await steps()).map((s) => s.id)).toEqual([
       'studio',
