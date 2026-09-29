@@ -189,6 +189,7 @@ export default function Classes() {
          sends null, clearing a location the studio never touched. */
       locationId: svc.serviceLocations?.[0]?.locationId ?? null,
     });
+    setNotice(null);
     setShowForm(true);
   }
 
@@ -320,6 +321,8 @@ export default function Classes() {
   const seatsTaken = sessions.reduce((sum, s) => sum + s.seatsTaken, 0);
 
   const [error, setError] = useState<string | null>(null);
+  /** What saving an activity did to the calendar, once its form has closed. */
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ created: Created[]; skipped: Skipped[] } | null>(
     null,
@@ -617,6 +620,7 @@ export default function Classes() {
                 className="primary"
                 onClick={() => {
                   setEditing(null);
+                  setNotice(null);
                   setShowForm(true);
                 }}
               >
@@ -629,6 +633,11 @@ export default function Classes() {
       />
 
       {error && <div className="err">{error}</div>}
+      {notice && (
+        <div className="alert" role="status">
+          {notice}
+        </div>
+      )}
 
       {/*
         The four figures, matching the prototype's row.
@@ -688,10 +697,15 @@ export default function Classes() {
         <ServiceForm
           base={base}
           existing={editing ?? undefined}
-          onSaved={() => {
+          onSaved={(saved) => {
             setShowForm(false);
             setEditing(null);
+            setNotice(saved ?? null);
             void loadServices();
+            /* The sessions too: a new activity can schedule its first classes,
+               and without this the list below kept saying "No classes in this
+               range" until a reload, so it looked like nothing was made. */
+            void load();
           }}
           onCancel={() => {
             setShowForm(false);

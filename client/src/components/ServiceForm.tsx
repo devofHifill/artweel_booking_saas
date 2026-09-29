@@ -143,7 +143,8 @@ export function ServiceForm({
 }: {
   base: string;
   existing?: ServiceDraft;
-  onSaved: () => void;
+  /** `notice` is what happened to the classes it scheduled, when it made any. */
+  onSaved: (notice?: string) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(existing?.name ?? '');
@@ -234,7 +235,6 @@ export function ServiceForm({
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice2, setNotice2] = useState<string | null>(null);
 
   /* Every picker fails quietly. One that cannot load leaves the rest of the
      form usable, and the server defaults each to null — which is what an
@@ -376,7 +376,6 @@ export function ServiceForm({
     event.preventDefault();
     setBusy(true);
     setError(null);
-    setNotice2(null);
 
     const body = {
       name: name.trim(),
@@ -432,8 +431,12 @@ export function ServiceForm({
           `${base}/services`,
           body,
         );
+        /* Handed to the page rather than shown here: saving closes this form,
+           so a message set on it was never seen — including "no classes could
+           be scheduled", which is the one that matters. */
         const scheduled = await generateSessions(res.service.id);
-        if (scheduled) setNotice2(scheduled);
+        onSaved(scheduled ?? undefined);
+        return;
       }
       onSaved();
     } catch (err) {
@@ -1002,8 +1005,6 @@ export function ServiceForm({
             booked, so it never appears on your booking page.
           </p>
         </div>
-
-        {notice2 && <div className="alert">{notice2}</div>}
 
         {error && (
           <div className="alert danger" role="alert">
