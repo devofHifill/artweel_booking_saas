@@ -374,6 +374,17 @@ export async function updateClass(
     );
   }
 
+  /* The studio's own location, checked — the same check `createClass` makes.
+     Without it a session could be pointed at another studio's location, which
+     a booking page would then offer the class at. */
+  if (input.locationId) {
+    const location = await prisma.location.findFirst({
+      where: { id: input.locationId, organizationId },
+      select: { id: true },
+    });
+    if (!location) throw AppError.badRequest('Location not found.');
+  }
+
   return prisma.session.update({
     where: { id: sessionId },
     data: {

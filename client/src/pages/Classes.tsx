@@ -396,6 +396,13 @@ export default function Classes() {
         ]);
         setStaff(st.staff);
         setLocations(loc.locations);
+        /* With one location there is nowhere else a class can be — and one
+           left on "Not set" would be hidden from the booking page. The server
+           makes the same choice; this shows it rather than leaving the form
+           saying otherwise. */
+        if (loc.locations.length === 1) {
+          setLocationId((current) => current || loc.locations[0]!.id);
+        }
       } catch {
         /* Same reasoning as above. */
       }
@@ -442,6 +449,21 @@ export default function Classes() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not schedule.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Gives a class the location it was missing, so customers can book it. */
+  async function placeSession(session: SessionRow, locationId: string) {
+    if (!locationId) return;
+    setBusy(true);
+    try {
+      await api.patch(`${base}/sessions/${session.id}`, { locationId });
+      await load();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not set the location.');
     } finally {
       setBusy(false);
     }
@@ -1014,13 +1036,27 @@ export default function Classes() {
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value)}
               >
-                <option value="">Not set</option>
+                <option value="">
+                  {locations.length > 1 ? 'Not set (hidden from customers)' : 'Not set'}
+                </option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.name}
                   </option>
                 ))}
               </select>
+              {/*
+                Only with several locations. The booking page asks for classes
+                AT a location, so one with none is never offered — with one
+                location the server puts it there, with none there is nothing
+                to ask by, but with several it genuinely vanishes.
+              */}
+              {locations.length > 1 && !locationId && (
+                <span className="tiny warn">
+                  Pick one, or customers will not see this class on your
+                  booking page.
+                </span>
+              )}
             </label>
           </div>
 
@@ -1136,6 +1172,37 @@ export default function Classes() {
                   {session.staff ? ` · ${session.staff.name}` : ''}
                   {session.location ? ` · ${session.location.name}` : ''}
                 </div>
+                {/*
+                  A class customers cannot see, said on the class itself.
+
+                  Once the studio has a location the booking page asks for
+                  classes AT one, so a class with none is never offered — and it
+                  looked like every other row here, "0/10 booked" and all. Not
+                  for course weeks: a cohort is booked whole, without a location
+                  step. The fix is one choice, so it sits right here.
+                */}
+                {!session.location &&
+                  !session.courseSeries &&
+                  locations.length > 0 && (
+                    <div className="row" style={{ gap: 'var(--space-2)', marginTop: 4 }}>
+                      <span className="tiny warn">Not on your booking page: no location</span>
+                      {isAdmin && (
+                        <select
+                          aria-label={`Where ${session.serviceType.name} on ${dateIn(session.startsAt, timezone)} runs`}
+                          value=""
+                          disabled={busy}
+                          onChange={(e) => void placeSession(session, e.target.value)}
+                        >
+                          <option value="">Choose where…</option>
+                          {locations.map((l) => (
+                            <option key={l.id} value={l.id}>
+                              {l.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
               </div>
 
               <div className="counts">

@@ -204,6 +204,44 @@ describe('scheduling a class with no location chosen', () => {
   });
 });
 
+describe('giving a class its location afterwards', () => {
+  it('puts it back on the booking page', async () => {
+    const boathouse = await addLocation('The boathouse');
+    await addLocation('The harbour wall');
+    const id = await scheduleClass(); // several locations: left unplaced
+    expect(await bookableSessionIds(boathouse)).not.toContain(id);
+
+    await request(app)
+      .patch(`${studio.base}/sessions/${id}`)
+      .set(studio.headers)
+      .send({ locationId: boathouse })
+      .expect(200);
+
+    expect(await bookableSessionIds(boathouse)).toContain(id);
+  });
+
+  it("refuses another studio's location", async () => {
+    await addLocation('The boathouse');
+    await addLocation('The harbour wall');
+    const id = await scheduleClass();
+
+    const other = await signUpStudio(app);
+    const theirs = await request(app)
+      .post(`${other.base}/locations`)
+      .set(other.headers)
+      .send({ name: 'Not yours' })
+      .expect(201);
+
+    await request(app)
+      .patch(`${studio.base}/sessions/${id}`)
+      .set(studio.headers)
+      .send({ locationId: theirs.body.location.id })
+      .expect(400);
+
+    expect(await locationOf(id)).toBeNull();
+  });
+});
+
 describe('the storefront home page', () => {
   it('does not advertise a class the booking page cannot sell', async () => {
     await addLocation('The boathouse');
