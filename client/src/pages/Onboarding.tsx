@@ -45,8 +45,43 @@ const STEP_LINKS: Record<string, { to: string; todo: string; done: string }[]> =
   payments: [{ to: '/integrations', todo: 'Connect Stripe', done: 'Stripe settings' }],
 };
 
+type Problem = 'NO_DATES' | 'NO_INSTRUCTOR' | 'NO_HOURS' | 'NO_LOCATION';
+
+/** The same wording as the activity cards, so the two screens agree. */
+const PROBLEM_TEXT: Record<Problem, string> = {
+  NO_DATES: 'no upcoming dates',
+  NO_INSTRUCTOR: 'nobody teaches it',
+  NO_HOURS: 'its instructors have no working hours',
+  NO_LOCATION: 'its instructors do not work where it runs',
+};
+
+/** Activities customers cannot book yet, each with why and where to fix it. */
+function StuckList({ stuck }: { stuck: { id: string; name: string; problem: Problem }[] }) {
+  if (stuck.length === 0) {
+    return (
+      <p className="tiny">
+        <Link to="/classes">Add an activity on Activities →</Link>
+      </p>
+    );
+  }
+  return (
+    <ul className="tiny" style={{ margin: '4px 0 12px', paddingLeft: 18 }}>
+      {stuck.map((s) => (
+        <li key={s.id}>
+          <strong>{s.name}</strong>: {PROBLEM_TEXT[s.problem]}.{' '}
+          <Link to={s.problem === 'NO_HOURS' || s.problem === 'NO_LOCATION' ? '/staff' : '/classes'}>
+            Fix it →
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 type State = {
   steps: Step[];
+  /** How many live activities customers can book, and what stops the rest. */
+  bookable: { count: number; stuck: { id: string; name: string; problem: Problem }[] };
   readyToPublish: boolean;
   complete: boolean;
   bookingUrl: string;
@@ -222,12 +257,40 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
             </div>
           )}
 
+          {/*
+            Every step ticked, and still nothing a customer could book.
+
+            Setup used to say "Everything needed is in place" here, over a
+            booking page that said "No dates scheduled yet" — the steps only
+            count things, and a class with no dates still counts. The server
+            now asks the booking page's own question and names what is stuck.
+          */}
+          {remaining.length === 0 && !state.readyToPublish && (
+            <div className="card" style={{ marginTop: 12 }}>
+              <h2>Almost — nothing can be booked yet</h2>
+              <p className="sub">
+                Your booking page would have nothing to sell. Fix one of these
+                and you are ready to publish:
+              </p>
+              <StuckList stuck={state.bookable.stuck} />
+            </div>
+          )}
+
           {state.readyToPublish && (
             <div className="card" style={{ marginTop: 12 }}>
               <h2>Ready to go</h2>
               <p className="sub">
-                Everything needed is in place. Publish to start taking bookings.
+                {state.bookable.count === 1
+                  ? 'One activity can be booked. Publish to start taking bookings.'
+                  : `${state.bookable.count} activities can be booked. Publish to start taking bookings.`}
               </p>
+              {/* Ready, but not everything — worth saying before they go live. */}
+              {state.bookable.stuck.length > 0 && (
+                <>
+                  <p className="sub">These cannot be booked yet:</p>
+                  <StuckList stuck={state.bookable.stuck} />
+                </>
+              )}
               <button className="primary" onClick={publish} disabled={busy}>
                 Publish my booking page
               </button>

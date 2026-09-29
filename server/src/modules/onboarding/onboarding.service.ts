@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma';
 import { config } from '../../config';
 import { placeUnplacedStaff } from '../staff/staff.service';
 import { adoptSessionsWithoutLocation } from '../locations/location.service';
+import { activityReadiness } from '../services/service.service';
 
 /**
  * Getting a studio from signup to a live booking page.
@@ -102,10 +103,29 @@ export async function getOnboardingState(organizationId: string) {
   ];
 
   const required = steps.filter((s) => !s.optional && s.id !== 'publish');
-  const readyToPublish = required.every((s) => s.done);
+
+  /*
+    And something a customer can actually book.
+
+    The steps only count things — a class exists, somebody has hours — and all
+    of them could be ticked while the booking page had nothing to sell: a class
+    with no dates, a One to one nobody teaches. Setup then said "Everything
+    needed is in place" over a page that said "No dates scheduled yet". The
+    same check the catalogue uses decides it here, and names what is stuck.
+  */
+  const live = await activityReadiness(organizationId);
+  const bookable = {
+    count: live.filter((s) => s.readiness.bookable).length,
+    stuck: live
+      .filter((s) => !s.readiness.bookable && s.readiness.problem)
+      .map((s) => ({ id: s.id, name: s.name, problem: s.readiness.problem! })),
+  };
+
+  const readyToPublish = required.every((s) => s.done) && bookable.count > 0;
 
   return {
     steps,
+    bookable,
     readyToPublish,
     complete: org.onboardingDoneAt !== null,
     bookingUrl: `${config.PUBLIC_URL}/public/${org.slug}`,
