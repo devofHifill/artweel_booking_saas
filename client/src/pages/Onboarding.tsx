@@ -31,12 +31,13 @@ type Step = {
  * The steps were labels: "Add a class" said what to do and not where, so a new
  * operator had to go and find Activities themselves, and the only thing on the
  * page you could press was the ceramics quick start. Each now goes to the
- * screen that completes it. "Name your studio" needs a location as well as a
- * name — the server counts both — so it offers both.
+ * screen that completes it.
  */
 const STEP_LINKS: Record<string, { to: string; todo: string; done: string }[]> = {
   studio: [
     { to: '/settings?section=studio', todo: 'Business information', done: 'Edit business information' },
+  ],
+  location: [
     { to: '/settings?section=locations', todo: 'Add a location', done: 'Manage locations' },
   ],
   service: [{ to: '/classes', todo: 'Go to Activities', done: 'Manage activities' }],

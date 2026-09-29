@@ -14,6 +14,7 @@ import { adoptSessionsWithoutLocation } from '../locations/location.service';
 
 export type StepId =
   | 'studio'
+  | 'location'
   | 'service'
   | 'hours'
   | 'payments'
@@ -48,11 +49,24 @@ export async function getOnboardingState(organizationId: string) {
    * also let the wizard and reality drift apart.
    */
   const steps: Step[] = [
+    /*
+      Two steps, where there was one. "Name your studio" was only ticked once
+      the studio also had a LOCATION, and said nothing about one — so it sat
+      unticked for a studio that had named itself at signup, with no way to
+      tell what was missing. Each now says what it waits for.
+    */
     {
       id: 'studio',
       title: 'Name your studio',
       description: 'Your name and timezone. This is what customers see.',
-      done: Boolean(org.name) && locations > 0,
+      done: Boolean(org.name),
+      optional: false,
+    },
+    {
+      id: 'location',
+      title: 'Add your location',
+      description: 'Where your classes happen. Customers see it when they book.',
+      done: locations > 0,
       optional: false,
     },
     {
