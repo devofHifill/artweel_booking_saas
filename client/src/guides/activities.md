@@ -39,31 +39,19 @@ These cause most "my activity isn't showing" problems. Read them first.
 
 ## Part A: Studio setup (once)
 
+Setting up the studio itself has its own guide: [Setting up your studio](/help/guides/setup). In short:
+
 ### Step 1: Sign in
-Go to the dashboard and sign in, or register a new studio.
+Sign in, or start a new studio.
 
-### Step 2: Run studio setup
-1. Go to **Setup** (`/setup`). Each step on the checklist links to the screen that completes it.
-2. Click **Set up the basics**.
-
-It **only adds what is missing and never overwrites** anything you've already set up. On a new studio it creates:
-
-- a location called **The studio** (rename it, or add more, in **Settings → Locations**)
-- **you** as the instructor, with your name and email, working **Tue–Sat, 10:00–18:00**, teaching any activity nobody teaches yet
-- a cancellation policy called **Standard**
-
-Tick **Also add three example pottery classes and studio equipment** only if you run a ceramics studio. It adds Beginner Wheel Throwing, Handbuilding Workshop and Private Lesson, plus pottery wheels and a kiln.
-
-> If **Setup** shows **"You are live"**, setup is already complete.
+### Step 2: Set up the basics
+**Setup → Set up the basics** adds a location, you as the instructor with Tue–Sat 10:00–18:00 hours, and a Standard cancellation policy. Pottery examples are optional.
 
 ### Step 3: Business information
-**Settings → Business Information**: set the studio name customers will see.
+**Settings → Business Information**: the name, email and phone customers see.
 
 ### Step 4: Timezone and currency
-- **Settings → Localisation**: set the timezone the studio is actually in.
-- **Settings → Currency**: confirm the currency.
-
-⚠️ Do this **before** creating any activity or schedule.
+**Settings → Localisation** and **Settings → Currency**. ⚠️ Do this **before** creating any activity or schedule.
 
 ### Step 5: Hide the example activities (optional)
 If you added the pottery examples, for each one you don't want: **Activities → open it → Status: Draft → Save**.
