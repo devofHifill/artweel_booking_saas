@@ -158,6 +158,20 @@ export async function startCheckout(input: StartCheckoutInput) {
     );
   }
 
+  /* A customer the studio has blocked is stopped HERE, before a seat is held
+     or a payment page is made — not when the payment comes back, by which time
+     they have paid. See `refuseBlocked`. */
+  const { refuseBlocked } = await import('../public/public.service');
+  refuseBlocked(
+    await prisma.customer.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        email: input.customerEmail.trim().toLowerCase(),
+      },
+      select: { status: true },
+    }),
+  );
+
   const service = await prisma.serviceType.findFirst({
     where: { id: input.serviceTypeId, organizationId: input.organizationId },
   });
@@ -753,6 +767,10 @@ async function upsertCustomer(
   const existing = await prisma.customer.findFirst({
     where: { organizationId, email },
   });
+  /* Deliberately NOT refused when blocked. This runs from the payment webhook,
+     after the customer has paid: refusing here would keep their money and make
+     no booking. Blocked customers are stopped before checkout starts, in
+     `startCheckout` above. */
   if (existing) return existing;
 
   return prisma.customer.create({
