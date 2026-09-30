@@ -30,6 +30,27 @@ export type Guide = {
 
 export const GUIDES: Guide[] = [
   {
+    slug: 'setup',
+    title: 'Setting up your studio',
+    summary:
+      'From signing up to a live booking page: the Setup checklist, locations, booking rules, cancellations, payments, messages and your team.',
+    audience: 'admin',
+    screen: '/setup',
+    load: () => import('./setup.md?raw').then((m) => m.default),
+  },
+  {
+    slug: 'running',
+    title: 'Running your studio day to day',
+    summary:
+      'Bookings, the calendar, the daily manifest, customers, messages, refunds, and what customers can do themselves.',
+    /* For everyone who works at the counter or teaches: front desk takes
+       bookings and cancels, instructors take the register. A section they
+       cannot act on says which screen it is, and the screen refuses. */
+    audience: 'everyone',
+    screen: '/bookings',
+    load: () => import('./running.md?raw').then((m) => m.default),
+  },
+  {
     slug: 'activities',
     title: 'Creating an activity',
     summary:
