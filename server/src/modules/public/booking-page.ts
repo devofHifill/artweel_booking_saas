@@ -410,6 +410,9 @@ body.bk .cal-day:hover{border-color:var(--clay)}
 body.bk .cal-day.empty{background:none;opacity:.4}
 body.bk .cal-day .c{color:var(--ok)}
 body.bk .cal-day.on{background:var(--clay);border-color:var(--clay);color:#fff}
+/* Restated here: the green count above outranks the white one STYLES gives
+   the selected day, and green on the accent is unreadable. */
+body.bk .cal-day.on .c{color:#fff}
 
 /* Details. */
 body.bk label{font-size:14px;margin:16px 0 6px}
