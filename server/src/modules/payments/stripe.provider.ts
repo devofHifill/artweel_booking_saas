@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import { AppError } from '../../lib/app-error';
+import { logger } from '../../lib/logger';
 import type {
   CheckoutSession,
   CheckoutSessionInput,
@@ -25,6 +26,46 @@ import type {
  * No application fee. The pricing model is a flat subscription, and taking a
  * cut of a studio's revenue is the exact thing we position against.
  */
+/**
+ * A Stripe refusal during Connect onboarding, as something a studio can read.
+ *
+ * These used to reach the error handler as unknown errors and come back as a
+ * bare "Internal Server Error" — which is how "Stripe no longer allows
+ * Accounts v1 for this platform" sat unnoticed behind every Connect button.
+ * Stripe's own message is kept: it names the setting to change, and it holds
+ * nothing secret. Anything that is not a Stripe error is left alone, so a bug
+ * here still surfaces as a bug.
+ *
+ * Logged here because the error handler does not log operational errors, and
+ * a platform misconfiguration is something the operator needs to see.
+ */
+export function connectError(err: unknown): unknown {
+  if (!(err instanceof Stripe.errors.StripeError)) return err;
+
+  logger.warn(
+    { err, requestId: err.requestId, stripeType: err.type },
+    'Stripe refused a Connect onboarding request',
+  );
+
+  if (
+    err instanceof Stripe.errors.StripeConnectionError ||
+    err instanceof Stripe.errors.StripeAPIError ||
+    err instanceof Stripe.errors.StripeRateLimitError
+  ) {
+    return new AppError(
+      'Could not reach Stripe to set up payments. Try again in a minute.',
+      503,
+      'STRIPE_UNAVAILABLE',
+    );
+  }
+
+  return new AppError(
+    `Stripe would not start payment setup: ${err.message}`,
+    502,
+    'STRIPE_CONNECT_REFUSED',
+  );
+}
+
 export class StripeProvider implements PaymentProvider {
   readonly name = 'stripe';
   private readonly stripe: Stripe;
@@ -74,19 +115,23 @@ export class StripeProvider implements PaymentProvider {
     organizationName: string;
     country: string;
   }) {
-    const account = await this.stripe.accounts.create({
-      type: 'express',
-      email: input.email,
-      country: input.country,
-      business_profile: { name: input.organizationName },
-      capabilities: {
-        card_payments: { requested: true },
-        transfers: { requested: true },
-      },
-      settings: {
-        payouts: { schedule: { interval: 'daily', delay_days: 'minimum' } },
-      },
-    });
+    const account = await this.stripe.accounts
+      .create({
+        type: 'express',
+        email: input.email,
+        country: input.country,
+        business_profile: { name: input.organizationName },
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+        settings: {
+          payouts: { schedule: { interval: 'daily', delay_days: 'minimum' } },
+        },
+      })
+      .catch((err: unknown) => {
+        throw connectError(err);
+      });
 
     return { accountId: account.id };
   }
@@ -96,12 +141,16 @@ export class StripeProvider implements PaymentProvider {
     refreshUrl: string;
     returnUrl: string;
   }) {
-    const link = await this.stripe.accountLinks.create({
-      account: input.accountId,
-      refresh_url: input.refreshUrl,
-      return_url: input.returnUrl,
-      type: 'account_onboarding',
-    });
+    const link = await this.stripe.accountLinks
+      .create({
+        account: input.accountId,
+        refresh_url: input.refreshUrl,
+        return_url: input.returnUrl,
+        type: 'account_onboarding',
+      })
+      .catch((err: unknown) => {
+        throw connectError(err);
+      });
 
     return { url: link.url, expiresAt: new Date(link.expires_at * 1000) };
   }
