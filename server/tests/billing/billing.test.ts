@@ -270,6 +270,9 @@ describe('the public page when a studio lapses', () => {
     expect(page.text).toContain('not taking online bookings');
     // Their classes are still worth showing.
     expect(page.text).toContain('Beginner Wheel Throwing');
+    // ...but not as something to click into a flow that will be refused.
+    expect(page.text).not.toMatch(/<button class="card" data-service=/);
+    expect(page.text).toContain('"acceptingBookings":false');
   });
 });
 

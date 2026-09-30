@@ -110,8 +110,15 @@ type PageData = {
     bookingMode: string;
     durationMinutes: number;
     capacityMax: number;
+    /** Smallest party the studio takes. Optional: older callers omit it. */
+    capacityMin?: number;
     priceCents: number;
     color: string;
+    /* The storefront's card gradient and glyph, so a class looks the same on
+       the booking page as on the card that linked here. */
+    colorAccent?: string | null;
+    emoji?: string | null;
+    shortDescription?: string | null;
     skillLevel: string | null;
     /** G3. One bullet per line, split in the page script. */
     highlights?: string | null;
@@ -162,21 +169,40 @@ header.studio{padding:28px 0 20px;border-bottom:1px solid var(--line);margin-bot
 h1{margin:0 0 6px;font-size:1.85rem;letter-spacing:-.02em}
 .sub{color:var(--muted);margin:0;font-size:.95rem}
 h2{font-size:1.1rem;margin:0 0 14px;letter-spacing:-.01em}
-.steps{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:22px;font-size:.78rem}
-.steps span{padding:4px 10px;border-radius:99px;background:var(--card);
-border:1px solid var(--line);color:var(--muted)}
-.steps span.on{background:var(--clay);border-color:var(--clay);color:#fff}
-.steps span.done{border-color:var(--clay);color:var(--clay)}
+/* Numbered steps joined by a rule, so they read as progress rather than tags. */
+.steps{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:26px;
+font-size:.88rem;counter-reset:step}
+.steps span{display:inline-flex;align-items:center;gap:8px;color:var(--muted);
+counter-increment:step;white-space:nowrap}
+.steps span::before{content:counter(step);display:inline-flex;align-items:center;
+justify-content:center;width:26px;height:26px;border-radius:50%;font-size:.8rem;
+font-weight:600;border:1.5px solid var(--line);background:var(--card)}
+.steps span+span::after{order:-1;content:'';width:22px;height:1.5px;background:var(--line)}
+.steps span.on{color:var(--ink);font-weight:600}
+.steps span.on::before{background:var(--clay);border-color:var(--clay);color:#fff}
+.steps span.done{color:var(--ink)}
+.steps span.done::before{content:'\\2713';border-color:var(--clay);color:var(--clay)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
 padding:16px;margin-bottom:10px;cursor:pointer;display:flex;gap:14px;
 align-items:flex-start;width:100%;text-align:left;font:inherit;color:inherit;
 transition:border-color .12s,transform .12s}
-.card:hover{border-color:var(--clay);transform:translateY(-1px)}
+.card:hover{border-color:var(--clay);transform:translateY(-1px);
+box-shadow:0 6px 18px -10px rgba(0,0,0,.35)}
+.card.static{cursor:default}
+.card.static:hover{border-color:var(--line);transform:none;box-shadow:none}
+.card:disabled{cursor:not-allowed;opacity:.6}
+.card-body{flex:1;min-width:0}
+.card-side{display:flex;flex-direction:column;align-items:flex-end;gap:10px;
+margin-left:auto;padding-left:12px}
+.card-side .price{margin:0;padding:0;font-size:1.05rem}
+.go{font-size:.82rem;font-weight:600;color:var(--clay);white-space:nowrap;
+opacity:.85;transition:opacity .12s}
+.card:hover .go{opacity:1}
 .card:focus-visible{outline:2px solid var(--clay);outline-offset:2px}
 .swatch{width:4px;align-self:stretch;border-radius:2px;flex:0 0 4px}
-.card h3{margin:0 0 3px;font-size:1rem}
-.card p{margin:0;color:var(--muted);font-size:.88rem}
-.meta{margin-top:6px;font-size:.82rem;color:var(--muted)}
+.card h3{margin:0 0 4px;font-size:1.05rem}
+.card p{margin:0;color:var(--muted);font-size:.93rem}
+.meta{display:block;margin-top:8px;font-size:.86rem;color:var(--muted)}
 .price{margin-left:auto;font-weight:600;white-space:nowrap;padding-left:12px}
 .slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
 .slot{padding:11px 6px;border:1px solid var(--line);border-radius:9px;background:var(--card);
@@ -191,52 +217,74 @@ input:focus,textarea:focus{outline:2px solid var(--clay);outline-offset:-1px;bor
 .check{display:flex;gap:9px;align-items:flex-start;margin:16px 0;font-size:.86rem;
 color:var(--muted);font-weight:400}
 .check input{width:auto;margin-top:3px;flex:0 0 auto}
-button.primary{background:var(--clay);color:#fff;border:0;padding:13px 22px;
-border-radius:9px;font:inherit;font-weight:600;cursor:pointer;margin-top:20px}
+button.primary{background:var(--clay);color:#fff;border:0;padding:14px 24px;
+border-radius:9px;font:inherit;font-weight:600;cursor:pointer;margin-top:20px;
+min-width:220px}
+@media(max-width:560px){button.primary{width:100%}}
 button.primary:hover{background:var(--clay-dk)}
 button.primary:disabled{opacity:.5;cursor:not-allowed}
-.back{background:none;border:0;color:var(--muted);font:inherit;cursor:pointer;
-padding:6px 0;margin-bottom:14px;text-decoration:underline}
+.back{display:inline-flex;align-items:center;gap:6px;background:none;
+border:1px solid var(--line);border-radius:99px;color:var(--muted);font:inherit;
+font-size:.86rem;cursor:pointer;padding:6px 14px;margin-bottom:18px;
+transition:color .12s,border-color .12s}
+.back:hover{color:var(--ink);border-color:var(--muted)}
 .err{background:#fdecea;border:1px solid #f5c2bd;color:#8b2c21;padding:12px 14px;
 border-radius:9px;margin:14px 0;font-size:.9rem}
 @media(prefers-color-scheme:dark){.err{background:#3a1d1a;border-color:#6b3029;color:#f3b8b0}}
+/* An announcement, not a failure: amber, and it does not shout. */
+.notice{background:var(--card);border:1px solid var(--line);border-left:4px solid #d4a017;
+padding:14px 16px;border-radius:var(--radius);margin:0 0 24px;font-size:.93rem;color:var(--muted)}
+.notice strong{display:block;color:var(--ink);margin-bottom:2px}
 .ok{text-align:center;padding:34px 0}
 .ok .tick{width:54px;height:54px;border-radius:50%;background:var(--ok);color:#fff;
 display:flex;align-items:center;justify-content:center;font-size:1.6rem;margin:0 auto 16px}
 .summary{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
 padding:16px;margin:18px 0;text-align:left}
-.summary div{display:flex;justify-content:space-between;padding:6px 0;font-size:.9rem}
+.summary div{display:flex;justify-content:space-between;gap:16px;padding:7px 0;font-size:.93rem}
+.summary div span:last-child{text-align:right}
+.summary div.total{border-top:1px solid var(--line);margin-top:6px;padding-top:11px;font-weight:600}
+.summary div.total span:first-child{color:var(--ink)}
 .summary div span:first-child{color:var(--muted)}
-.hint{color:var(--muted);font-size:.85rem;margin:10px 0}
+.hint{color:var(--muted);font-size:.9rem;margin:10px 0}
 /* G3 — what is included, where, and what to bring. Sits above the times, so
    it is styled to read as reference material rather than as another control. */
 .detail{margin:0 0 22px}
 .detail h3{font-size:.9rem;margin:16px 0 6px;letter-spacing:-.01em}
 .detail h3:first-child{margin-top:0}
 .detail .hint{margin:0}
-.included{margin:0;padding-left:18px;color:var(--muted);font-size:.85rem}
+.included{margin:0;padding-left:18px;color:var(--muted);font-size:.9rem}
 .included li{margin:4px 0}
 /* G4 — the month grid. Sits above the list, which stays: a grid answers
    "which Saturday" and a list answers "the soonest thing". */
-.cal{margin:0 0 20px}
+.cal{margin:0 0 20px;max-width:480px}
 .cal-head{display:flex;align-items:center;justify-content:space-between;
   margin-bottom:10px}
 .cal-nav{background:var(--card);border:1px solid var(--line);border-radius:8px;
-  width:32px;height:32px;cursor:pointer;color:inherit;font-size:.9rem}
+  width:36px;height:36px;cursor:pointer;color:inherit;font-size:.95rem}
 .cal-nav:disabled{opacity:.35;cursor:default}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-.cal-dow{text-align:center;font-size:.7rem;color:var(--muted);padding:4px 0}
-.cal-pad{aspect-ratio:1}
-.cal-day{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:1px;border:1px solid var(--line);border-radius:8px;
-  background:var(--card);color:inherit;font-size:.8rem;cursor:pointer;padding:0}
-.cal-day.empty{opacity:.3;border-color:transparent;background:none;cursor:default}
-.cal-day .c{font-size:.65rem;color:var(--ok,#3f8f5f);font-weight:600}
+.cal-dow{text-align:center;font-size:.75rem;color:var(--muted);padding:4px 0}
+.cal-pad{height:52px}
+.cal-day{height:52px;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:2px;border:1px solid var(--line);border-radius:10px;
+  background:var(--card);color:inherit;font:inherit;font-size:.9rem;font-weight:600;
+  cursor:pointer;padding:0;transition:border-color .12s}
+.cal-day:hover{border-color:var(--clay)}
+.cal-day.empty{font-weight:400;color:var(--muted);opacity:.45;border-color:transparent;
+  background:none;cursor:default}
+.cal-day .c{font-size:.68rem;color:var(--ok,#3f8f5f);font-weight:600}
 .cal-day.on{border-color:var(--clay);background:var(--clay);color:#fff}
 .cal-day.on .c{color:#fff}
-.tiny-note{color:var(--muted);font-size:.75rem;margin:8px 0 0}
+.tiny-note{color:var(--muted);font-size:.82rem;margin:10px 0 0}
 .linkish{background:none;border:0;padding:0;color:var(--clay);cursor:pointer;
-  font-size:.75rem;text-decoration:underline}
+  font:inherit;font-size:.82rem;text-decoration:underline}
+/* The chosen time, carried onto the details step. */
+.picked{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  background:var(--card);border:1px solid var(--line);border-left:4px solid var(--clay);
+  border-radius:var(--radius);padding:12px 16px;margin:0 0 6px}
+.picked b{display:block}
+.picked span{color:var(--muted);font-size:.88rem}
+.tz{color:var(--muted);font-weight:400;font-size:.85em}
 /* G5 — the confirmation extras. */
 .ref{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.06em}
 .row-actions{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px}
@@ -270,7 +318,125 @@ font-size:.9rem;color:var(--muted);text-align:center}
 .contact a:hover{text-decoration:underline}
 `;
 
-export function renderBookingPage(data: PageData): string {
+/**
+ * The booking flow in the storefront's clothes.
+ *
+ * Layered over STYLES rather than replacing it: the manage page and the CMS
+ * pages still use STYLES alone. The palette is the storefront's -- white
+ * ground, #14181f ink, #e8eaef rules, 16px cards, pill buttons -- and the
+ * accent is still the studio's own, via `--clay` from brandCss.
+ *
+ * Variables are set on BODY, not :root, so they win over the token pack's
+ * dark-mode block without an !important in sight. The storefront has no dark
+ * mode, and a booking page that flips theme halfway through a site does not
+ * look like the same site.
+ */
+export const BOOKING_THEME_CSS = `
+body.bk{--bg:#fff;--ink:#14181f;--muted:#5c6472;--line:#e8eaef;--card:#fff;
+  --soft:#f7f8fa;--radius:16px;--ok:#1c7a4a;background:#fff;color:#14181f;color-scheme:light;
+  font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+/* The storefront's 1120px column, so the header, band and content share one
+   left edge. The later steps are a form and a list, which read badly that
+   wide, so they narrow once the class grid has gone. */
+body.bk .wrap{max-width:1120px;padding:0 24px 72px}
+body.bk #app:not(:has(.svc-grid)){max-width:760px}
+body.bk .bk-band{background:var(--soft);border-bottom:1px solid var(--line)}
+body.bk .bk-band-inner{max-width:1120px;margin:0 auto;padding:36px 24px 30px}
+body.bk .bk-band h1{font-size:34px;letter-spacing:-.02em;line-height:1.2;margin:8px 0 6px}
+body.bk .bk-band p{margin:0;color:var(--muted);font-size:16px}
+body.bk .bk-eyebrow{font-size:11px;font-weight:750;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--clay)}
+body.bk h2{font-size:24px;letter-spacing:-.02em;margin:0 0 16px}
+body.bk #app>h3{font-size:18px;letter-spacing:-.01em}
+/* What is included / where / cancellation: reference, so a quiet panel with
+   eyebrow labels rather than a stack of headings competing with the calendar. */
+body.bk .detail{background:var(--soft);border:1px solid var(--line);border-radius:16px;
+  padding:18px 20px}
+body.bk .detail h3{font-size:11px;font-weight:750;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--muted);margin:14px 0 4px}
+body.bk .detail h3:first-child{margin-top:0}
+body.bk .detail .hint,body.bk .detail .included{color:var(--ink);font-size:14px}
+body.bk #app>h3{margin:28px 0 14px}
+
+/* Steps: a quiet pill track under the band. */
+body.bk .steps{margin:26px 0 26px;padding:6px;background:var(--soft);border:1px solid var(--line);
+  border-radius:999px;display:inline-flex;gap:4px}
+body.bk .steps span{padding:7px 14px 7px 8px;border-radius:999px;font-size:14px;font-weight:500}
+body.bk .steps span+span::after{display:none}
+body.bk .steps span::before{width:22px;height:22px;font-size:12px;border:0;background:#e3e6ec;color:var(--muted)}
+body.bk .steps span.on{background:#fff;box-shadow:0 1px 3px rgba(12,18,32,.12)}
+body.bk .steps span.on::before{background:var(--clay);color:#fff}
+body.bk .steps span.done::before{background:var(--clay);color:#fff}
+body.bk .steps:empty{display:none}
+
+/* Back: the storefront's text link. */
+body.bk .back{border:0;padding:0;border-radius:0;font-size:14px;color:var(--muted);margin:0 0 18px}
+body.bk .back:hover{color:var(--ink)}
+
+/* Class cards: the storefront's grid card -- gradient media, price chip. */
+body.bk .svc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:20px}
+body.bk .card.svc{flex-direction:column;gap:0;padding:0;overflow:hidden;margin:0;height:100%;
+  border-radius:16px}
+body.bk .card.svc:hover{transform:translateY(-2px);box-shadow:0 12px 28px -14px rgba(12,18,32,.35)}
+body.bk .svc-media{position:relative;display:grid;place-items:center;height:132px;width:100%;
+  font-size:42px}
+body.bk .svc-chip{position:absolute;top:12px;right:12px;padding:4px 10px;border-radius:999px;
+  background:rgba(255,255,255,.92);font-size:12px;font-weight:650;color:#14181f}
+body.bk .svc-cat{left:12px;right:auto}
+body.bk .svc-body{display:flex;flex-direction:column;gap:8px;padding:16px;flex:1;width:100%}
+body.bk .svc-body h3{font-size:17px;margin:0}
+body.bk .svc-body p{margin:0;font-size:14px;color:#4a5262;line-height:1.55;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+body.bk .svc-meta{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+body.bk .svc-cta{margin-top:auto;display:block;text-align:center;padding:10px 16px;
+  border-radius:999px;background:var(--clay);color:#fff;font-weight:600;font-size:14px}
+body.bk .card.svc.static .svc-cta{display:none}
+
+/* Row cards: times, locations, instructors, courses. */
+body.bk .card{border-radius:14px;padding:16px 18px;margin-bottom:12px;align-items:center}
+body.bk .card .swatch{display:none}
+body.bk .card h3{font-size:16px}
+body.bk .card p{font-size:14px}
+body.bk .card .go{padding:7px 14px;border-radius:999px;border:1px solid #dfe3ea;color:var(--ink);
+  font-size:13px;opacity:1}
+body.bk .card:hover .go{background:var(--clay);border-color:var(--clay);color:#fff}
+body.bk .card:hover{box-shadow:0 8px 22px -14px rgba(12,18,32,.3)}
+
+/* Calendar. */
+body.bk .cal{max-width:none;border:1px solid var(--line);border-radius:16px;padding:16px}
+body.bk .cal-nav{border-radius:999px;border-color:#dfe3ea;background:#fff}
+body.bk .cal-day{height:56px;border-radius:12px;border-color:transparent;background:var(--soft)}
+body.bk .cal-day:hover{border-color:var(--clay)}
+body.bk .cal-day.empty{background:none;opacity:.4}
+body.bk .cal-day .c{color:var(--ok)}
+body.bk .cal-day.on{background:var(--clay);border-color:var(--clay);color:#fff}
+
+/* Details. */
+body.bk label{font-size:14px;margin:16px 0 6px}
+body.bk input,body.bk textarea,body.bk select{border-color:#dfe3ea;border-radius:12px;background:#fff;
+  padding:12px 14px;color:var(--ink)}
+body.bk .check{font-size:14px}
+body.bk .picked{border-left:1px solid var(--line);border-radius:16px;background:var(--soft);padding:14px 18px}
+body.bk .summary{background:var(--soft);border-color:var(--line);border-radius:16px;padding:18px 20px}
+body.bk button.primary{border-radius:999px;padding:14px 28px}
+body.bk .btn-link{border-radius:999px;border-color:#dfe3ea;background:#fff}
+body.bk .notice{border-radius:16px;background:#fff8e6;border-color:#f3dfa6;border-left-color:#d4a017;color:#6b5314}
+body.bk .notice strong{color:#4a3a0e}
+body.bk .err{border-radius:12px}
+body.bk .ok .tick{background:var(--ok)}
+@media(max-width:560px){
+  body.bk .bk-band h1{font-size:26px}
+  body.bk .steps{display:flex;width:100%;justify-content:space-between}
+  body.bk .steps span{padding:6px 10px 6px 6px;font-size:13px}
+}
+`;
+
+export function renderBookingPage(
+  data: PageData,
+  /* The storefront's header, footer and stylesheet. Absent in the widget,
+     where the studio's own site is the chrome. */
+  chrome?: { css: string; header: string; footer: string },
+): string {
   const { organization, services, locations } = data;
   const courses = data.courses ?? [];
 
@@ -312,25 +478,58 @@ export function renderBookingPage(data: PageData): string {
     })),
   };
 
-  // Real HTML for the crawler and for anyone without JavaScript. The client
-  // script upgrades these same buttons into the step flow.
-  const serviceCards = services
-    .map(
-      (s) => `
-      <button class="card" data-service="${escapeHtml(s.id)}" type="button">
-        <span class="swatch" style="background:${escapeHtml(s.color)}"></span>
-        <span>
-          <h3>${escapeHtml(s.name)}</h3>
-          ${s.description ? `<p>${escapeHtml(s.description)}</p>` : ''}
-          <span class="meta">${duration(s.durationMinutes)}${
-            s.bookingMode !== 'APPOINTMENT'
-              ? ` &middot; up to ${s.capacityMax} places`
-              : ''
-          }${s.skillLevel ? ` &middot; ${escapeHtml(s.skillLevel)}` : ''}</span>
+  /*
+    Real HTML for the crawler and for anyone without JavaScript. The client
+    script upgrades these same buttons into the step flow.
+
+    When the studio is not taking bookings the same cards render as plain
+    blocks: no button, no hover, no "Book" cue. A card that looks clickable
+    under a banner saying "not taking bookings" invites a click the page then
+    has to refuse three steps later.
+  */
+  const serviceCard = (
+    s: PageData['services'][number],
+    bookable: boolean,
+  ): string => {
+    const minGuests = s.capacityMin ?? 1;
+    const facts = [
+      duration(s.durationMinutes),
+      s.bookingMode !== 'APPOINTMENT'
+        ? `up to ${s.capacityMax} ${s.capacityMax === 1 ? 'place' : 'places'}`
+        : '',
+      s.bookingMode !== 'APPOINTMENT' && minGuests > 1
+        ? `minimum ${minGuests} guests`
+        : '',
+      s.skillLevel ? escapeHtml(s.skillLevel) : '',
+    ].filter(Boolean);
+    /* The storefront's gradient: the calendar colour to its accent, flat when
+       no accent was picked. */
+    const media = `linear-gradient(135deg, ${escapeHtml(s.color)}, ${escapeHtml(
+      s.colorAccent ?? s.color,
+    )})`;
+    const blurb = s.shortDescription || s.description;
+    const inner = `
+        <span class="svc-media" style="background:${media}">
+          ${s.emoji ? escapeHtml(s.emoji) : ''}
+          ${s.category ? `<span class="svc-chip svc-cat">${escapeHtml(s.category.name)}</span>` : ''}
+          <span class="svc-chip">${money(s.priceCents, organization.currency)}</span>
         </span>
-        <span class="price">${money(s.priceCents, organization.currency)}</span>
-      </button>`,
-    )
+        <span class="svc-body">
+          <h3>${escapeHtml(s.name)}</h3>
+          <span class="svc-meta">${facts.map((f) => `<span>${f}</span>`).join('')}</span>
+          ${blurb ? `<p>${escapeHtml(blurb)}</p>` : ''}
+          <span class="svc-cta" aria-hidden="true">Book now</span>
+        </span>`;
+    return bookable
+      ? `
+      <button class="card svc" data-service="${escapeHtml(s.id)}" type="button">${inner}
+      </button>`
+      : `
+      <div class="card svc static">${inner}
+      </div>`;
+  };
+  const serviceCards = services
+    .map((s) => serviceCard(s, data.acceptingBookings))
     .join('');
 
   /*
@@ -386,15 +585,16 @@ export function renderBookingPage(data: PageData): string {
 <meta property="og:description" content="${escapeHtml(description)}">
 <meta property="og:type" content="website">
 <script type="application/ld+json">${jsonForScript(jsonLd)}</script>
-<style>${STYLES}${brandCss(resolveBrand(organization))}</style>
+<style>${STYLES}${chrome ? chrome.css : ''}${BOOKING_THEME_CSS}${brandCss(resolveBrand(organization))}</style>
 </head>
-<body>
+<body class="bk${chrome ? ' sf' : ''}">
+${chrome ? chrome.header : ''}
+<div class="bk-band"><div class="bk-band-inner">
+  <div class="bk-eyebrow">Book online</div>
+  <h1>${escapeHtml(chrome ? `Book with ${organization.name}` : organization.name)}</h1>
+  <p>${escapeHtml(tagline)}</p>
+</div></div>
 <div class="wrap">
-  <header class="studio">
-    <h1>${escapeHtml(organization.name)}</h1>
-    <p class="sub">${escapeHtml(tagline)}</p>
-  </header>
-
   <div class="steps" id="steps"></div>
   <div id="app">
     ${
@@ -402,7 +602,7 @@ export function renderBookingPage(data: PageData): string {
         ? `<section id="step-service">
       <h2>What would you like to book?</h2>
       ${
-        serviceCards ||
+        (serviceCards && `<div class="svc-grid">${serviceCards}</div>`) ||
         (courseCards
           ? ''
           : '<p class="empty">No classes are open for booking right now.</p>')
@@ -412,13 +612,18 @@ export function renderBookingPage(data: PageData): string {
         : /* Not a 404. The studio still exists, their classes are still worth
              showing, and their existing customers can still manage bookings
              through their own links. */
-          `<div class="err">
-      ${escapeHtml(organization.name)} is not taking online bookings at the
-      moment. Please contact the studio directly.
+          `<div class="notice">
+      <strong>Online booking is paused.</strong>
+      ${escapeHtml(organization.name)} is not taking online bookings right
+      now${
+        organization.contactEmail || organization.contactPhone
+          ? ' &mdash; get in touch using the details at the bottom of this page.'
+          : '. Please contact the studio directly.'
+      }
     </div>
     <section>
       <h2>What they teach</h2>
-      ${serviceCards}
+      <div class="svc-grid">${serviceCards}</div>
     </section>`
     }
   </div>
@@ -428,7 +633,7 @@ export function renderBookingPage(data: PageData): string {
   </noscript>
 
   ${
-    organization.about
+    organization.about && !chrome
       ? /*
           Plain text, split on blank lines into paragraphs. The template
           escapes each paragraph, so a studio pasting from a Word doc gets
@@ -447,7 +652,7 @@ export function renderBookingPage(data: PageData): string {
   }
 
   ${
-    organization.contactEmail || organization.contactPhone
+    !chrome && (organization.contactEmail || organization.contactPhone)
       ? /*
           The contact block is the fallback when online booking cannot help —
           a session is full, an address is out of range, or the flow just
@@ -471,6 +676,7 @@ export function renderBookingPage(data: PageData): string {
       : ''
   }
 </div>
+${chrome ? chrome.footer : ''}
 
 <script>
 window.__BOOKING__ = ${jsonForScript({
@@ -483,6 +689,9 @@ window.__BOOKING__ = ${jsonForScript({
     currency: organization.currency,
     timezone: organization.timezone,
     acceptsPayment: data.acceptsPayment,
+    /* The page script leaves the cards inert when false. The server refuses
+       the booking either way; this is so nobody fills in a form first. */
+    acceptingBookings: data.acceptingBookings,
     services,
     locations,
     courses,

@@ -74,6 +74,39 @@ export const clientScript = String.raw`
     return new Intl.DateTimeFormat('en-US',
       { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(new Date(iso));
   }
+  /**
+   * "EDT", "IST" -- printed beside every time.
+   *
+   * A time on this page is the studio's wall clock, which is not the reader's
+   * when they are planning a trip or the studio's zones are set up oddly.
+   * Naming the zone costs four characters and turns a silent misreading into
+   * one the customer can catch.
+   */
+  function zoneIn(iso, tz) {
+    try {
+      var parts = new Intl.DateTimeFormat('en-US',
+        { timeZone: tz, timeZoneName: 'short' }).formatToParts(new Date(iso));
+      for (var i = 0; i < parts.length; i++) {
+        if (parts[i].type === 'timeZoneName') return parts[i].value;
+      }
+    } catch (e) { /* An unknown zone just goes unlabelled. */ }
+    return '';
+  }
+  function timeWithZone(iso, tz) {
+    var z = zoneIn(iso, tz);
+    return esc(timeIn(iso, tz)) + (z ? ' <span class="tz">' + esc(z) + '</span>' : '');
+  }
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+  /**
+   * The zone a session is read in: its OWN, the one it was scheduled in.
+   *
+   * Reading it in the location's zone instead is only right while the two
+   * agree -- and they stop agreeing when a studio changes its timezone and
+   * not its rooms, which turned an 11am party into 8:30pm on a live page.
+   */
+  function zoneOf(item) {
+    return (item && item.timezone) || times.tz;
+  }
   function dayIn(iso, tz) {
     return new Intl.DateTimeFormat('en-US',
       { weekday: 'long', day: 'numeric', month: 'long', timeZone: tz })
@@ -555,7 +588,7 @@ export const clientScript = String.raw`
       times.slots.forEach(function (s) { add(ymdIn(s.startsAt, times.tz), 0); });
     } else {
       times.sessions.forEach(function (s) {
-        add(ymdIn(s.startsAt, times.tz), s.seatsAvailable);
+        add(ymdIn(s.startsAt, zoneOf(s)), s.seatsAvailable);
       });
     }
     return index;
@@ -598,9 +631,10 @@ export const clientScript = String.raw`
       } else {
         cells += '<button type="button" class="cal-day' + on + '" data-day="' + key + '">' +
           '<span class="n">' + d + '</span>' +
-          '<span class="c">' + (times.mode === 'APPOINTMENT'
-            ? day.count
-            : day.seats) + '</span></button>';
+          /* Start times, in both modes. Summed seats read as a class size --
+             "30" under a class for ten looks like a mistake -- and the places
+             left are on each time in the list below. */
+          '<span class="c">' + plural(day.count, 'time', 'times') + '</span></button>';
       }
     }
 
@@ -619,9 +653,9 @@ export const clientScript = String.raw`
         }).join('') + cells +
       '</div>' +
       '<p class="tiny-note">' +
-        (times.mode === 'APPOINTMENT'
-          ? 'The number is how many start times are free that day.'
-          : 'The number is how many places are still free that day.') +
+        (times.day
+          ? 'Showing ' + esc(dayIn(times.day + 'T12:00:00Z', 'UTC')) + ' only.'
+          : 'Pick a day to see just its times.') +
         (times.day
           ? ' <button type="button" class="linkish" id="calAll">Show all dates</button>'
           : '') +
@@ -700,8 +734,8 @@ export const clientScript = String.raw`
      * "Soonest thing" still works: the grid opens on the first month that has
      * anything, so the default view is the next few dates.
      */
-    function keep(iso) {
-      var key = ymdIn(iso, tz);
+    function keep(iso, zone) {
+      var key = ymdIn(iso, zone || tz);
       if (times.day) return key === times.day;
       return !times.month || key.slice(0, 7) === times.month;
     }
@@ -717,18 +751,22 @@ export const clientScript = String.raw`
         html += '<div class="day">' + esc(day) + '</div><div class="slots">' +
           byDay[day].map(function (s) {
             return '<button class="slot" type="button" data-at="' + esc(s.startsAt) +
-              '" data-staff="' + esc(s.staffId) + '">' + esc(timeIn(s.startsAt, tz)) +
+              '" data-staff="' + esc(s.staffId) + '">' + timeWithZone(s.startsAt, tz) +
               '</button>';
           }).join('') + '</div>';
       });
     } else {
-      html += times.sessions.filter(function (s) { return keep(s.startsAt); })
+      html += times.sessions.filter(function (s) { return keep(s.startsAt, zoneOf(s)); })
         .map(function (s) {
+          var z = zoneOf(s);
           return '<button class="card" type="button" data-session="' + esc(s.sessionId) + '">' +
-            '<span class="swatch" style="background:var(--clay)"></span><span>' +
-            '<h3>' + esc(dayIn(s.startsAt, tz)) + ' at ' + esc(timeIn(s.startsAt, tz)) + '</h3>' +
-            '<p>' + s.seatsAvailable + ' of ' + s.capacity + ' places left</p>' +
-            '</span></button>';
+            '<span class="swatch" style="background:var(--clay)"></span><span class="card-body">' +
+            '<h3>' + esc(dayIn(s.startsAt, z)) + ' at ' + timeWithZone(s.startsAt, z) + '</h3>' +
+            '<p>' + (s.seatsAvailable === s.capacity
+              ? plural(s.capacity, 'place', 'places') + ' free'
+              : s.seatsAvailable + ' of ' + s.capacity + ' places left') + '</p>' +
+            '</span><span class="card-side"><span class="go" aria-hidden="true">Select &rarr;</span></span>' +
+            '</button>';
         }).join('');
     }
 
@@ -843,6 +881,23 @@ export const clientScript = String.raw`
       esc([place.name, place.address].filter(Boolean).join(', ')) + '</span></div>';
   }
 
+  /**
+   * The chosen date and time, in the zone it was scheduled in.
+   *
+   * The details step used to show where and how much but not WHEN -- the one
+   * thing somebody checks before pressing confirm.
+   */
+  function whenText() {
+    var at = state.session ? state.session.startsAt : (state.slot && state.slot.startsAt);
+    if (!at) return '';
+    var z = state.session ? zoneOf(state.session) : times.tz;
+    return esc(dayIn(at, z)) + ' at ' + timeWithZone(at, z);
+  }
+  function whenRow() {
+    var t = course ? '' : whenText();
+    return t ? '<div><span>When</span><span>' + t + '</span></div>' : '';
+  }
+
   /*
     The running total.
 
@@ -890,7 +945,7 @@ export const clientScript = String.raw`
         '</span></div>';
     }
 
-    rows += '<div><span>Total</span><span>' + money(q.totalCents) + '</span></div>';
+    rows += '<div class="total"><span>Total</span><span>' + money(q.totalCents) + '</span></div>';
 
     if (q.willCharge && q.balanceCents > 0) {
       // A deposit. Both halves are stated, because "due now" alone reads as
@@ -914,7 +969,7 @@ export const clientScript = String.raw`
        states its own venue elsewhere. */
     var where = course ? '' : whereRow();
 
-    return '<div class="summary">' + where + rows + '</div>' + note + terms(state.service);
+    return '<div class="summary">' + whenRow() + where + rows + '</div>' + note + terms(state.service);
   }
 
   /** Asks the server what this costs. Never computes it. */
@@ -972,16 +1027,28 @@ export const clientScript = String.raw`
     drawSteps('Details');
     var maxSeats = state.session ? state.session.seatsAvailable : 1;
     var childRate = state.service.childPriceCents || 0;
+    /* The studio's "Minimum guests", capped at what is left: a session with
+       four places cannot demand six. The field was saved and never read. */
+    var minSeats = Math.max(1, Math.min(state.service.capacityMin || 1, maxSeats));
+    state.seats = minSeats;
+    state.children = 0;
 
     app.innerHTML = back() +
-      '<h2>Your details</h2>' +
+      '<div class="picked"><div><b>' + esc(state.service.name) + '</b>' +
+        '<span>' + whenText() + '</span></div>' +
+        '<button type="button" class="linkish" id="changeTime">Change</button></div>' +
+      '<h2 style="margin-top:22px">Your details</h2>' +
       '<div id="err"></div>' +
       '<label for="name">Full name</label><input id="name" autocomplete="name">' +
       '<label for="email">Email</label><input id="email" type="email" autocomplete="email">' +
       '<label for="phone">Mobile (optional)</label><input id="phone" type="tel" autocomplete="tel">' +
       (maxSeats > 1
         ? '<label for="seats">How many places?</label>' +
-          '<input id="seats" type="number" min="1" max="' + maxSeats + '" value="1">'
+          '<input id="seats" type="number" min="' + minSeats + '" max="' + maxSeats +
+            '" value="' + minSeats + '">' +
+          (minSeats > 1
+            ? '<p class="hint">Bookings start at ' + minSeats + ' guests.</p>'
+            : '')
         : '') +
       /*
         Only when the studio has actually set a child rate. Asking "how many
@@ -1003,6 +1070,7 @@ export const clientScript = String.raw`
       '<button class="primary" id="confirm" type="button">Confirm booking</button>';
 
     wireBack(showTimes);
+    document.getElementById('changeTime').addEventListener('click', showTimes);
     paintSummary();
 
     /* Re-quoted on change rather than multiplied locally — the deposit is not
@@ -1019,7 +1087,13 @@ export const clientScript = String.raw`
       reads to the customer as the booking simply not working.
     */
     function syncParty() {
-      state.seats = seatsInput ? parseInt(seatsInput.value, 10) || 1 : 1;
+      state.seats = seatsInput ? parseInt(seatsInput.value, 10) || minSeats : 1;
+      if (seatsInput && state.seats < minSeats) {
+        state.seats = minSeats; seatsInput.value = String(minSeats);
+      }
+      if (seatsInput && state.seats > maxSeats) {
+        state.seats = maxSeats; seatsInput.value = String(maxSeats);
+      }
 
       if (childrenInput) {
         childrenInput.max = String(state.seats);
@@ -1047,7 +1121,7 @@ export const clientScript = String.raw`
 
       var body = {
         serviceTypeId: state.service.id,
-        seats: seatsEl ? parseInt(seatsEl.value, 10) || 1 : 1,
+        seats: seatsEl ? state.seats : 1,
         children: state.children || 0,
         customer: {
           name: name, email: email,
@@ -1117,7 +1191,8 @@ export const clientScript = String.raw`
   // --- Done ---------------------------------------------------------------
   function showConfirmed(res) {
     stepsEl.innerHTML = '';
-    var tz = (state.location && state.location.timezone) || DATA.timezone;
+    var tz = state.session ? zoneOf(state.session)
+      : ((state.location && state.location.timezone) || DATA.timezone);
 
     app.innerHTML =
       '<div class="ok">' +
@@ -1132,7 +1207,7 @@ export const clientScript = String.raw`
           : '') +
         '<div><span>Class</span><span>' + esc(state.service.name) + '</span></div>' +
         '<div><span>When</span><span>' + esc(dayIn(res.booking.startsAt, tz)) +
-          ' at ' + esc(timeIn(res.booking.startsAt, tz)) + '</span></div>' +
+          ' at ' + timeWithZone(res.booking.startsAt, tz) + '</span></div>' +
         (state.staff ? '<div><span>With</span><span>' + esc(state.staff.name) + '</span></div>' : '') +
         whereRow() +
         /* The meeting point now they have booked — the manage page shows it
@@ -1144,7 +1219,7 @@ export const clientScript = String.raw`
           ? '<div><span>Places</span><span>' + res.booking.seats + '</span></div>' : '') +
         (res.booking.travelFeeCents
           ? '<div><span>Travel</span><span>' + money(res.booking.travelFeeCents) + '</span></div>' : '') +
-        '<div><span>Total</span><span>' + money(res.booking.totalCents) + '</span></div>' +
+        '<div class="total"><span>Total</span><span>' + money(res.booking.totalCents) + '</span></div>' +
       '</div>' +
       (state.service.preparationNotes
         ? '<div class="detail"><h3>Before you come</h3><p class="hint">' +
@@ -1162,7 +1237,10 @@ export const clientScript = String.raw`
     state = { service: null, location: null, staff: null, slot: null,
               session: null, address: null, coverage: null, seats: 1, children: 0 };
     drawSteps('Class');
-    location.reload();
+    /* Without ?service=, or the reload would land straight back on it. */
+    var rest = location.search.replace(/([?&])service=[^&]*&?/, '$1').replace(/[?&]$/, '');
+    if (rest !== location.search) location.href = location.pathname + rest;
+    else location.reload();
   }
 
   /*
@@ -1214,7 +1292,11 @@ export const clientScript = String.raw`
   }
 
   // Upgrade the server-rendered lists into step one.
-  if (!returnedFromCheckout()) {
+  if (DATA.acceptingBookings === false) {
+    /* Read-only: the cards render as plain blocks and there is no flow to
+       start. The server refuses a booking either way; this is so nobody
+       fills in a form first. */
+  } else if (!returnedFromCheckout()) {
     drawSteps('Class');
     document.querySelectorAll('[data-service]').forEach(function (el) {
       el.addEventListener('click', function () {
@@ -1226,6 +1308,12 @@ export const clientScript = String.raw`
         pickCourse(el.getAttribute('data-course'));
       });
     });
+
+    /* Every storefront "Book now" links here with ?service=<id>. Asking the
+       customer to pick the class they just clicked is a wasted step, so go
+       straight to it. An unknown id falls through to the list. */
+    var wanted = /(?:^|[?&])service=([^&]+)/.exec(location.search);
+    if (wanted) pickService(decodeURIComponent(wanted[1]));
   }
 })();
 `;

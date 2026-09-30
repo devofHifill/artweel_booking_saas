@@ -507,6 +507,8 @@ describe('seat-based availability', () => {
     expect(result.sessions).toHaveLength(1);
     expect(result.sessions[0]!.sessionId).toBe(openSession.id);
     expect(result.sessions[0]!.seatsAvailable).toBe(5);
+    // The zone it was scheduled in, so the page reads its times the same way.
+    expect(result.sessions[0]!.timezone).toBe(studio.timezone);
   });
 
   it('filters sessions that cannot fit the requested party', async () => {
