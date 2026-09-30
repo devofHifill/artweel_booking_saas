@@ -107,6 +107,8 @@ sessionAdminRouter.delete(
       await sessions.cancelClass(
         req.tenant!.organizationId,
         id(req, 'sessionId'),
+        // Refunds everyone in full unless told not to: `?refund=false`.
+        { refund: req.query.refund !== 'false' },
       ),
     );
   }),

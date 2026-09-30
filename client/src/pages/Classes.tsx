@@ -6,6 +6,7 @@ import {
   DataTable,
   initials,
   Kpi,
+  Modal,
   PageHead,
   SegRange,
   StatGrid,
@@ -376,6 +377,9 @@ export default function Classes() {
   const [error, setError] = useState<string | null>(null);
   /** What saving an activity did to the calendar, once its form has closed. */
   const [notice, setNotice] = useState<string | null>(null);
+  /** The class whose cancel dialog is open, and whether to refund everyone. */
+  const [cancelling, setCancelling] = useState<SessionRow | null>(null);
+  const [refundAll, setRefundAll] = useState(true);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ created: Created[]; skipped: Skipped[] } | null>(
     null,
@@ -525,17 +529,44 @@ export default function Classes() {
     }
   }
 
-  async function cancel(session: SessionRow) {
-    const warning =
-      session.seatsTaken > 0
-        ? ` ${session.seatsTaken} booked place(s) will be cancelled, and any refund is yours to issue.`
-        : '';
+  /**
+   * Opens the cancel dialog for a class, or cancels an empty one straight away.
+   *
+   * With people booked it is a decision, not a click: the dialog says they will
+   * each be told, and asks whether to refund them in full.
+   */
+  function cancel(session: SessionRow) {
+    if (session.seatsTaken > 0) {
+      setRefundAll(true);
+      setCancelling(session);
+      return;
+    }
+    if (!confirm(`Cancel ${session.serviceType.name}? Nobody is booked on it.`)) return;
+    void confirmCancel(session, false);
+  }
 
-    if (!confirm(`Cancel ${session.serviceType.name}?${warning}`)) return;
-
+  async function confirmCancel(session: SessionRow, refund: boolean) {
     setBusy(true);
     try {
-      await api.del(`${base}/sessions/${session.id}`);
+      const res = await api.del<{
+        bookingsCancelled: number;
+        customersNotified: number;
+        refundedCents: number;
+      }>(`${base}/sessions/${session.id}${refund ? '' : '?refund=false'}`);
+      setCancelling(null);
+      setNotice(
+        res.bookingsCancelled === 0
+          ? `${session.serviceType.name} is cancelled.`
+          : `${session.serviceType.name} is cancelled. ${res.customersNotified} ${
+              res.customersNotified === 1 ? 'customer was' : 'customers were'
+            } emailed${
+              res.refundedCents > 0
+                ? `, and ${money(res.refundedCents, currency)} refunded`
+                : refund
+                  ? '. Nobody had paid online, so there was nothing to refund'
+                  : '. Nothing was refunded'
+            }.`,
+      );
       await load();
       setError(null);
     } catch (err) {
@@ -696,6 +727,55 @@ export default function Classes() {
         <div className="alert" role="status">
           {notice}
         </div>
+      )}
+
+      {/*
+        Calling a class off with people on it. It used to be a bare confirm
+        that said "any refund is yours to issue" and then told nobody. It now
+        says what will happen to each of them, and asks about the money.
+      */}
+      {cancelling && (
+        <Modal
+          title={`Cancel ${cancelling.serviceType.name}?`}
+          subtitle={`${dateIn(cancelling.startsAt, timezone)} · ${timeIn(cancelling.startsAt, timezone)}`}
+          onClose={() => setCancelling(null)}
+          footer={
+            <>
+              <button type="button" className="link" onClick={() => setCancelling(null)}>
+                Keep the class
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={busy}
+                onClick={() => void confirmCancel(cancelling, refundAll)}
+              >
+                {busy ? 'Cancelling…' : 'Cancel the class'}
+              </button>
+            </>
+          }
+        >
+          <p>
+            {cancelling.seatsTaken === 1
+              ? 'One place is booked.'
+              : `${cancelling.seatsTaken} places are booked.`}{' '}
+            Everyone booked is emailed that it is cancelled, and their reminders
+            are stopped.
+          </p>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={refundAll}
+              onChange={(e) => setRefundAll(e.target.checked)}
+            />
+            Refund everyone in full
+          </label>
+          <p className="tiny muted">
+            {refundAll
+              ? 'Everyone who paid online gets all of it back, whatever your cancellation policy says. You are cancelling, not them.'
+              : 'Nobody is refunded. Use this if you are settling it another way, like moving them to another date.'}
+          </p>
+        </Modal>
       )}
 
       {/*

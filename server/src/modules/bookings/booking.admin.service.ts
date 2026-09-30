@@ -614,7 +614,12 @@ async function upsertCounterCustomer(
 export async function cancelBookingAsStudio(
   organizationId: string,
   bookingId: string,
-  opts: { refund?: boolean; reason?: string } = {},
+  opts: {
+    refund?: boolean;
+    reason?: string;
+    /** Refund everything, not what the policy allows. See `refundForCancellation`. */
+    refundInFull?: boolean;
+  } = {},
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, organizationId },
@@ -634,6 +639,7 @@ export async function cancelBookingAsStudio(
     );
     const refund = await refundForCancellation(organizationId, bookingId, {
       reason: opts.reason ?? 'cancelled_by_studio',
+      inFull: opts.refundInFull,
     }).catch((err) => {
       logger.error({ err, bookingId }, 'Studio cancellation refund failed');
       return { refundedCents: 0, creditCents: 0, refunds: [] };

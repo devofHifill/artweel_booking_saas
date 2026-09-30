@@ -2,9 +2,8 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { AppError } from '../../lib/app-error';
 import { onlyLocationId } from '../locations/location.service';
-import { markAttendance } from '../bookings/booking.admin.service';
+import { cancelBookingAsStudio, markAttendance } from '../bookings/booking.admin.service';
 import { createSession, cancelSession } from '../../scheduling/session.service';
-import { cancelBooking } from '../../scheduling/booking.service';
 import { expandLocalDates } from '../../scheduling/time/recurrence';
 import { resolveLocal } from '../../scheduling/time/zoned';
 
@@ -402,10 +401,23 @@ export async function updateClass(
  * round would leave bookings pointing at a cancelled class while still
  * counting against a seat total nobody can now use.
  *
- * Refunds are not issued here, for the same reason cancelling a cohort does
- * not: what a studio owes when it cancels is theirs to decide.
+ * Each booking goes through the studio's own cancellation — the one the
+ * Bookings page uses — so every customer is EMAILED (and texted, if they
+ * agreed), their pending reminders are stopped, and the calendar sync hears
+ * about it. This used to cancel the seats and nothing else: nobody was told,
+ * the day-before reminder still went out for a class that was not happening,
+ * and nobody was refunded.
+ *
+ * Refunded IN FULL by default, not by the cancellation policy: the policy's
+ * late fee is what a customer pays for pulling out late, not for the studio
+ * calling the class off. `refund: false` leaves the money alone for a studio
+ * that settles it another way — credit, or rebooking them onto another date.
  */
-export async function cancelClass(organizationId: string, sessionId: string) {
+export async function cancelClass(
+  organizationId: string,
+  sessionId: string,
+  opts: { refund?: boolean } = {},
+) {
   const session = await prisma.session.findFirst({
     where: { id: sessionId, organizationId },
     select: { id: true },
@@ -417,13 +429,24 @@ export async function cancelClass(organizationId: string, sessionId: string) {
     select: { id: true },
   });
 
+  let refundedCents = 0;
   for (const booking of bookings) {
-    await cancelBooking(organizationId, booking.id);
+    const result = await cancelBookingAsStudio(organizationId, booking.id, {
+      refund: opts.refund !== false,
+      refundInFull: true,
+      reason: 'class_cancelled_by_studio',
+    });
+    refundedCents += result.refundedCents;
   }
 
   const cancelled = await cancelSession(organizationId, sessionId);
 
-  return { session: cancelled, bookingsCancelled: bookings.length };
+  return {
+    session: cancelled,
+    bookingsCancelled: bookings.length,
+    customersNotified: bookings.length,
+    refundedCents,
+  };
 }
 
 /**

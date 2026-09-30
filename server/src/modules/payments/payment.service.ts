@@ -778,7 +778,17 @@ async function upsertCustomer(
 export async function refundForCancellation(
   organizationId: string,
   bookingId: string,
-  opts: { reason?: string; hoursOfNotice?: number } = {},
+  opts: {
+    reason?: string;
+    hoursOfNotice?: number;
+    /**
+     * Everything back, whatever the policy says. For when the STUDIO calls it
+     * off — a cancelled class. The policy's late fee is what a customer pays
+     * for pulling out late; charging it to somebody whose class was cancelled
+     * under them would be the studio keeping money for a class it did not run.
+     */
+    inFull?: boolean;
+  } = {},
 ) {
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, organizationId },
@@ -804,13 +814,14 @@ export async function refundForCancellation(
     opts.hoursOfNotice ??
     Math.max(0, (booking.startsAt.getTime() - Date.now()) / 3_600_000);
 
-  const outcome = policy
-    ? evaluatePolicy(
-        policy.tiers as unknown as PolicyTier[],
-        collected,
-        hoursOfNotice,
-      )
-    : { refundCents: collected, creditCents: 0, tier: null };
+  const outcome =
+    policy && !opts.inFull
+      ? evaluatePolicy(
+          policy.tiers as unknown as PolicyTier[],
+          collected,
+          hoursOfNotice,
+        )
+      : { refundCents: collected, creditCents: 0, tier: null };
 
   if (outcome.refundCents <= 0) {
     return {

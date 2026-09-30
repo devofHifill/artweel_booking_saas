@@ -68,7 +68,7 @@ Pick the activity, the date or time, the customer (existing or new) and the numb
 To cancel several at once, tick them and use **Cancel** on the selection bar.
 
 ### Refunds
-- Refunds only happen **by cancelling a booking**, and always follow the cancellation policy. There's no separate refund button.
+- Refunds happen **by cancelling**. Cancelling one booking follows the cancellation policy; cancelling a whole class can refund everyone in full ([Cancelling a class](#cancelling-a-class)). There's no separate refund button.
 - To refund more than the policy allows (for a goodwill gesture, say), refund it in your **Stripe dashboard**.
 - **Payments** lists every charge and refund, with the reason and any studio credit given.
 
@@ -100,12 +100,19 @@ A moved booking **keeps its payment, reference and booking link**, so a refund l
 
 - **Waitlist**: see who's waiting for a full class. **Offer next seat** offers a freed place to the next person in the queue. A place freed by a cancellation or a move is offered automatically.
 - **A class with no location** (when you have several) is flagged **Not on your booking page**. Pick its location on the row to fix it.
-- **Cancel** a class: every booking on it is cancelled and the places are released.
+### Cancelling a class
+**Cancel** on the class's row. If people are booked, a window says how many and asks one question: **Refund everyone in full** (ticked by default).
 
-⚠️ **When you cancel a whole class, customers are not told and nobody is refunded.** Do both yourself:
+When you confirm:
 
-1. **Tell them.** Before cancelling, open the class's bookings (**Bookings**, or the **Daily Manifest** for that day) to get everyone's email and phone.
-2. **Refund them** in your **Stripe dashboard**. When the studio cancels, you usually owe a full refund. Cancelling the bookings one by one from **Bookings** would email them, but would also apply your late-cancellation fee, which isn't fair when the customer did nothing wrong.
+- every booking is cancelled and the places released;
+- **every customer is emailed** that it's cancelled (and texted, if they agreed to texts), with what's being refunded;
+- their reminders are stopped, so nobody gets a reminder for a class that isn't happening;
+- with **Refund everyone in full** ticked, everyone who paid online gets **all of it back, whatever your cancellation policy says**. You're cancelling, not them, so the late-cancellation fee doesn't apply.
+
+Untick **Refund everyone in full** if you're settling it another way, like moving everyone to another date. They're still emailed.
+
+> This is different from cancelling **one booking** from **Bookings**. That follows your cancellation policy, because it's usually the customer asking.
 
 ---
 
@@ -211,6 +218,6 @@ When nothing is available to book, your booking page offers your email and phone
 | Can't drag a booking on the calendar | It's a class booking, or the new time clashes | Classes: see [Moving a booking](#5-moving-a-booking). Clashes are refused on purpose |
 | Can't mark attendance | The class hasn't started yet | Mark it once it has |
 | An instructor got double-booked | Their Google Calendar needs reconnecting | Integrations → Calendars → **Reconnect** |
-| Customers were charged for a class you cancelled | Cancelling a class doesn't refund or tell them | Refund in your Stripe dashboard, and contact them |
+| Customers weren't refunded for a class you cancelled | **Refund everyone in full** was unticked, or they paid at the studio | Refund online payments in your Stripe dashboard; settle cash ones in person |
 | A blocked customer booked again | **Blocked** is a label only | Cancel the booking |
 | "Your account is paused" | Trial ended, or a payment failed | **Plan and billing → Choose a plan** |
