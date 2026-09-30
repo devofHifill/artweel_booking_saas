@@ -759,7 +759,30 @@ export function PaymentSettingsSection() {
 
 // --- Currency ---------------------------------------------------------------
 
-const CURRENCIES = ['USD', 'GBP', 'EUR', 'CAD', 'AUD', 'NZD'];
+/**
+ * The currencies a studio can choose.
+ *
+ * It was six, all North American, European or Australasian, so a studio in
+ * India priced in rupees could not say so and every price read as dollars.
+ *
+ * Two-decimal currencies ONLY. Prices are stored in hundredths (`priceCents`),
+ * so a currency with no minor unit — yen, won — would be charged a hundred
+ * times over. Adding one means handling that first, not adding it here.
+ */
+const CURRENCIES = [
+  'USD', 'GBP', 'EUR', 'CAD', 'AUD', 'NZD',
+  'INR', 'SGD', 'HKD', 'AED', 'ZAR', 'CHF', 'SEK', 'NOK', 'DKK', 'MXN', 'BRL',
+];
+
+/** "INR — Indian Rupee", from the browser's own list of names. */
+function currencyLabel(code: string): string {
+  try {
+    const name = new Intl.DisplayNames(['en'], { type: 'currency' }).of(code);
+    return name && name !== code ? `${code} — ${name}` : code;
+  } catch {
+    return code;
+  }
+}
 
 export function CurrencySection() {
   const { org } = useOrgSettings();
@@ -786,9 +809,14 @@ export function CurrencySection() {
           value={currency}
           onChange={(e) => setCurrency(e.target.value)}
         >
+          {/* A stored currency outside the list is kept and shown, so opening
+              this page never quietly changes somebody's prices. */}
+          {currency && !CURRENCIES.includes(currency) && (
+            <option value={currency}>{currencyLabel(currency)}</option>
+          )}
           {CURRENCIES.map((c) => (
             <option key={c} value={c}>
-              {c}
+              {currencyLabel(c)}
             </option>
           ))}
         </select>
