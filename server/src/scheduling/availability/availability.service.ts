@@ -69,6 +69,8 @@ export type SessionAvailability = {
   endsAt: Date;
   localTime: string;
   localDate: string;
+  /** The zone the studio scheduled it in — the one its times are read in. */
+  timezone: string;
   capacity: number;
   seatsAvailable: number;
   staffId: string | null;
@@ -143,6 +145,7 @@ async function getSessionAvailability(
       endsAt: s.endsAt,
       localTime: localTimeOf(s.startsAt, s.timezone),
       localDate: s.startsAt.toISOString().slice(0, 10),
+      timezone: s.timezone,
       capacity: s.capacity,
       seatsAvailable: Math.max(0, s.capacity - s.seatsTaken),
       staffId: s.staffId,

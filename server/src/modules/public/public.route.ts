@@ -14,6 +14,7 @@ import {
   renderActivity,
   renderContact,
   renderHome,
+  storefrontChrome,
 } from './storefront';
 import {
   filterServices,
@@ -103,8 +104,18 @@ publicRouter.get(
   '/:slug/book',
   readLimit,
   asyncHandler(async (req, res) => {
-    const data = await service.getStudioPage(param(req, 'slug'));
-    res.type('html').send(renderBookingPage(data));
+    const slug = param(req, 'slug');
+    /* Inside the widget the studio's own site is the chrome, so the page stays
+       bare there. Everywhere else it wears the storefront's header and footer. */
+    if (req.query.embed === '1') {
+      res.type('html').send(renderBookingPage(await service.getStudioPage(slug)));
+      return;
+    }
+    const [data, store] = await Promise.all([
+      service.getStudioPage(slug),
+      getStorefront(slug),
+    ]);
+    res.type('html').send(renderBookingPage(data, storefrontChrome(store)));
   }),
 );
 

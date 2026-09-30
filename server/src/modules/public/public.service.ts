@@ -132,6 +132,7 @@ export async function getStudioPage(slug: string) {
         bookingMode: true,
         durationMinutes: true,
         capacityMax: true,
+        capacityMin: true,
         priceCents: true,
         childPriceCents: true,
         depositType: true,

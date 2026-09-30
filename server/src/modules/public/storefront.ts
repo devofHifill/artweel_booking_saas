@@ -167,6 +167,25 @@ function footer(store: Storefront): string {
   </footer>`;
 }
 
+/**
+ * The storefront's header, footer and stylesheet, for the booking page.
+ *
+ * `/book` is where every storefront "Book now" lands. Rendered bare, it read
+ * as a different product: a dark single column with no way back to the
+ * studio's own pages. Handing it the same chrome makes it one site.
+ */
+export function storefrontChrome(store: Storefront): {
+  css: string;
+  header: string;
+  footer: string;
+} {
+  return {
+    css: STOREFRONT_CSS,
+    header: header(store, 'book'),
+    footer: footer(store),
+  };
+}
+
 function shell(
   store: Storefront,
   opts: { title: string; description?: string; active: string; body: string },
