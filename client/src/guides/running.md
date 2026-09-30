@@ -139,7 +139,7 @@ Open a customer to see their bookings, add notes, and set their status:
 |---|---|
 | **Active** | The normal state |
 | **VIP** | A label to spot your regulars |
-| **Blocked** | A label only. **It doesn't stop them booking** |
+| **Blocked** | Can't book, join a waitlist or pay online themselves; they're asked to contact the studio. You can still book them at the counter |
 
 ---
 
@@ -191,7 +191,7 @@ Every confirmation email has a **Manage or cancel** link. From it a customer can
 
 - see their booking: when, where (with the address and meeting point), and what to bring;
 - **add it to their calendar**;
-- **change the date**: other dates of the same class at the same location, or other times with the same instructor, up to **24 hours before** it starts with the **Standard** policy;
+- **change the date**: other dates of the same class at the same location, or other times with the same instructor, up to the number of hours set in the cancellation policy (**24** with the **Standard** policy);
 - **cancel**, with any refund due under your policy shown before they confirm.
 
 When nothing is available to book, your booking page offers your email and phone, and your other activities. Fill in **Settings → Business Information** so it can.
@@ -219,5 +219,5 @@ When nothing is available to book, your booking page offers your email and phone
 | Can't mark attendance | The class hasn't started yet | Mark it once it has |
 | An instructor got double-booked | Their Google Calendar needs reconnecting | Integrations → Calendars → **Reconnect** |
 | Customers weren't refunded for a class you cancelled | **Refund everyone in full** was unticked, or they paid at the studio | Refund online payments in your Stripe dashboard; settle cash ones in person |
-| A blocked customer booked again | **Blocked** is a label only | Cancel the booking |
+| A blocked customer says they can't book | **Blocked** stops online booking | Book them yourself, or set them back to **Active** |
 | "Your account is paused" | Trial ended, or a payment failed | **Plan and billing → Choose a plan** |

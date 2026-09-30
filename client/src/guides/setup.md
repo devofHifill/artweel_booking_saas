@@ -78,7 +78,7 @@ Your booking page's **tagline** and **about** text are set in **Website & widget
 ⚠️ **Set these before you schedule anything.** Changing the timezone later does **not** move sessions you've already created.
 
 - **Settings → Localisation**: the timezone your studio is in, and how dates and times are written.
-- **Settings → Currency**: the currency prices are shown in. The list offers USD, GBP, EUR, CAD, AUD and NZD.
+- **Settings → Currency**: the currency prices are shown in. The list offers 17 currencies, including USD, GBP, EUR, INR (Indian Rupee), AUD, CAD, SGD and AED.
 
 ---
 
@@ -128,14 +128,15 @@ This is the default for new activities. Each activity can pick its own under **P
 
 | Field | Meaning |
 |---|---|
-| Policy type | **Flexible** (free until 24h, then 50% fee), **Moderate** (free until 48h, then 75%), **Strict** (free until 7 days, then 100%), or **Custom** |
-| Free cancellation until (hours before) | Full refund up to this point |
-| Late cancellation fee (%) | Kept when someone cancels after that |
+| Start from | **Flexible** (full refund until 24h, then 50%), **Moderate** (full refund until 48h, then 25%), **Strict** (full refund until 7 days, then nothing), **Standard** (full refund until 48h, studio credit from 24–48h, then nothing), or your own |
+| What a cancellation gets back | One row per step: **at least N hours before**, the **refund %** and the **studio credit %**. The last row, **Later than that**, covers everything after. Use **+ Add a step** and **Remove** to change the steps |
 | No-show fee (%) | Kept when someone doesn't turn up |
-| Policy text shown to guests | Leave empty to show a sentence generated from the numbers |
+| Changing the date | Tick **Let customers change the date of their booking themselves**, and set **up to how many hours before it starts** they can |
+| Policy text shown to guests | Leave empty to show a sentence generated from the steps |
 
-- The **Standard** policy from **Set up the basics** also gives studio credit for cancellations 24–48 hours before. This form can't show that step. **Saving it here replaces it with the simpler version**, and the form warns you first.
-- **Customers can change the date of their own booking** from the **Manage or cancel** link in their confirmation. With the **Standard** policy that's up to **24 hours before** it starts. There's no setting to change this yet.
+- Refund and credit on one step can't add up to more than 100%, and two steps can't use the same number of hours. The form tells you if they do.
+- **Studio credit** can be spent on a future booking instead of the money coming back.
+- **Customers change the date** from the **Manage or cancel** link in their confirmation, up to the number of hours you set (24 with the **Standard** policy).
 
 ---
 
