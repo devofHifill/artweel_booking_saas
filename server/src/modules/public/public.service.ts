@@ -799,6 +799,29 @@ type CustomerDetails = {
   smsConsent?: boolean;
 };
 
+/**
+ * A customer the studio has blocked cannot book online.
+ *
+ * "Blocked" on the Customers screen was a label and nothing more: it turned a
+ * pill red and a blocked customer went on booking as before. It is now honoured
+ * wherever a customer books themselves: the booking page and widget (free
+ * bookings, the waitlist, course enrolment, below) and online checkout
+ * (`startCheckout`, before any seat is held or payment taken). The studio can
+ * still book them at the counter — the block is on booking themselves, not on
+ * the studio's own judgement.
+ *
+ * Worded to say what to do rather than why: the person reading it is at a
+ * booking form, and "you are blocked" helps nobody there.
+ */
+export function refuseBlocked(customer: { status: string } | null) {
+  if (customer?.status === 'BLOCKED') {
+    throw AppError.forbidden(
+      "We can't take this booking online. Please contact the studio.",
+      'CUSTOMER_BLOCKED',
+    );
+  }
+}
+
 async function upsertCustomer(
   organizationId: string,
   input: CustomerDetails,
@@ -808,6 +831,8 @@ async function upsertCustomer(
   const existing = await prisma.customer.findFirst({
     where: { organizationId, email },
   });
+
+  refuseBlocked(existing);
 
   if (existing) {
     return prisma.customer.update({
