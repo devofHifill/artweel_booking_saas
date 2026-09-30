@@ -3364,6 +3364,16 @@ td.strong { font-weight: 600; }
   .guide table { display: block; overflow-x: auto; }
 }
 
+/* Settings → Cancellation Policy: the ladder of steps. */
+.policy-steps { width: 100%; border-collapse: collapse; margin: var(--space-2) 0; font-size: var(--text-sm); }
+.policy-steps th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.policy-steps td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.policy-steps input[type='number'] { width: 5.5em; }
+.policy-steps label.inline { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+@media (max-width: 620px) {
+  .policy-steps { display: block; overflow-x: auto; }
+}
+
 /* Setup: where each step is done. */
 .setup-links { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: 6px; }
 
