@@ -4,6 +4,8 @@ import { AppError } from '../../lib/app-error';
 import { logger } from '../../lib/logger';
 import { PLANS } from '../billing/plan';
 import { withAudit, type AuditEntry } from './audit.service';
+import { getPaymentProvider } from '../payments/provider.registry';
+import { connectStatusUpdate } from '../payments/payment.service';
 
 /**
  * The platform's write actions on a studio.
@@ -367,4 +369,82 @@ export function availablePlans() {
     name: plan.name,
     priceCentsMonthly: plan.priceCentsMonthly,
   }));
+}
+
+const CONNECT_FLAGS = {
+  stripeChargesEnabled: true,
+  stripePayoutsEnabled: true,
+  stripeOnboardedAt: true,
+} as const;
+
+/**
+ * Re-reads a studio's Connect account from Stripe, for an operator.
+ *
+ * The `account.updated` webhook is meant to keep these flags current, but it
+ * can be missed — a destination pointed at the wrong host left every studio
+ * "restricted" long after onboarding. This lets the platform unstick a studio
+ * without asking the owner to do anything.
+ *
+ * No reason is asked for: it decides nothing, only copies Stripe's verdict.
+ * It is still audited with before/after, because it changes whether a studio
+ * can take money.
+ */
+export async function refreshStudioConnectStatus(actor: Actor, organizationId: string) {
+  await requireStudio(organizationId);
+
+  const org = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { stripeAccountId: true },
+  });
+  if (!org.stripeAccountId) {
+    throw AppError.conflict(
+      'That studio has not connected Stripe yet.',
+      'STRIPE_NOT_CONNECTED',
+    );
+  }
+
+  // Outside the transaction: a call to Stripe should not hold one open.
+  const status = await getPaymentProvider().getAccountStatus(org.stripeAccountId);
+
+  return withAudit(
+    {
+      ...actor,
+      action: 'organization.stripe_refresh',
+      targetType: 'organization',
+      targetId: organizationId,
+      organizationId,
+    },
+    async (tx, audit) => {
+      const before = await tx.organization.findUniqueOrThrow({
+        where: { id: organizationId },
+        select: CONNECT_FLAGS,
+      });
+
+      const after = await tx.organization.update({
+        where: { id: organizationId },
+        data: connectStatusUpdate(status, before.stripeOnboardedAt),
+        select: CONNECT_FLAGS,
+      });
+
+      audit({
+        metadata: {
+          before: {
+            chargesEnabled: before.stripeChargesEnabled,
+            payoutsEnabled: before.stripePayoutsEnabled,
+          },
+          after: {
+            chargesEnabled: after.stripeChargesEnabled,
+            payoutsEnabled: after.stripePayoutsEnabled,
+          },
+          requirements: status.requirements,
+        },
+      });
+
+      return {
+        chargesEnabled: after.stripeChargesEnabled,
+        payoutsEnabled: after.stripePayoutsEnabled,
+        requirements: status.requirements,
+      };
+    },
+  );
 }

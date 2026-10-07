@@ -473,10 +473,11 @@ type IntegrationStatus = {
 /**
  * What this studio is plugged into, and the one thing support can do about it.
  *
- * Read-only apart from the disconnect, deliberately. Everything here is a fact
- * mirrored from somewhere else — Stripe's own verdict, a calendar connection's
- * status — and an operator who could edit those would be editing a cache of
- * another system's opinion.
+ * Read-only apart from the disconnect and the Stripe refresh, deliberately.
+ * Everything here is a fact mirrored from somewhere else — Stripe's own
+ * verdict, a calendar connection's status — and an operator who could edit
+ * those would be editing a cache of another system's opinion. The refresh does
+ * not edit that cache; it asks Stripe again.
  *
  * Loaded separately from the studio detail above rather than folded into it: a
  * calendar status is the thing most likely to have changed since the page was
@@ -486,6 +487,8 @@ function Integrations({ organizationId }: { organizationId: string }) {
   const [status, setStatus] = useState<IntegrationStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [stripeNote, setStripeNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -498,6 +501,32 @@ function Integrations({ organizationId }: { organizationId: string }) {
       setError('Could not load integrations.');
     }
   }, [organizationId]);
+
+  /**
+   * Re-reads the Connect account from Stripe. For when `account.updated` never
+   * arrived and the flags above are a stale copy of Stripe's real verdict.
+   */
+  async function refreshStripe() {
+    setRefreshing(true);
+    setStripeNote(null);
+    try {
+      const res = await api.post<{ chargesEnabled: boolean; requirements: string[] }>(
+        `/api/platform/organizations/${organizationId}/stripe-refresh`,
+      );
+      setStripeNote(
+        res.chargesEnabled
+          ? 'Stripe confirms this studio can take payments.'
+          : `Stripe still restricts this account${
+              res.requirements.length ? ` — it wants: ${res.requirements.join(', ')}` : ''
+            }.`,
+      );
+      await load();
+    } catch (err) {
+      setStripeNote(err instanceof Error ? err.message : 'Could not reach Stripe.');
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -535,6 +564,23 @@ function Integrations({ organizationId }: { organizationId: string }) {
                   )}
                   {!status.payments.payoutsEnabled && (
                     <span className="tag off"> payouts disabled</span>
+                  )}
+                  {!(status.payments.chargesEnabled && status.payments.payoutsEnabled) && (
+                    <>
+                      {' '}
+                      <button
+                        type="button"
+                        disabled={refreshing}
+                        onClick={() => void refreshStripe()}
+                      >
+                        {refreshing ? 'Checking with Stripe…' : 'Refresh Stripe status'}
+                      </button>
+                    </>
+                  )}
+                  {stripeNote && (
+                    <div className="tiny muted" role="status">
+                      {stripeNote}
+                    </div>
                   )}
                 </>
               ) : (

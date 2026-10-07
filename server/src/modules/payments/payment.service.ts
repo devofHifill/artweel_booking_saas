@@ -16,7 +16,7 @@ import {
 } from '../policies/policy.service';
 import { allocateRefund, collectedCents, priceBooking } from './money';
 import { getPaymentProvider } from './provider.registry';
-import type { WebhookEvent } from './provider';
+import type { ConnectAccountStatus, WebhookEvent } from './provider';
 
 // ---------------------------------------------------------------------------
 // Connect onboarding
@@ -58,12 +58,33 @@ export async function startConnectOnboarding(
   const link = await provider.createAccountLink({
     accountId,
     // Stripe expires the link quickly; refresh sends them back to us to mint
-    // a new one rather than showing a dead page.
-    refreshUrl: `${config.APP_URL}/settings/payments?refresh=1`,
-    returnUrl: `${config.APP_URL}/settings/payments?done=1`,
+    // a new one rather than showing a dead page. Both land on Settings'
+    // Payments section — the client has no `/settings/payments` route, and
+    // that path fell through to the dashboard with the flag thrown away.
+    refreshUrl: `${config.APP_URL}/settings?section=payments&refresh=1`,
+    returnUrl: `${config.APP_URL}/settings?section=payments&done=1`,
   });
 
   return { accountId, url: link.url, expiresAt: link.expiresAt };
+}
+
+/**
+ * The organization fields that mirror Stripe's verdict on a connected account.
+ *
+ * Shared by the studio's own refresh and the platform admin's, so the two
+ * cannot disagree about what "connected" means. `stripeOnboardedAt` is set
+ * once, the first time Stripe reports the details submitted, and kept after.
+ */
+export function connectStatusUpdate(
+  status: ConnectAccountStatus,
+  onboardedAt: Date | null,
+) {
+  return {
+    stripeChargesEnabled: status.chargesEnabled,
+    stripePayoutsEnabled: status.payoutsEnabled,
+    stripeOnboardedAt:
+      status.detailsSubmitted && !onboardedAt ? new Date() : onboardedAt,
+  };
 }
 
 /**
@@ -88,14 +109,7 @@ export async function refreshConnectStatus(organizationId: string) {
 
   await prisma.organization.update({
     where: { id: organizationId },
-    data: {
-      stripeChargesEnabled: status.chargesEnabled,
-      stripePayoutsEnabled: status.payoutsEnabled,
-      stripeOnboardedAt:
-        status.detailsSubmitted && !org.stripeOnboardedAt
-          ? new Date()
-          : org.stripeOnboardedAt,
-    },
+    data: connectStatusUpdate(status, org.stripeOnboardedAt),
   });
 
   return {
