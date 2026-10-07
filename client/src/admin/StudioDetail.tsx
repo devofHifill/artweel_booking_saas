@@ -12,6 +12,8 @@ import {
 } from './types';
 import { LoadingRegion, SkeletonStats, SkeletonList } from '../components/states';
 
+type PlanOption = { id: PlanId; name: string; priceCentsMonthly: number };
+
 type ActionId =
   | 'trial'
   | 'plan'
@@ -33,6 +35,22 @@ export default function StudioDetail() {
   const [data, setData] = useState<StudioDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<ActionId | null>(null);
+  /*
+    The plan list comes from the server, not from constants here: prices are
+    edited in Plans & Limits, and a hardcoded copy silently drifted from them.
+  */
+  const [plans, setPlans] = useState<PlanOption[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ plans: PlanOption[] }>('/api/platform/plans')
+      .then((res) => !cancelled && setPlans(res.plans))
+      .catch(() => !cancelled && setPlans([]));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     if (!organizationId) return;
@@ -268,9 +286,19 @@ export default function StudioDetail() {
                   value={(values.plan as string) ?? studio.plan}
                   onChange={(e) => set({ plan: e.target.value as PlanId })}
                 >
-                  <option value="SOLO">Solo — $39</option>
-                  <option value="STUDIO">Studio — $89</option>
-                  <option value="PRO">Pro — $189</option>
+                  {plans && plans.length > 0 ? (
+                    plans.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} — {money(p.priceCentsMonthly)}
+                      </option>
+                    ))
+                  ) : (
+                    // Still loading, or the list failed: offer only the current
+                    // plan rather than guess at prices.
+                    <option value={studio.plan}>
+                      {plans ? studio.plan : 'Loading plans…'}
+                    </option>
+                  )}
                 </select>
               </label>
             )}
