@@ -42,6 +42,9 @@ import type {
 export function connectError(err: unknown): unknown {
   if (!(err instanceof Stripe.errors.StripeError)) return err;
 
+  const unreachable = accountError(err);
+  if (unreachable !== err) return unreachable;
+
   logger.warn(
     { err, requestId: err.requestId, stripeType: err.type },
     'Stripe refused a Connect onboarding request',
@@ -63,6 +66,39 @@ export function connectError(err: unknown): unknown {
     `Stripe would not start payment setup: ${err.message}`,
     502,
     'STRIPE_CONNECT_REFUSED',
+  );
+}
+
+/**
+ * A connected account this platform key cannot reach, as a 409 a person can act on.
+ *
+ * A connected account belongs to the Stripe account that created it. One made
+ * under another key — staging's, or a sandbox since replaced — answers every
+ * call with `account_invalid`, and that reached the error handler as a bare 500
+ * on refresh, checkout and refunds alike. Nothing retried will fix it: the
+ * studio has to connect again, which is what the message says.
+ *
+ * Logged without Stripe's message, which echoes part of the secret key.
+ */
+export function accountError(err: unknown): unknown {
+  if (
+    !(err instanceof Stripe.errors.StripeError) ||
+    !(err.code === 'account_invalid' || err instanceof Stripe.errors.StripePermissionError)
+  ) {
+    return err;
+  }
+
+  logger.warn(
+    { requestId: err.requestId, stripeType: err.type, stripeCode: err.code },
+    'Connected account is not reachable with this Stripe key',
+  );
+
+  return new AppError(
+    "This studio's Stripe account can't be reached with the platform's Stripe key. " +
+      'It was connected under a different Stripe account, or access was revoked, ' +
+      'so the studio needs to connect Stripe again.',
+    409,
+    'STRIPE_ACCOUNT_UNREACHABLE',
   );
 }
 
@@ -156,7 +192,11 @@ export class StripeProvider implements PaymentProvider {
   }
 
   async getAccountStatus(accountId: string): Promise<ConnectAccountStatus> {
-    const account = await this.stripe.accounts.retrieve(accountId);
+    const account = await this.stripe.accounts
+      .retrieve(accountId)
+      .catch((err: unknown) => {
+        throw accountError(err);
+      });
 
     return {
       accountId: account.id,
@@ -206,7 +246,9 @@ export class StripeProvider implements PaymentProvider {
         // Survives a retry after a timeout without charging twice.
         idempotencyKey: input.idempotencyKey,
       },
-    );
+    ).catch((err: unknown) => {
+      throw accountError(err);
+    });
 
     if (!session.url) {
       throw new AppError('Stripe did not return a checkout URL.', 502);
@@ -223,9 +265,11 @@ export class StripeProvider implements PaymentProvider {
     sessionId: string,
     connectedAccountId: string,
   ): Promise<CheckoutSessionResult> {
-    const session = await this.stripe.checkout.sessions.retrieve(sessionId, {
-      stripeAccount: connectedAccountId,
-    });
+    const session = await this.stripe.checkout.sessions
+      .retrieve(sessionId, { stripeAccount: connectedAccountId })
+      .catch((err: unknown) => {
+        throw accountError(err);
+      });
 
     return {
       id: session.id,
@@ -254,7 +298,9 @@ export class StripeProvider implements PaymentProvider {
         stripeAccount: input.connectedAccountId,
         idempotencyKey: input.idempotencyKey,
       },
-    );
+    ).catch((err: unknown) => {
+      throw accountError(err);
+    });
 
     return {
       id: refund.id,

@@ -50,6 +50,7 @@ import {
   suspendStudio,
   unsuspendStudio,
   refreshStudioConnectStatus,
+  resetStudioStripe,
 } from './studio-admin.service';
 import {
   endSupportSession,
@@ -313,6 +314,15 @@ platformRouter.post(
   '/organizations/:organizationId/stripe-refresh',
   asyncHandler(async (req, res) => {
     res.json(await refreshStudioConnectStatus(auditContext(req), studioId(req)));
+  }),
+);
+
+platformRouter.post(
+  '/organizations/:organizationId/stripe-reset',
+  validateBody(reasonOnlySchema),
+  asyncHandler(async (req, res) => {
+    const { reason } = req.body as z.infer<typeof reasonOnlySchema>;
+    res.json(await resetStudioStripe(auditContext(req), studioId(req), reason));
   }),
 );
 

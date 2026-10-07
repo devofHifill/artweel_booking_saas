@@ -448,3 +448,71 @@ export async function refreshStudioConnectStatus(actor: Actor, organizationId: s
     },
   );
 }
+
+/**
+ * Forgets a studio's Connect account so the owner can connect a new one.
+ *
+ * For an account this platform's key cannot reach — created under another
+ * Stripe account, or with access revoked. Until it is cleared, every payment
+ * call for the studio fails and "Connect Stripe" keeps returning to the same
+ * dead account.
+ *
+ * Refused while charges are enabled: an account Stripe says is taking money is
+ * not stuck, and forgetting it would cut the studio off and strand refunds on
+ * payments already taken there. The old account id stays in the audit row.
+ */
+export async function resetStudioStripe(
+  actor: Actor,
+  organizationId: string,
+  reason: string,
+) {
+  await requireStudio(organizationId);
+
+  return withAudit(
+    {
+      ...actor,
+      action: 'organization.stripe_reset',
+      targetType: 'organization',
+      targetId: organizationId,
+      organizationId,
+      reason,
+    },
+    async (tx, audit) => {
+      const before = await tx.organization.findUniqueOrThrow({
+        where: { id: organizationId },
+        select: {
+          stripeAccountId: true,
+          stripeChargesEnabled: true,
+          stripePayoutsEnabled: true,
+        },
+      });
+
+      if (!before.stripeAccountId) {
+        throw AppError.conflict(
+          'That studio has no Stripe connection to reset.',
+          'STRIPE_NOT_CONNECTED',
+        );
+      }
+      if (before.stripeChargesEnabled) {
+        throw AppError.conflict(
+          'That studio is taking payments through Stripe. Resetting would cut it off, so it is refused.',
+          'STRIPE_ACCOUNT_ACTIVE',
+        );
+      }
+
+      await tx.organization.update({
+        where: { id: organizationId },
+        data: {
+          stripeAccountId: null,
+          stripeChargesEnabled: false,
+          stripePayoutsEnabled: false,
+          stripeOnboardedAt: null,
+        },
+      });
+
+      audit({ metadata: { before } });
+
+      return { reset: true };
+    },
+  );
+}
