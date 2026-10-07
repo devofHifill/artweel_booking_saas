@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import { DataTable, StatusPill } from './layout';
@@ -614,6 +615,28 @@ type Payments = {
   payoutsEnabled: boolean;
 };
 
+/** `POST /payments/refresh` — Stripe's current verdict, re-read on demand. */
+type ConnectRefresh = {
+  connected: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled?: boolean;
+  requirements: string[];
+};
+
+/** What a refresh tells the owner, in the order the cases are checked. */
+function connectNote(res: ConnectRefresh): string {
+  if (!res.connected) {
+    return 'Stripe is not connected yet. Connect it from Integrations to take payments online.';
+  }
+  if (res.chargesEnabled) return 'Stripe confirms you can take payments.';
+
+  const missing = res.requirements.length;
+  if (missing > 0) {
+    return `Stripe still needs ${missing} more detail${missing === 1 ? '' : 's'} before you can take payments. Finish them in Stripe, then check again.`;
+  }
+  return 'Stripe has not enabled payments on your account yet.';
+}
+
 export function PaymentSettingsSection() {
   const base = useOrgBase();
   const { org } = useOrgSettings();
@@ -637,14 +660,74 @@ export function PaymentSettingsSection() {
     });
   }, [org]);
 
+  /* Stripe sends the owner back here: `done=1` after onboarding, `refresh=1`
+     when the setup link expired before they finished. */
+  const [params, setParams] = useSearchParams();
+  const [linkExpired] = useState(() => params.get('refresh') === '1');
+  const [checking, setChecking] = useState(false);
+  const [statusNote, setStatusNote] = useState<string | null>(null);
+
+  /**
+   * Asks Stripe directly rather than waiting for `account.updated`. The webhook
+   * can be missed, and an owner who has just finished onboarding should not sit
+   * looking at "not yet able to take payments" until it turns up.
+   */
+  async function refreshStatus() {
+    setChecking(true);
+    setStatusNote(null);
+    try {
+      const res = await api.post<ConnectRefresh>(`${base}/payments/refresh`);
+      setStripe((prev) => ({
+        provider: prev?.provider ?? 'stripe',
+        connected: res.connected,
+        chargesEnabled: res.chargesEnabled,
+        payoutsEnabled: res.payoutsEnabled ?? false,
+      }));
+      setStatusNote(connectNote(res));
+    } catch (err) {
+      setStatusNote(err instanceof Error ? err.message : 'Could not check with Stripe.');
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  /** Mints a fresh onboarding link; Stripe's expire within minutes. */
+  async function continueSetup() {
+    setChecking(true);
+    try {
+      const res = await api.post<{ url: string }>(`${base}/payments/connect`);
+      window.location.href = res.url;
+    } catch (err) {
+      setStatusNote(err instanceof Error ? err.message : 'Could not restart Stripe setup.');
+      setChecking(false);
+    }
+  }
+
   useEffect(() => {
+    const returned = params.get('done') === '1';
+
     /* The connection itself is Integrations' to report and this reads the
        same endpoint, so the two screens cannot disagree about whether the
        studio can take money. */
     api
       .get<{ payments: Payments }>(`${base}/integrations`)
       .then((res) => setStripe(res.payments))
-      .catch(() => setStripe(null));
+      .catch(() => setStripe(null))
+      .finally(() => {
+        if (returned) void refreshStatus();
+      });
+
+    // One-shot flags: a reload should not re-run them.
+    if (returned || params.has('refresh')) {
+      setParams(
+        (p) => {
+          p.delete('done');
+          p.delete('refresh');
+          return p;
+        },
+        { replace: true },
+      );
+    }
   }, [base]);
 
   if (!org) return <div className="card">Loading…</div>;
@@ -655,6 +738,15 @@ export function PaymentSettingsSection() {
       <p className="sub">What guests can pay with, and when.</p>
 
       {error && <div className="err">{error}</div>}
+
+      {linkExpired && !stripe?.chargesEnabled && (
+        <div className="alert" role="note">
+          Your Stripe setup link expired before you finished.{' '}
+          <button type="button" disabled={checking} onClick={() => void continueSetup()}>
+            Continue Stripe setup
+          </button>
+        </div>
+      )}
 
       <div className="form-row">
         <div className="setting setting-stack">
@@ -733,6 +825,19 @@ export function PaymentSettingsSection() {
           <dd className="muted">Set by Stripe — see your Stripe dashboard</dd>
         </div>
       </dl>
+
+      {stripe?.connected && !(stripe.chargesEnabled && stripe.payoutsEnabled) && (
+        <div className="toolbar">
+          <button type="button" disabled={checking} onClick={() => void refreshStatus()}>
+            {checking ? 'Checking with Stripe…' : 'Refresh status'}
+          </button>
+        </div>
+      )}
+      {statusNote && (
+        <p className="tiny muted" role="status">
+          {statusNote}
+        </p>
+      )}
 
       <div className="alert" role="note">
         Deposit terms are still set <b>per activity</b> — a six-week course and

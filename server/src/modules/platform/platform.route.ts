@@ -49,6 +49,7 @@ import {
   setPlan,
   suspendStudio,
   unsuspendStudio,
+  refreshStudioConnectStatus,
 } from './studio-admin.service';
 import {
   endSupportSession,
@@ -303,6 +304,15 @@ platformRouter.post(
     res.json({
       studio: await unsuspendStudio(auditContext(req), studioId(req), reason),
     });
+  }),
+);
+
+// Copies Stripe's verdict on the studio's Connect account. No reason field:
+// it decides nothing, though it is still audited with before/after.
+platformRouter.post(
+  '/organizations/:organizationId/stripe-refresh',
+  asyncHandler(async (req, res) => {
+    res.json(await refreshStudioConnectStatus(auditContext(req), studioId(req)));
   }),
 );
 
