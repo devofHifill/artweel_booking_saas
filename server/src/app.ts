@@ -2,8 +2,7 @@ import path from 'node:path';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
-import pinoHttp from 'pino-http';
-import { logger } from './lib/logger';
+import { logger, requestLogger } from './lib/logger';
 import { healthRouter } from './modules/health/health.route';
 import { authRouter } from './modules/auth/auth.route';
 import { organizationRouter } from './modules/organizations/organization.route';
@@ -71,7 +70,7 @@ export function createApp() {
   // 100kb is generous for JSON here and keeps a hostile body from becoming a
   // memory problem before validation ever runs.
   app.use(express.json({ limit: '100kb' }));
-  app.use(pinoHttp({ logger }));
+  app.use(requestLogger(logger));
 
   app.use('/api/health', healthRouter);
   app.use('/api/auth', authRouter);
