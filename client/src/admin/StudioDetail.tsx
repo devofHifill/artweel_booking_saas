@@ -20,6 +20,7 @@ type ActionId =
   | 'comp'
   | 'suspend'
   | 'unsuspend'
+  | 'stripeReset'
   | 'support';
 
 /**
@@ -231,6 +232,17 @@ export default function StudioDetail() {
           <button onClick={() => setOpen(open === 'support' ? null : 'support')}>
             Look inside
           </button>
+          {/* Only while Stripe is not taking money for them — the server
+              refuses otherwise, and offering a button that always fails is
+              worse than not offering it. */}
+          {studio.stripeAccountId && !studio.stripeChargesEnabled && (
+            <button
+              className="danger"
+              onClick={() => setOpen(open === 'stripeReset' ? null : 'stripeReset')}
+            >
+              Reset Stripe connection
+            </button>
+          )}
           {studio.suspendedByPlatformAt ? (
             <button
               className="primary"
@@ -350,6 +362,22 @@ export default function StudioDetail() {
           />
         )}
 
+        {open === 'stripeReset' && (
+          <ActionForm
+            title="Reset the Stripe connection"
+            note="Forgets this studio's connected Stripe account so the owner can connect a new one. Use it when the account cannot be reached with the platform's Stripe key. Nothing changes in Stripe itself, and the old account id is kept in the audit log."
+            submitLabel="Reset connection"
+            danger
+            onSubmit={(body) =>
+              api.post(`/api/platform/organizations/${studio.id}/stripe-reset`, body)
+            }
+            onDone={() => {
+              setOpen(null);
+              void load();
+            }}
+          />
+        )}
+
         {open === 'suspend' && (
           <ActionForm
             title="Suspend this studio"
@@ -431,7 +459,9 @@ export default function StudioDetail() {
         )}
       </section>
 
-      <Integrations organizationId={studio.id} />
+      {/* Keyed on the account so a reset reloads it rather than showing the
+          forgotten account as still connected. */}
+      <Integrations key={studio.stripeAccountId ?? 'none'} organizationId={studio.id} />
 
       <section className="card">
         <h2>History</h2>
@@ -522,7 +552,13 @@ function Integrations({ organizationId }: { organizationId: string }) {
       );
       await load();
     } catch (err) {
-      setStripeNote(err instanceof Error ? err.message : 'Could not reach Stripe.');
+      setStripeNote(
+        err instanceof ApiError && err.code === 'STRIPE_ACCOUNT_UNREACHABLE'
+          ? `${err.message} Use "Reset Stripe connection" under Actions so the owner can.`
+          : err instanceof Error
+            ? err.message
+            : 'Could not reach Stripe.',
+      );
     } finally {
       setRefreshing(false);
     }
