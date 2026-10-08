@@ -12,6 +12,7 @@ import {
   onPaymentSucceeded,
   sweepExpiredSubscriptions,
 } from '../../src/modules/billing/billing.service';
+import { handleWebhook } from '../../src/modules/payments/payment.service';
 
 /**
  * Billing, plan limits and onboarding.
@@ -493,5 +494,39 @@ describe('onboarding', () => {
     expect(res.status).toBe(200);
     expect(res.body.complete).toBe(true);
     expect(res.body.bookingUrl).toContain('/public/');
+  });
+});
+
+describe('a subscription event at our destinations’ API version', () => {
+  /**
+   * From 2025-03-31.basil Stripe reports the period end on each subscription
+   * item, not on the subscription. Our destinations run on 2026-07-29.dahlia,
+   * so reading only the top level stored no renewal date at all.
+   */
+  it('takes the renewal date from the item when the top level has none', async () => {
+    await prisma.organization.update({
+      where: { id: studio.organizationId },
+      data: { billingCustomerId: 'cus_dahlia' },
+    });
+    const periodEnd = Math.floor(Date.now() / 1000) + 30 * 86_400;
+
+    await handleWebhook({
+      id: 'evt_dahlia_subscription',
+      type: 'customer.subscription.updated',
+      accountId: null,
+      data: {
+        id: 'sub_dahlia',
+        status: 'active',
+        customer: 'cus_dahlia',
+        items: { data: [{ current_period_end: periodEnd }] },
+        metadata: { planId: 'SOLO' },
+      },
+    });
+
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: studio.organizationId },
+    });
+    expect(org.subscriptionStatus).toBe('ACTIVE');
+    expect(org.currentPeriodEnd?.getTime()).toBe(periodEnd * 1000);
   });
 });

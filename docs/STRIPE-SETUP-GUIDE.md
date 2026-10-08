@@ -51,16 +51,22 @@ not carry over.
      (`losses_collector: application`)
    - Charge type: **Direct charges**
    - Onboarding: **Stripe-hosted**
-4. Complete the **platform profile** questionnaire (Connect → Settings →
-   Platform profile). Stripe will not let you create live connected accounts
-   until it is done; in test mode it is still worth finishing now.
+4. **Platform profile** (Connect → Settings → Platform profile) exists only in
+   **live mode** — in the sandbox Stripe shows "Settings are hidden". Complete
+   it when going live (A9); Stripe will not create live connected accounts
+   until it is done.
 5. **Connect → Settings → Branding**: upload the bookaihub icon, set the brand
    colour and business name. This styles the onboarding pages and the studio's
    Express dashboard.
 6. **Connect → Settings → Onboarding options / Countries**: make sure the
    **United States** is allowed (the app creates US accounts —
    `STRIPE_ACCOUNT_COUNTRY=US`).
-7. **Connect → Settings → Express dashboard**: leave payouts visible so studios
+7. **Connect → Settings → Onboarding options → Countries**, section "Add the
+   products they need": tick **Payments** ("Let accounts accept payments from
+   their own customers") alongside **Transfers**. The app requests card
+   payments itself, so this is not blocking, but it keeps the dashboard's
+   defaults in line with what the app creates.
+8. **Connect → Settings → Express dashboard**: leave payouts visible so studios
    can see their balance and payouts.
 
 > **Accounts v2.** Stripe now refuses the old Accounts v1 `accounts.create`
@@ -89,7 +95,7 @@ Stripe scopes each destination to **either** "Your account" **or**
 |---|---|---|
 | Name (suggested) | `bookaihub-live-platform` | `bookaihub-live-connect` |
 | Events from | **Your account** | **Connected accounts** |
-| API version | **`2025-01-27.acacia`** | **`2025-01-27.acacia`** |
+| API version | **`2026-07-29.dahlia`** | **`2026-07-29.dahlia`** |
 | Destination type | Webhook endpoint | Webhook endpoint |
 | URL | `https://bookaihub.com/webhooks/stripe` | `https://bookaihub.com/webhooks/stripe` |
 | Events | `customer.subscription.created`<br>`customer.subscription.updated`<br>`customer.subscription.deleted`<br>`invoice.payment_succeeded`<br>`invoice.payment_failed` | `checkout.session.completed`<br>`checkout.session.expired`<br>`account.updated` |
@@ -98,8 +104,14 @@ Notes:
 
 - The URL is `PUBLIC_URL` + `/webhooks/stripe` — **not** `/api/webhooks/…`
   and not the `app.` host.
-- Pick `2025-01-27.acacia`, not the newest version offered. The server's SDK
-  is pinned to it and Stripe shapes payloads by the destination's version.
+- The bookaihub destinations run on `2026-07-29.dahlia`, and the webhook
+  handlers read every field from where dahlia puts it (including a
+  subscription's renewal date, which moved onto its items in 2025-03-31.basil).
+  `2025-01-27.acacia` also works. What matters is that **both destinations use
+  the same version** — Stripe shapes each payload by its destination's version,
+  so a new or replacement destination should match the existing one. This is
+  separate from the version the server uses for its own calls to Stripe
+  (pinned to acacia in `stripe.provider.ts`); the two do not need to match.
 - Pick exactly the events above. A destination subscribed to something else
   (for example `account.external_account.updated` instead of
   `account.updated`) looks healthy and never delivers what we need.
@@ -344,8 +356,10 @@ these never work in live mode.
   Stripe → Customers) and avoid pressing a different plan's button.
 - The app has no "Open Stripe dashboard" button for studios; they use the
   Express login link in B6.
-- Whether Stripe sends the v1 `account.updated` event for accounts created
-  through Accounts v2 is unconfirmed until the first live studio onboards.
-  The return to Payment Settings re-reads the status anyway, so nothing
-  depends on it. Check the connect destination's deliveries after the first
-  studio connects.
+
+## Confirmed behaviour
+
+- Stripe **does** send the v1 `account.updated` event for accounts created
+  through Accounts v2; it reaches the connect destination and is processed
+  (verified 2026-10-08). The return to Payment Settings also re-reads the
+  status, so a missed event never leaves a studio stuck.
