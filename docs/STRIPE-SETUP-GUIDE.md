@@ -31,10 +31,18 @@ not carry over.
    (the one the bookaihub keys belong to).
 2. Top-left account switcher → make sure you are in the right account, and in
    the **sandbox / Test mode** (orange "Test mode" banner).
-3. **Settings → Business → Public details**: set the public business name
-   (**bookaihub**), support email, support phone and website
-   (`https://bookaihub.com`). Studios see this name on Stripe's onboarding
-   page ("bookaihub uses Stripe for secure payments").
+3. **Live mode only — skip in the sandbox.** Public details (Settings →
+   Business → Business details → Customer-facing information), the statement
+   descriptor and branding can only be saved in live mode; the sandbox answers
+   "Only live keys can access this method" or "Settings are hidden". Until
+   then Stripe shows the account name, **bookaihub**, with default styling,
+   which is fine for testing. Set them in A9:
+   - Customer-facing information: business name **bookaihub**, support phone,
+     support address, support email, website `https://bookaihub.com`,
+     privacy and terms URLs.
+   - Statement descriptor: `BOOKAIHUB` (shortened: `BOOKAIHUB` or `BOOKAI`).
+     This is what studios see on their card statement for their bookaihub
+     plan; studio bookings carry each studio's own descriptor.
 
 ### A2. Turn on Connect
 
@@ -55,9 +63,11 @@ not carry over.
    **live mode** — in the sandbox Stripe shows "Settings are hidden". Complete
    it when going live (A9); Stripe will not create live connected accounts
    until it is done.
-5. **Connect → Settings → Branding**: upload the bookaihub icon, set the brand
-   colour and business name. This styles the onboarding pages and the studio's
-   Express dashboard.
+5. **Branding** (Settings → Business → Branding, applied to Connect from
+   Connect → Settings → Onboarding interface): icon, brand colour. **Live mode
+   only** — hidden in the sandbox. One set of branding covers both modes once
+   set. It styles the onboarding pages, the studio's Express dashboard,
+   Checkout and the customer portal.
 6. **Connect → Settings → Onboarding options / Countries**: make sure the
    **United States** is allowed (the app creates US accounts —
    `STRIPE_ACCOUNT_COUNTRY=US`).
@@ -200,9 +210,12 @@ Per studio: **Admin → Studios → (studio)**.
 
 1. Stripe → **Activate account** (live mode): business details, bank account,
    identity, for the **platform** itself.
-2. Switch the dashboard to **Live mode** and repeat **A2** (platform profile,
-   branding, countries), **A3** (live `sk_live_…`), **A4** (two new live
-   destinations with new secrets) and **A5** (customer portal, live).
+2. Switch the dashboard to **Live mode**. Set what the sandbox could not:
+   **A1** public details and statement descriptor, **A2** platform profile
+   and branding. Then repeat **A2** countries and products, **A3** (live
+   `sk_live_…`), **A4** (two new live destinations on the same API version,
+   with new secrets) and **A5** (customer portal — saved separately per
+   mode).
 3. Update the server env (A6) with the live key and the two live secrets;
    deploy.
 4. Every studio has to connect again. Accounts created in test mode do not
