@@ -28,6 +28,15 @@ import type { ConnectAccountStatus, WebhookEvent } from './provider';
  * The account is created by us; everything sensitive — bank details, identity
  * documents, tax information — is collected by Stripe on their own domain. We
  * never see it, store it, or become responsible for it.
+ *
+ * A stored account this platform key cannot reach — made under another Stripe
+ * account, or a sandbox since replaced — is swapped for a new one, but only
+ * while the studio cannot take payments. Until then the old account has never
+ * moved money, and the owner was otherwise told to "connect Stripe again" on a
+ * screen whose only button minted a link for that same dead account. A studio
+ * that IS taking payments is refused instead: an account that worked
+ * yesterday and is unreachable today points at a wrong key in the deploy, and
+ * replacing it would strand the studio's real account.
  */
 export async function startConnectOnboarding(
   organizationId: string,
@@ -39,31 +48,54 @@ export async function startConnectOnboarding(
     where: { id: organizationId },
   });
 
-  let accountId = org.stripeAccountId;
-
-  if (!accountId) {
+  const createAccount = async () => {
     const created = await provider.createConnectAccount({
       email: actorEmail,
       organizationName: org.name,
       country: config.STRIPE_ACCOUNT_COUNTRY,
     });
-    accountId = created.accountId;
-
     await prisma.organization.update({
       where: { id: organizationId },
-      data: { stripeAccountId: accountId },
+      data: {
+        stripeAccountId: created.accountId,
+        stripeChargesEnabled: false,
+        stripePayoutsEnabled: false,
+        stripeOnboardedAt: null,
+      },
     });
-  }
+    return created.accountId;
+  };
 
-  const link = await provider.createAccountLink({
-    accountId,
-    // Stripe expires the link quickly; refresh sends them back to us to mint
-    // a new one rather than showing a dead page. Both land on Settings'
-    // Payments section — the client has no `/settings/payments` route, and
-    // that path fell through to the dashboard with the flag thrown away.
-    refreshUrl: `${config.APP_URL}/settings?section=payments&refresh=1`,
-    returnUrl: `${config.APP_URL}/settings?section=payments&done=1`,
-  });
+  const linkFor = (accountId: string) =>
+    provider.createAccountLink({
+      accountId,
+      // Stripe expires the link quickly; refresh sends them back to us to mint
+      // a new one rather than showing a dead page. Both land on Settings'
+      // Payments section — the client has no `/settings/payments` route, and
+      // that path fell through to the dashboard with the flag thrown away.
+      refreshUrl: `${config.APP_URL}/settings?section=payments&refresh=1`,
+      returnUrl: `${config.APP_URL}/settings?section=payments&done=1`,
+    });
+
+  let accountId = org.stripeAccountId ?? (await createAccount());
+  let link;
+
+  try {
+    link = await linkFor(accountId);
+  } catch (err) {
+    const unreachable =
+      err instanceof AppError && err.code === 'STRIPE_ACCOUNT_UNREACHABLE';
+    if (!unreachable || accountId !== org.stripeAccountId || org.stripeChargesEnabled) {
+      throw err;
+    }
+
+    logger.warn(
+      { organizationId, previousAccountId: accountId },
+      'Replacing an unreachable Connect account that never took payments',
+    );
+    accountId = await createAccount();
+    link = await linkFor(accountId);
+  }
 
   return { accountId, url: link.url, expiresAt: link.expiresAt };
 }

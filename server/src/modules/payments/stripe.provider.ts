@@ -78,12 +78,23 @@ export function connectError(err: unknown): unknown {
  * on refresh, checkout and refunds alike. Nothing retried will fix it: the
  * studio has to connect again, which is what the message says.
  *
+ * Stripe says it two ways. Reading the account, or acting on it, answers
+ * `account_invalid` (a permission error). Minting an onboarding link for it
+ * answers `resource_missing` on the `account` param — "No such account" — and
+ * that one used to reach the owner as a 502 refusal behind "Finish Stripe
+ * setup", on every click. A `resource_missing` on anything else (a checkout
+ * session, say) is a different problem and is left alone.
+ *
  * Logged without Stripe's message, which echoes part of the secret key.
  */
 export function accountError(err: unknown): unknown {
   if (
     !(err instanceof Stripe.errors.StripeError) ||
-    !(err.code === 'account_invalid' || err instanceof Stripe.errors.StripePermissionError)
+    !(
+      err.code === 'account_invalid' ||
+      err instanceof Stripe.errors.StripePermissionError ||
+      (err.code === 'resource_missing' && err.param === 'account')
+    )
   ) {
     return err;
   }
@@ -146,28 +157,54 @@ export class StripeProvider implements PaymentProvider {
     });
   }
 
+  /**
+   * Created through Accounts v2 (`/v2/core/accounts`), the one place this
+   * adapter leaves v1.
+   *
+   * Stripe now refuses `accounts.create` for new Connect platforms with "Stripe
+   * no longer recommends Accounts v1", which surfaced as STRIPE_CONNECT_REFUSED
+   * behind every Connect button. A v2 account answers to every v1 endpoint used
+   * below — account links, `accounts.retrieve`, direct-charge checkout and
+   * refunds — in v1's shape, so nothing else changes.
+   *
+   * The body is v1's Express account restated: Express dashboard, the platform
+   * collecting Stripe's fees and covering losses (what an Express account
+   * defaulted to), and the merchant configuration, which carries card payments
+   * and payouts. No recipient configuration — that is for transfers, and
+   * direct charges never transfer.
+   *
+   * SDK 17 has no typed v2 Accounts, hence `rawRequest`. The version is pinned
+   * here for the same reason the client's is.
+   */
   async createConnectAccount(input: {
     email: string;
     organizationName: string;
     country: string;
   }) {
-    const account = await this.stripe.accounts
-      .create({
-        type: 'express',
-        email: input.email,
-        country: input.country,
-        business_profile: { name: input.organizationName },
-        capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
+    const account = (await this.stripe
+      .rawRequest(
+        'POST',
+        '/v2/core/accounts',
+        {
+          contact_email: input.email,
+          display_name: input.organizationName,
+          dashboard: 'express',
+          identity: { country: input.country.toLowerCase() },
+          defaults: {
+            responsibilities: {
+              fees_collector: 'application',
+              losses_collector: 'application',
+            },
+          },
+          configuration: {
+            merchant: { capabilities: { card_payments: { requested: true } } },
+          },
         },
-        settings: {
-          payouts: { schedule: { interval: 'daily', delay_days: 'minimum' } },
-        },
-      })
+        { apiVersion: '2026-09-30.endive' },
+      )
       .catch((err: unknown) => {
         throw connectError(err);
-      });
+      })) as unknown as { id: string };
 
     return { accountId: account.id };
   }

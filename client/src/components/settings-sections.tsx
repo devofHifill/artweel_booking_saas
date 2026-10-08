@@ -626,7 +626,7 @@ type ConnectRefresh = {
 /** What a refresh tells the owner, in the order the cases are checked. */
 function connectNote(res: ConnectRefresh): string {
   if (!res.connected) {
-    return 'Stripe is not connected yet. Connect it from Integrations to take payments online.';
+    return 'Stripe is not connected yet. Connect it to take payments online.';
   }
   if (res.chargesEnabled) return 'Stripe confirms you can take payments.';
 
@@ -826,11 +826,26 @@ export function PaymentSettingsSection() {
         </div>
       </dl>
 
-      {stripe?.connected && !(stripe.chargesEnabled && stripe.payoutsEnabled) && (
+      {/* The way into Stripe sits here as well as on Integrations. A refresh
+          that ends "connect Stripe again" used to leave the owner on a screen
+          with nothing to press. */}
+      {stripe && !(stripe.connected && stripe.chargesEnabled && stripe.payoutsEnabled) && (
         <div className="toolbar">
-          <button type="button" disabled={checking} onClick={() => void refreshStatus()}>
-            {checking ? 'Checking with Stripe…' : 'Refresh status'}
-          </button>
+          {!stripe.chargesEnabled && (
+            <button
+              type="button"
+              className="primary"
+              disabled={checking}
+              onClick={() => void continueSetup()}
+            >
+              {stripe.connected ? 'Finish Stripe setup' : 'Connect Stripe'}
+            </button>
+          )}
+          {stripe.connected && (
+            <button type="button" disabled={checking} onClick={() => void refreshStatus()}>
+              {checking ? 'Checking with Stripe…' : 'Refresh status'}
+            </button>
+          )}
         </div>
       )}
       {statusNote && (
