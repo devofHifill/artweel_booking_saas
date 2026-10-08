@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, money } from '../lib/api';
 import { useOrgBase } from '../lib/auth';
 import { LoadingRegion, SkeletonList } from '../components/states';
@@ -33,6 +34,23 @@ export default function Billing() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /* Stripe sends a studio back with `subscribed=1` after checkout. The plan
+     itself flips when the subscription webhook lands, which can trail the
+     redirect by a few seconds, so say so rather than show the old plan bare. */
+  const [params, setParams] = useSearchParams();
+  const [justSubscribed] = useState(() => params.get('subscribed') === '1');
+  useEffect(() => {
+    if (params.has('subscribed')) {
+      setParams(
+        (p) => {
+          p.delete('subscribed');
+          return p;
+        },
+        { replace: true },
+      );
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -72,6 +90,18 @@ export default function Billing() {
     }
   }
 
+  /** Stripe's own portal: card, invoices, cancellation. */
+  async function manageBilling() {
+    setBusy(true);
+    try {
+      const res = await api.post<{ url: string }>(`${base}/billing/portal`);
+      window.location.href = res.url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not open billing.');
+      setBusy(false);
+    }
+  }
+
   if (!state) return (
       <LoadingRegion label="Loading your plan">
         <SkeletonList count={3} lines={3} />
@@ -93,6 +123,12 @@ export default function Billing() {
       />
 
       {error && <div className="err">{error}</div>}
+      {justSubscribed && state.status !== 'ACTIVE' && (
+        <div className="alert" role="status">
+          Thanks — Stripe has your payment. Your plan switches over as soon as
+          Stripe confirms it, usually within a minute.
+        </div>
+      )}
       {state.notice && (
         <div className={`alert ${state.notice.level === 'danger' ? 'danger' : 'warn'}`}>
           {state.notice.message}
@@ -125,6 +161,17 @@ export default function Billing() {
           }
         />
       </StatGrid>
+
+      {/* The portal endpoint existed with nothing calling it, so a paying
+          studio had no way to change its card or cancel. Trialing studios
+          have no Stripe customer yet, so there is nothing to manage. */}
+      {state.status !== 'TRIALING' && (
+        <div className="toolbar">
+          <button type="button" disabled={busy} onClick={() => void manageBilling()}>
+            Manage billing — card, invoices, cancellation
+          </button>
+        </div>
+      )}
 
       <h2>Plans</h2>
 

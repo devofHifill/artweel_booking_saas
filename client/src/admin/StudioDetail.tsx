@@ -554,7 +554,7 @@ function Integrations({ organizationId }: { organizationId: string }) {
     } catch (err) {
       setStripeNote(
         err instanceof ApiError && err.code === 'STRIPE_ACCOUNT_UNREACHABLE'
-          ? `${err.message} Use "Reset Stripe connection" under Actions so the owner can.`
+          ? `${err.message} The owner's "Finish Stripe setup" now replaces it with a new account; "Reset Stripe connection" under Actions clears it first if you'd rather.`
           : err instanceof Error
             ? err.message
             : 'Could not reach Stripe.',

@@ -30,13 +30,25 @@ function accountInvalid() {
   });
 }
 
+/** What Stripe answers when asked for an onboarding link to that same account. */
+function noSuchAccount() {
+  return new Stripe.errors.StripeInvalidRequestError({
+    type: 'invalid_request_error',
+    code: 'resource_missing',
+    param: 'account',
+    message: "No such account: 'acct_x'",
+  });
+}
+
 /**
  * Records the URLs onboarding hands Stripe, so the test can read them back, and
  * can play an account this key no longer reaches.
  */
 class RecordingProvider extends FakePaymentProvider {
-  links: { returnUrl: string; refreshUrl: string }[] = [];
+  links: { accountId: string; returnUrl: string; refreshUrl: string }[] = [];
   unreachable = false;
+  /** Accounts that answer "No such account" when a link is minted for them. */
+  dead = new Set<string>();
 
   override async getAccountStatus(accountId: string) {
     if (this.unreachable) throw accountError(accountInvalid());
@@ -48,7 +60,12 @@ class RecordingProvider extends FakePaymentProvider {
     returnUrl: string;
     refreshUrl: string;
   }) {
-    this.links.push({ returnUrl: input.returnUrl, refreshUrl: input.refreshUrl });
+    if (this.dead.has(input.accountId)) throw accountError(noSuchAccount());
+    this.links.push({
+      accountId: input.accountId,
+      returnUrl: input.returnUrl,
+      refreshUrl: input.refreshUrl,
+    });
     return super.createAccountLink(input);
   }
 }
@@ -186,6 +203,22 @@ describe('a connected account this platform key cannot reach', () => {
     expect(mapped.message).not.toMatch(/sk_test/);
   });
 
+  it('maps "No such account" on an onboarding link the same way', () => {
+    const mapped = accountError(noSuchAccount()) as { code: string };
+
+    expect(mapped.code).toBe('STRIPE_ACCOUNT_UNREACHABLE');
+  });
+
+  it('leaves a missing resource that is not the account alone', () => {
+    const missingSession = new Stripe.errors.StripeInvalidRequestError({
+      type: 'invalid_request_error',
+      code: 'resource_missing',
+      message: "No such checkout.session: 'cs_test_x'",
+    });
+
+    expect(accountError(missingSession)).toBe(missingSession);
+  });
+
   it('leaves every other error alone, so a bug still surfaces as a bug', () => {
     const other = new Stripe.errors.StripeInvalidRequestError({
       type: 'invalid_request_error',
@@ -284,5 +317,54 @@ describe('platform reset of a studio Stripe connection', () => {
     const res = await adminReset({ reason: REASON }, target);
 
     expect(res.status).toBe(404);
+  });
+});
+
+describe('the owner connecting again over an unreachable account', () => {
+  function ownerConnect() {
+    return request(app).post(`${target.base}/payments/connect`).set(target.headers);
+  }
+
+  it('swaps a dead account that never took payments for a new one, and onboards that', async () => {
+    const dead = await connect();
+    provider.dead.add(dead);
+
+    const res = await ownerConnect();
+
+    expect(res.status).toBe(200);
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: target.organizationId },
+    });
+    expect(org.stripeAccountId).toBeTruthy();
+    expect(org.stripeAccountId).not.toBe(dead);
+    expect(provider.links.at(-1)!.accountId).toBe(org.stripeAccountId);
+  });
+
+  it('refuses to replace an account that has been taking payments', async () => {
+    const live = await connect();
+    provider.completeOnboarding(live);
+    await adminRefresh();
+    provider.dead.add(live);
+
+    const res = await ownerConnect();
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('STRIPE_ACCOUNT_UNREACHABLE');
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: target.organizationId },
+    });
+    expect(org.stripeAccountId).toBe(live);
+  });
+
+  it('resumes a reachable account rather than making another', async () => {
+    const first = await connect();
+
+    const res = await ownerConnect();
+
+    expect(res.status).toBe(200);
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: target.organizationId },
+    });
+    expect(org.stripeAccountId).toBe(first);
   });
 });

@@ -178,7 +178,7 @@ export async function createSubscriptionCheckout(
       },
     });
 
-    return { url: `${config.APP_URL}/settings/billing?activated=1`, simulated: true };
+    return { url: `${config.APP_URL}/billing?activated=1`, simulated: true };
   }
 
   const Stripe = (await import('stripe')).default;
@@ -218,8 +218,10 @@ export async function createSubscriptionCheckout(
         },
       },
     ],
-    success_url: `${config.APP_URL}/settings/billing?subscribed=1`,
-    cancel_url: `${config.APP_URL}/settings/billing`,
+    // `/billing`, the client's route. These said `/settings/billing`, which it
+    // does not have, so a studio that had just paid landed on the dashboard.
+    success_url: `${config.APP_URL}/billing?subscribed=1`,
+    cancel_url: `${config.APP_URL}/billing`,
     // Echoed back on the webhook so the subscription finds its studio.
     subscription_data: { metadata: { organizationId, planId } },
     metadata: { organizationId, planId },
@@ -248,7 +250,7 @@ export async function createBillingPortalSession(organizationId: string) {
 
   const session = await stripe.billingPortal.sessions.create({
     customer: org.billingCustomerId,
-    return_url: `${config.APP_URL}/settings/billing`,
+    return_url: `${config.APP_URL}/billing`,
   });
 
   return { url: session.url };
