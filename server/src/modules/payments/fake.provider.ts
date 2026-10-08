@@ -81,6 +81,14 @@ export class FakePaymentProvider implements PaymentProvider {
     const replayed = this.issued.get(input.idempotencyKey);
     if (replayed) return replayed;
 
+    // Stripe's own rule, kept here so a hold shorter than it fails in tests
+    // rather than on the first real booking.
+    if (input.expiresAt.getTime() < Date.now() + 30 * 60_000) {
+      throw new Error(
+        'The `expires_at` timestamp must be at least 30 minutes from Checkout Session creation.',
+      );
+    }
+
     const id = `cs_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
 
     this.sessions.set(id, {

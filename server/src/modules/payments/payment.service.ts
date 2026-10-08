@@ -18,6 +18,13 @@ import { allocateRefund, collectedCents, priceBooking } from './money';
 import { getPaymentProvider } from './provider.registry';
 import type { ConnectAccountStatus, WebhookEvent } from './provider';
 
+/**
+ * The shortest hold behind a Stripe Checkout Session: Stripe's 30-minute floor
+ * on `expires_at`, plus two minutes for the hold being created before the
+ * session and for the request itself.
+ */
+export const CHECKOUT_HOLD_MIN_MINUTES = 32;
+
 // ---------------------------------------------------------------------------
 // Connect onboarding
 // ---------------------------------------------------------------------------
@@ -263,10 +270,15 @@ export async function startCheckout(input: StartCheckoutInput) {
     );
   }
 
-  /* The studio's own hold window, off the `org` already loaded above.
-     `createHold` has always taken a per-call override and never had a caller
-     that used one — until now every studio shared the environment default. */
-  const seatHoldMinutes = org.seatHoldMinutes;
+  /* The studio's own hold window, off the `org` already loaded above, but
+     never shorter than Stripe will accept for a Checkout Session. Stripe
+     refuses an `expires_at` under 30 minutes away, and the session must not
+     outlive the hold (below), so a 15-minute hold — the default — failed every
+     paid booking with a 500. The hold stretches to fit rather than the
+     session: a payment landing after its hold lapsed charges the customer
+     for seats they no longer have. An abandoned checkout still gives its
+     seats back on `checkout.session.expired`. */
+  const seatHoldMinutes = Math.max(org.seatHoldMinutes, CHECKOUT_HOLD_MIN_MINUTES);
 
   const hold = series
     ? await createSeriesHold({

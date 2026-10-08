@@ -173,6 +173,28 @@ describe('checkout', () => {
     expect(await prisma.booking.count()).toBe(0);
   });
 
+  it('holds the seats at least as long as Stripe will keep a checkout open', async () => {
+    // Stripe refuses a session expiring under 30 minutes away. With the
+    // studio's 15-minute default every paid booking on live failed with a 500.
+    await enablePayments();
+    await prisma.organization.update({
+      where: { id: studio.organizationId },
+      data: { seatHoldMinutes: 15 },
+    });
+
+    const res = await startCheckout(1);
+
+    expect(res.status).toBe(201);
+    const checkoutExpires = new Date(res.body.expiresAt).getTime();
+    expect(checkoutExpires).toBeGreaterThanOrEqual(Date.now() + 30 * 60_000);
+
+    // And the session still never outlives the hold it pays for.
+    const hold = await prisma.bookingHold.findFirstOrThrow({
+      where: { organizationId: studio.organizationId },
+    });
+    expect(hold.expiresAt.getTime()).toBeGreaterThanOrEqual(checkoutExpires);
+  });
+
   it('computes the amount server-side and ignores anything sent', async () => {
     await enablePayments();
 
