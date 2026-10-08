@@ -125,10 +125,11 @@ In the Stripe dashboard with **Test mode** on:
 1. **Developers → API keys** → copy the **Secret key** (`sk_test_…`).
 2. **Workbench → Webhooks → Create destination**, twice — once per scope above.
    For each:
-   - **API version: `2025-01-27.acacia`** — not the newest offered. The SDK is
-     pinned to acacia in `stripe.provider.ts`, and Stripe renders event payloads
-     at the destination's version, so a newer one can hand your handlers a
-     renamed field.
+   - **API version: the same for both destinations.** `2025-01-27.acacia` and
+     `2026-07-29.dahlia` (what the live destinations use) both work — the
+     handlers read fields from where either version puts them. Stripe renders
+     event payloads at the destination's version, so a version newer than
+     dahlia should be checked against the handlers before it is chosen.
    - Destination type: **Webhook endpoint**
    - URL: `https://artweel.fillforge.cloud/webhooks/stripe`
    - Select the events listed for that scope

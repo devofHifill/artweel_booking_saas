@@ -777,6 +777,7 @@ async function onSubscriptionEvent(event: WebhookEvent) {
     status: string;
     customer: string;
     current_period_end?: number;
+    items?: { data?: { current_period_end?: number }[] };
     metadata?: Record<string, string>;
   };
 
@@ -787,7 +788,10 @@ async function onSubscriptionEvent(event: WebhookEvent) {
     // A deletion arrives with whatever status it had; treat it as cancelled.
     status: event.type === 'customer.subscription.deleted' ? 'canceled' : data.status,
     customerId: data.customer,
-    currentPeriodEnd: data.current_period_end ?? null,
+    // Top level up to API version 2025-01-27.acacia; from 2025-03-31.basil
+    // Stripe moved it onto each item. Our destinations run on 2026-07-29.dahlia.
+    currentPeriodEnd:
+      data.current_period_end ?? data.items?.data?.[0]?.current_period_end ?? null,
     planId: data.metadata?.planId,
   });
 }
