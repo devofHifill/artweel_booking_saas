@@ -556,7 +556,11 @@ describe('refunds', () => {
     const booking = await paidBooking(2);
     await prisma.booking.update({
       where: { id: booking.id },
-      data: { startsAt: new Date(Date.now() + 2 * 3_600_000) },
+      // Two hours away: inside the policy's nothing-back band.
+      data: {
+        startsAt: new Date(Date.now() + 2 * 3_600_000),
+        endsAt: new Date(Date.now() + 5 * 3_600_000),
+      },
     });
 
     const res = await request(app)
@@ -573,7 +577,11 @@ describe('refunds', () => {
     const booking = await paidBooking(2);
     await prisma.booking.update({
       where: { id: booking.id },
-      data: { startsAt: new Date(Date.now() + 2 * 3_600_000) },
+      // Two hours away: inside the policy's nothing-back band.
+      data: {
+        startsAt: new Date(Date.now() + 2 * 3_600_000),
+        endsAt: new Date(Date.now() + 5 * 3_600_000),
+      },
     });
 
     const res = await request(app)

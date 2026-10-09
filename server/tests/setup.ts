@@ -41,6 +41,19 @@ process.env.JWT_ACCESS_SECRET ??= 'test-access-secret-0123456789abcdefghijkl';
 process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret-0123456789abcdefghijkl';
 
 /**
+ * Never real Stripe. With both keys in a developer's .env — which is how local
+ * development runs against the test-mode sandbox — every suite that does not
+ * install its own provider got the real adapter: refunds for made-up payment
+ * intents failed against Stripe and were reported as refunding nothing, and
+ * the sandbox the live site shares took the traffic. Without the keys the
+ * registry falls back to the fake, which is what the suite is written for.
+ */
+// Empty, not deleted: config/index.ts loads .env again, and dotenv only fills
+// variables that are not set at all.
+process.env.STRIPE_SECRET_KEY = '';
+process.env.STRIPE_WEBHOOK_SECRET = '';
+
+/**
  * Auth rate limits, raised far above anything a test generates.
  *
  * Every fixture in the suite registers through `/api/auth/register`, and all of
