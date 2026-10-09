@@ -1313,7 +1313,7 @@ export async function cancelByToken(token: string) {
     { reason: 'requested_by_customer' },
   ).catch((err) => {
     logger.error({ err, bookingId: booking.id }, 'Refund failed on cancellation');
-    return { refundedCents: 0, creditCents: 0, refunds: [] };
+    return { refundedCents: 0, refunds: [] };
   });
 
   const { queueEventSync } = await import('../calendar/calendar.service');

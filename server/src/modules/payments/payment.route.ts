@@ -151,7 +151,11 @@ paymentRouter.get(
   }),
 );
 
-/** Refunds according to policy. Owner/admin only — it moves money. */
+/**
+ * Refunds according to policy, or everything that is left with `inFull` — the
+ * Payments screen's "Refund in full", a goodwill refund that leaves the
+ * booking as it is. Owner/admin only — it moves money.
+ */
 paymentRouter.post(
   '/bookings/:bookingId/refund',
   requirePermission('payment.refund'),
@@ -160,6 +164,8 @@ paymentRouter.post(
       reason: z.string().max(500).optional(),
       /** Overrides the computed notice, for a goodwill refund. */
       hoursOfNotice: z.number().min(0).max(8760).optional(),
+      /** Everything not yet refunded, whatever the policy says. */
+      inFull: z.boolean().optional(),
     }),
   ),
   asyncHandler(async (req, res) => {

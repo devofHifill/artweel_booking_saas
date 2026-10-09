@@ -305,11 +305,11 @@ export async function seedPotteryDefaults(
         organizationId,
         name: 'Standard',
         isDefault: true,
-        // What most studios actually run: full refund with notice, credit
-        // inside a day, nothing at the last minute.
+        // Full refund with two days' notice, half with one, nothing at the
+        // last minute.
         tiers: [
           { hoursBefore: 48, refundPercent: 100 },
-          { hoursBefore: 24, refundPercent: 0, creditPercent: 100 },
+          { hoursBefore: 24, refundPercent: 50 },
           { hoursBefore: 0, refundPercent: 0 },
         ],
         allowReschedule: true,

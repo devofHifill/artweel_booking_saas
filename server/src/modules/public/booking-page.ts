@@ -131,7 +131,7 @@ type PageData = {
     depositType?: string;
     depositValue?: number;
     cancellationTiers?:
-      | { hoursBefore: number; refundPercent: number; creditPercent?: number }[]
+      | { hoursBefore: number; refundPercent: number }[]
       | null;
   }[];
   locations: {
@@ -739,7 +739,7 @@ type ManageData = {
     };
     customer: { name: string };
   };
-  cancellationQuote: { refundCents: number; creditCents: number } | null;
+  cancellationQuote: { refundCents: number } | null;
   canReschedule: boolean;
 };
 
@@ -862,11 +862,7 @@ export function renderManagePage(data: ManageData, token: string): string {
   ${
     data.cancellationQuote
       ? `<p class="hint">Cancelling now would refund
-         ${money(data.cancellationQuote.refundCents, currency)}${
-           data.cancellationQuote.creditCents > 0
-             ? ` and give ${money(data.cancellationQuote.creditCents, currency)} in studio credit`
-             : ''
-         }.</p>`
+         ${money(data.cancellationQuote.refundCents, currency)}.</p>`
       : ''
   }
   ${

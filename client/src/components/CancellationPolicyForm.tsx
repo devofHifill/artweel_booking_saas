@@ -6,12 +6,16 @@ import { useOrgBase } from '../lib/auth';
  * The studio's default cancellation terms, step by step.
  *
  * This was four boxes: "free until N hours" and "late fee %", a two-step
- * ladder. Anything richer — the Standard policy setup creates has three steps,
- * one giving studio credit instead of money — could not be shown, and saving
- * flattened it. It is now the ladder itself: each step says how much notice it
- * needs and what it gives back, in money and in credit, which is exactly what
- * the refund path evaluates (`evaluatePolicy`: the first step whose notice the
- * customer met).
+ * ladder. Anything richer — the Standard policy setup creates has three steps
+ * — could not be shown, and saving flattened it. It is now the ladder itself:
+ * each step says how much notice it needs and what percentage it refunds,
+ * which is exactly what the refund path evaluates (`evaluatePolicy`: the first
+ * step whose notice the customer met).
+ *
+ * Refund only. There used to be a "studio credit" column, but nothing ever
+ * issued the credit, so a customer in a credit step got nothing back while the
+ * terms said otherwise. It was taken out rather than built, to keep the terms
+ * one number a studio and a customer can both read.
  *
  * The same screen now holds the reschedule rules, which the policy has always
  * carried and no screen could reach: customers moving their own booking from
@@ -21,7 +25,6 @@ import { useOrgBase } from '../lib/auth';
 type Tier = {
   hoursBefore: number;
   refundPercent: number;
-  creditPercent?: number;
 };
 
 type Policy = {
@@ -36,7 +39,7 @@ type Policy = {
 };
 
 /** One step as the form holds it: strings, so a half-typed box is not NaN. */
-type Step = { hours: string; refund: string; credit: string };
+type Step = { hours: string; refund: string };
 
 const toSteps = (tiers: Tier[]): Step[] =>
   [...tiers]
@@ -44,7 +47,6 @@ const toSteps = (tiers: Tier[]): Step[] =>
     .map((t) => ({
       hours: String(t.hoursBefore),
       refund: String(t.refundPercent),
-      credit: String(t.creditPercent ?? 0),
     }));
 
 /**
@@ -64,24 +66,22 @@ const PRESETS: Record<string, Tier[]> = {
     { hoursBefore: 168, refundPercent: 100 },
     { hoursBefore: 0, refundPercent: 0 },
   ],
-  /* What "Set up the basics" creates: money back with two days' notice,
-     studio credit with one, nothing after that. */
+  /* What "Set up the basics" creates: all back with two days' notice, half
+     with one, nothing after that. */
   Standard: [
     { hoursBefore: 48, refundPercent: 100 },
-    { hoursBefore: 24, refundPercent: 0, creditPercent: 100 },
+    { hoursBefore: 24, refundPercent: 50 },
     { hoursBefore: 0, refundPercent: 0 },
   ],
 };
 
 const num = (v: string) => Math.max(0, Math.round(Number(v) || 0));
 
-/** "a full refund", "50% back and 50% as studio credit", "nothing back". */
-function gives(refund: number, credit: number): string {
-  const parts: string[] = [];
-  if (refund >= 100) parts.push('a full refund');
-  else if (refund > 0) parts.push(`${refund}% back`);
-  if (credit > 0) parts.push(`${credit}% as studio credit`);
-  return parts.length ? parts.join(' and ') : 'nothing back';
+/** "a full refund", "50% back", "nothing back". */
+function gives(refund: number): string {
+  if (refund >= 100) return 'a full refund';
+  if (refund > 0) return `${refund}% back`;
+  return 'nothing back';
 }
 
 /**
@@ -93,7 +93,7 @@ function gives(refund: number, credit: number): string {
 function generatedTerms(steps: Step[], noShow: number): string {
   const sorted = [...steps].sort((a, b) => num(b.hours) - num(a.hours));
   const lines = sorted.map((s) => {
-    const what = gives(num(s.refund), num(s.credit));
+    const what = gives(num(s.refund));
     if (num(s.hours) === 0) {
       return sorted.length === 1
         ? `Cancel any time and you get ${what}.`
@@ -114,10 +114,7 @@ function problemWith(steps: Step[]): string | null {
     return 'Two steps have the same number of hours. Give each a different one.';
   }
   for (const s of steps) {
-    if (num(s.refund) > 100 || num(s.credit) > 100) return 'Percentages go up to 100.';
-    if (num(s.refund) + num(s.credit) > 100) {
-      return 'A step cannot give back more than 100% between money and credit.';
-    }
+    if (num(s.refund) > 100) return 'Percentages go up to 100.';
   }
   return null;
 }
@@ -148,7 +145,7 @@ export function CancellationPolicySection() {
         const loaded = toSteps(chosen.tiers ?? []);
         // A ladder must end at 0 hours; add the step if one never did.
         if (!loaded.some((s) => num(s.hours) === 0)) {
-          loaded.push({ hours: '0', refund: '0', credit: '0' });
+          loaded.push({ hours: '0', refund: '0' });
         }
         setSteps(loaded);
         setNoShowFee(String(chosen.noShowFeePercent ?? 100));
@@ -176,7 +173,7 @@ export function CancellationPolicySection() {
     // A new step between the longest and the rest; the operator sets its hours.
     setSteps((current) => {
       const longest = num(current[0]?.hours ?? '0');
-      const next = { hours: String(Math.max(1, Math.round(longest / 2) || 12)), refund: '50', credit: '0' };
+      const next = { hours: String(Math.max(1, Math.round(longest / 2) || 12)), refund: '50' };
       return [...current, next].sort((a, b) => num(b.hours) - num(a.hours));
     });
     setName((n) => (n in PRESETS ? 'Custom' : n));
@@ -202,7 +199,6 @@ export function CancellationPolicySection() {
       .map((s) => ({
         hoursBefore: num(s.hours),
         refundPercent: num(s.refund),
-        ...(num(s.credit) > 0 ? { creditPercent: num(s.credit) } : {}),
       }));
 
     try {
@@ -264,7 +260,6 @@ export function CancellationPolicySection() {
           <tr>
             <th scope="col">When they cancel</th>
             <th scope="col">Refund (%)</th>
-            <th scope="col">Studio credit (%)</th>
             <th scope="col" aria-label="Remove" />
           </tr>
         </thead>
@@ -302,16 +297,6 @@ export function CancellationPolicySection() {
                   />
                 </td>
                 <td>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={step.credit}
-                    aria-label={`Step ${i + 1}: studio credit percentage`}
-                    onChange={(e) => editStep(i, { credit: e.target.value })}
-                  />
-                </td>
-                <td>
                   {!last && (
                     <button type="button" className="link danger" onClick={() => removeStep(i)}>
                       Remove
@@ -326,9 +311,6 @@ export function CancellationPolicySection() {
       <button type="button" className="link" onClick={addStep}>
         + Add a step
       </button>
-      <p className="tiny muted">
-        Studio credit can be spent on a future booking instead of the money coming back.
-      </p>
       {problem && (
         <div className="alert warn" role="alert">
           {problem}

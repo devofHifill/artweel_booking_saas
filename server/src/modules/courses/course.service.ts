@@ -317,7 +317,7 @@ export async function cancelEnrollmentAsStudio(
         { err, enrollmentId },
         'Course cancellation refund failed',
       );
-      return { refundedCents: 0, creditCents: 0, refunds: [] };
+      return { refundedCents: 0, refunds: [] };
     });
     refundedCents = refund.refundedCents;
   }

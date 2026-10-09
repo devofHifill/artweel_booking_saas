@@ -270,19 +270,55 @@ export default function Bookings() {
     });
   }
 
-  async function cancelOne(booking: BookingListItem) {
-    const refundNote =
-      booking.paidCents > 0
-        ? ' Any refund due under your cancellation policy will be issued.'
-        : '';
+  /**
+   * Paid bookings waiting on "who called it off?" in the cancel dialog.
+   *
+   * Asked because it decides the money: the customer pulling out gets the
+   * cancellation policy, the studio calling it off gives everything back.
+   * Both cancel paths applied the customer's late-cancellation terms to the
+   * studio's own cancellations — a snow day kept customers' money for
+   * classes the studio did not run.
+   */
+  const [cancelling, setCancelling] = useState<{
+    ids: string[];
+    title: string;
+    paidCents: number;
+  } | null>(null);
 
-    if (!confirm(`Cancel ${booking.customer.name}'s booking?${refundNote}`)) {
+  async function cancelOne(booking: BookingListItem) {
+    if (booking.paidCents > 0) {
+      setCancelling({
+        ids: [booking.id],
+        title: `Cancel ${booking.customer.name}'s booking?`,
+        paidCents: booking.paidCents,
+      });
       return;
     }
+    if (!confirm(`Cancel ${booking.customer.name}'s booking?`)) return;
+    await submitCancel([booking.id], false);
+  }
 
+  async function submitCancel(ids: string[], refundInFull: boolean) {
     setBusy(true);
     try {
-      await api.post(`${base}/bookings/${booking.id}/cancel`, { refund: true });
+      if (ids.length === 1) {
+        await api.post(`${base}/bookings/${ids[0]}/cancel`, {
+          refund: true,
+          refundInFull,
+        });
+      } else {
+        // Reported per booking rather than all-or-nothing, so a studio
+        // cancelling a snow day learns which ones actually went.
+        const result = await api.post<{ cancelled: number; failed: number }>(
+          `${base}/bookings/bulk/cancel`,
+          { bookingIds: ids, refund: true, refundInFull },
+        );
+        if (result.failed > 0) {
+          setError(`${result.cancelled} cancelled, ${result.failed} could not be.`);
+        }
+        setSelected(new Set());
+      }
+      setCancelling(null);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not cancel.');
@@ -292,36 +328,18 @@ export default function Bookings() {
   }
 
   async function cancelSelected() {
-    if (
-      !confirm(
-        `Cancel ${selected.size} booking${selected.size === 1 ? '' : 's'}? ` +
-          'Refunds will follow your cancellation policy.',
-      )
-    ) {
+    const ids = [...selected];
+    const label = `Cancel ${ids.length} booking${ids.length === 1 ? '' : 's'}?`;
+    const paidCents = bookings
+      .filter((b) => selected.has(b.id))
+      .reduce((sum, b) => sum + b.paidCents, 0);
+
+    if (paidCents > 0) {
+      setCancelling({ ids, title: label, paidCents });
       return;
     }
-
-    setBusy(true);
-    try {
-      // Reported per booking rather than all-or-nothing, so a studio
-      // cancelling a snow day learns which ones actually went.
-      const result = await api.post<{ cancelled: number; failed: number }>(
-        `${base}/bookings/bulk/cancel`,
-        { bookingIds: [...selected], refund: true },
-      );
-
-      if (result.failed > 0) {
-        setError(
-          `${result.cancelled} cancelled, ${result.failed} could not be.`,
-        );
-      }
-      setSelected(new Set());
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bulk cancel failed.');
-    } finally {
-      setBusy(false);
-    }
+    if (!confirm(label)) return;
+    await submitCancel(ids, false);
   }
 
   async function mark(booking: BookingListItem, next: 'ATTENDED' | 'NO_SHOW') {
@@ -706,6 +724,39 @@ export default function Bookings() {
           </>
         )}
       </div>
+
+      {cancelling && (
+        <Modal
+          title={cancelling.title}
+          subtitle={`${money(cancelling.paidCents, currency)} paid`}
+          onClose={() => setCancelling(null)}
+          footer={
+            <>
+              <button onClick={() => setCancelling(null)} disabled={busy}>
+                Keep booking
+              </button>
+              <button onClick={() => void submitCancel(cancelling.ids, false)} disabled={busy}>
+                Customer cancelled
+              </button>
+              <button
+                className="primary"
+                onClick={() => void submitCancel(cancelling.ids, true)}
+                disabled={busy}
+              >
+                We cancelled — refund in full
+              </button>
+            </>
+          }
+        >
+          <p>
+            <b>Customer cancelled:</b> they get back what your cancellation
+            policy allows for the notice they gave.
+          </p>
+          <p>
+            <b>We cancelled:</b> they get all {money(cancelling.paidCents, currency)} back.
+          </p>
+        </Modal>
+      )}
     </>
   );
 }

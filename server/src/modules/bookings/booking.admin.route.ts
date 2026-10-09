@@ -77,6 +77,8 @@ bookingAdminRouter.post(
     z.object({
       bookingIds: z.array(z.string().uuid()).min(1).max(50),
       refund: z.boolean().default(true),
+      /** Everything back — the studio called these off. See the single route. */
+      refundInFull: z.boolean().optional(),
       reason: z.string().max(500).optional(),
     }),
   ),
@@ -88,7 +90,11 @@ bookingAdminRouter.post(
         const result = await service.cancelBookingAsStudio(
           req.tenant!.organizationId,
           bookingId,
-          { refund: req.body.refund, reason: req.body.reason },
+          {
+            refund: req.body.refund,
+            refundInFull: req.body.refundInFull,
+            reason: req.body.reason,
+          },
         );
         results.push({ bookingId, ok: true, ...result });
       } catch (err) {
@@ -197,6 +203,12 @@ bookingAdminRouter.post(
     z.object({
       /** Studios sometimes cancel and settle the refund off-platform. */
       refund: z.boolean().default(true),
+      /**
+       * Everything back instead of what the policy allows — the studio called
+       * it off, not the customer. Without it a studio cancelling a paid
+       * booking applied the customer's late-cancellation terms to itself.
+       */
+      refundInFull: z.boolean().optional(),
       reason: z.string().max(500).optional(),
     }),
   ),

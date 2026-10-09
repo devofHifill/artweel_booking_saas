@@ -17,7 +17,6 @@ const id = (req: { params: Record<string, string | undefined> }, key: string) =>
 const tierSchema = z.object({
   hoursBefore: z.number().int().min(0).max(8760),
   refundPercent: z.number().int().min(0).max(100),
-  creditPercent: z.number().int().min(0).max(100).optional(),
 });
 
 const createPolicySchema = z.object({

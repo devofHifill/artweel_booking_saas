@@ -234,7 +234,7 @@ describe('time off', () => {
 describe('cancellation policies', () => {
   const standardTiers = [
     { hoursBefore: 48, refundPercent: 100 },
-    { hoursBefore: 24, refundPercent: 50, creditPercent: 50 },
+    { hoursBefore: 24, refundPercent: 50 },
     { hoursBefore: 0, refundPercent: 0 },
   ];
 
@@ -276,17 +276,21 @@ describe('cancellation policies', () => {
     expect(res.body.error.code).toBe('MISSING_FINAL_TIER');
   });
 
-  it('rejects refund plus credit above 100 percent', async () => {
+  it('drops a studio-credit percentage an older client still sends', async () => {
+    // Policies are refund-only: credit was offered and never issued.
     const res = await request(app)
       .post(`${studio.base}/cancellation-policies`)
       .set(studio.headers)
       .send({
-        name: 'Too generous',
+        name: 'Old client',
         tiers: [{ hoursBefore: 0, refundPercent: 80, creditPercent: 40 }],
       });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error.code).toBe('OVER_REFUND');
+    expect(res.status).toBe(201);
+    const saved = await prisma.cancellationPolicy.findUniqueOrThrow({
+      where: { id: res.body.policy.id },
+    });
+    expect(saved.tiers).toEqual([{ hoursBefore: 0, refundPercent: 80 }]);
   });
 
   it('keeps only one default per studio', async () => {
@@ -334,16 +338,13 @@ describe('cancellation policies', () => {
 describe('policy evaluation', () => {
   const tiers = [
     { hoursBefore: 48, refundPercent: 100 },
-    { hoursBefore: 24, refundPercent: 50, creditPercent: 50 },
+    { hoursBefore: 24, refundPercent: 50 },
     { hoursBefore: 0, refundPercent: 0 },
   ];
 
   it('picks the tier matching the notice actually given', () => {
     expect(evaluatePolicy(tiers, 10_000, 72).refundCents).toBe(10_000);
-    expect(evaluatePolicy(tiers, 10_000, 30)).toMatchObject({
-      refundCents: 5_000,
-      creditCents: 5_000,
-    });
+    expect(evaluatePolicy(tiers, 10_000, 30).refundCents).toBe(5_000);
     expect(evaluatePolicy(tiers, 10_000, 2).refundCents).toBe(0);
   });
 

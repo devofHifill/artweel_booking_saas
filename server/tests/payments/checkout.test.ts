@@ -465,7 +465,7 @@ describe('refunds', () => {
         isDefault: true,
         tiers: [
           { hoursBefore: 48, refundPercent: 100 },
-          { hoursBefore: 24, refundPercent: 50, creditPercent: 50 },
+          { hoursBefore: 24, refundPercent: 50 },
           { hoursBefore: 0, refundPercent: 0 },
         ],
       });
@@ -490,7 +490,7 @@ describe('refunds', () => {
     expect(payment.refundedCents).toBe(19_000);
   });
 
-  it('refunds partially and records the credit the policy grants instead', async () => {
+  it('refunds partially when the policy says so', async () => {
     await setPolicy();
     const booking = await paidBooking(2);
 
@@ -500,10 +500,89 @@ describe('refunds', () => {
       .send({ hoursOfNotice: 30 });
 
     expect(res.body.refundedCents).toBe(9500);
-    expect(res.body.creditCents).toBe(9500);
+    expect(res.body).not.toHaveProperty('creditCents');
 
     const payment = await prisma.payment.findFirstOrThrow({});
     expect(payment.status).toBe('PARTIALLY_REFUNDED');
+  });
+
+  it('refunds everything with inFull, whatever the policy says', async () => {
+    // The Payments screen's "Refund in full": a goodwill refund.
+    await setPolicy();
+    const booking = await paidBooking(2);
+
+    const res = await request(app)
+      .post(`${studio.base}/payments/bookings/${booking.id}/refund`)
+      .set(studio.headers)
+      .send({ hoursOfNotice: 2, inFull: true });
+
+    expect(res.body.refundedCents).toBe(19_000);
+    const payment = await prisma.payment.findFirstOrThrow({});
+    expect(payment.status).toBe('REFUNDED');
+
+    // The booking itself is left alone.
+    const after = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
+    expect(after.status).toBe(booking.status);
+  });
+
+  it('refunds the rest after a partial refund, as a second Stripe refund', async () => {
+    // Both refunds once shared one idempotency key, which Stripe refuses for
+    // a different amount, so the rest could never be given back.
+    await setPolicy();
+    const booking = await paidBooking(2);
+
+    await request(app)
+      .post(`${studio.base}/payments/bookings/${booking.id}/refund`)
+      .set(studio.headers)
+      .send({ hoursOfNotice: 30 });
+
+    const rest = await request(app)
+      .post(`${studio.base}/payments/bookings/${booking.id}/refund`)
+      .set(studio.headers)
+      .send({ inFull: true });
+
+    expect(rest.status).toBe(200);
+    expect(rest.body.refundedCents).toBe(9500);
+    expect(provider.refundsIssued.map((r) => r.amountCents)).toEqual([9500, 9500]);
+
+    const payment = await prisma.payment.findFirstOrThrow({});
+    expect(payment.status).toBe('REFUNDED');
+    expect(payment.refundedCents).toBe(19_000);
+  });
+
+  it('refunds in full when the studio cancels with refundInFull', async () => {
+    // The studio calling it off: no late-cancellation terms against itself.
+    await setPolicy();
+    const booking = await paidBooking(2);
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { startsAt: new Date(Date.now() + 2 * 3_600_000) },
+    });
+
+    const res = await request(app)
+      .post(`${studio.base}/bookings/${booking.id}/cancel`)
+      .set(studio.headers)
+      .send({ refundInFull: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.refundedCents).toBe(19_000);
+  });
+
+  it('applies the policy when the studio cancels without it', async () => {
+    await setPolicy();
+    const booking = await paidBooking(2);
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { startsAt: new Date(Date.now() + 2 * 3_600_000) },
+    });
+
+    const res = await request(app)
+      .post(`${studio.base}/bookings/${booking.id}/cancel`)
+      .set(studio.headers)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.refundedCents).toBe(0);
   });
 
   it('refunds nothing for a late cancellation', async () => {
