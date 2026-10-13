@@ -20,14 +20,49 @@ have no concept of equipment.
 - Spec: `D:\Projects\2026\booking-saas-spec.md`
 - Phase plan: `D:\Projects\2026\booking-saas-phases.pdf`
 
-## Update — 2026-10-13: Stripe guides in Help & Support
+## Update — 2026-10-13
 
 > **This file was not updated between 2026-09-03 and 2026-10-13.** Work landed
 > in that gap that is NOT described below — the new-studio UX audit and its
-> fixes (`docs/ux-audit-findings.md`, every item marked Fixed), the Stripe
-> setup work (`docs/STRIPE-SETUP-GUIDE.md`, `DEPLOY.md`, both 2026-10-08), and
-> the refunds simplification on `fix/refunds-simplify`. Read those before
-> trusting the "What is actually left" list further down, which predates them.
+> fixes (`docs/ux-audit-findings.md`, every item marked Fixed) and the Stripe
+> setup work (`docs/STRIPE-SETUP-GUIDE.md`, `DEPLOY.md`, both 2026-10-08).
+> Read those before trusting the "What is actually left" list further down,
+> which predates them.
+
+### Where things stand at the end of 2026-10-13
+
+- **`main` is at `e4e9449` and live (bookaihub.com) runs exactly that.**
+  Deployed twice today with `deploy/deploy.sh` on `my-vps`
+  (`/home/ubuntu/jeff-saas`), each time with a database backup first, no
+  migrations pending, four startup lines and healthy containers.
+- **Only `main` exists**, locally and on GitHub. Every merged branch was
+  deleted today, including `fix/refunds-simplify`.
+- **Git was run by Claude this session, at Suren's explicit request each
+  time** (commit, push, merge, branch deletion, deploy). Rule 1 below still
+  stands: do not run git unless asked in that moment.
+- **Staging was not touched today.** Its state is unknown; check before
+  using it. `DEPLOY.md` (2026-10-08) is newer than the DEPLOYMENT section
+  below — notably it treats `my-vps` as the LIVE box, which that section
+  contradicts. Trust `DEPLOY.md` and `deploy/deploy.sh`.
+
+What landed today, in order:
+
+1. **Stripe guides in Help & Support** — PR #28, deployed. Details below.
+2. **PayPal plan, parked** — PR #29. `docs/PAYPAL-PLAN.md`: each studio
+   chooses Stripe OR PayPal for customer payments (customers do not choose).
+   Planned, not started, no code. Blockers: PayPal partner approval (a queue,
+   like Stripe Connect's) and four open decisions listed in the file.
+   Re-check its code references before picking it up.
+3. **Refunds simplification merged and deployed** — `e4e9449`, merged
+   locally at Suren's request (no PR). Drops studio credit, adds full
+   refunds, fixes repeat refunds, and `tests/setup.ts` now blanks the Stripe
+   keys so the suite can never reach real Stripe. No migrations. Before
+   merging, the combined code passed both typechecks and 148/148 tests across
+   `tests/payments`, schedules-policies, blocked-customers and guides — the
+   full suite was NOT run. Live runs the new code (verified in the container),
+   but **no real refund has been made on live yet.**
+
+### Stripe guides in Help & Support
 
 **Two in-app guides for connecting Stripe**, made from
 `docs/STRIPE-SETUP-GUIDE.md`. That file still exists unchanged, so the content
@@ -70,7 +105,7 @@ in the browser on 2026-10-13; every Contents link resolves.
 `booking_dev` to preview the admin guide. Revoke with
 `npm run platform:revoke -- owner@clayandco.test` in `server` if unwanted.
 
-Committed on `docs/stripe-guides` (off `main`, separate from the refunds branch) and deployed to live on 2026-10-13, at Suren's request.
+Merged as PR #28 and deployed to live on 2026-10-13.
 
 ---
 
@@ -290,6 +325,7 @@ under "Being built next — not available yet". A test enforces this.
 | Suite length vs edits | The suite now takes ~40 minutes, which is long enough that editing source while it runs is easy to do by accident — and the result then describes code that no longer exists. It happened once here and produced two false failures. Kill a run you have invalidated rather than reading its output. |
 | Two sessions, two databases | **Never run two suites against one database.** They truncate between tests and corrupt each other. On 2026-09-01 this produced 35 failures that were not real; the tell was `signUpStudio failed: 500` and, in the Postgres log, two backends hitting `organizations_slug_key` a second apart. `booking_test` and `booking_test_b` both exist and are migrated — the second session sets `TEST_DATABASE_URL`. |
 | A quiet machine, or a phantom gate failure | Five full-suite attempts on 2026-09-01: one killed by Docker Desktop restarting mid-run, one by concurrent runs, one by edits, one by the port proxy dropping connections under load. Only the fifth, on an otherwise idle machine, was clean. A gate test reporting a raw `PrismaClientKnownRequestError` where it expects the app's own error is almost always this, not the code. |
+| Port 15432 taken by `wslrelay` | **New on 2026-10-13.** When Docker Desktop dies mid-session, a leftover `wslrelay.exe` can keep `127.0.0.1:15432` and `::1:15432`. The container shows healthy with the port published, but every connection from Windows fails with `Can't reach database server at 127.0.0.1:15432`. Check with `Get-NetTCPConnection -LocalPort 15432 -State Listen` — an owner other than `com.docker.backend` is the tell. Workaround without killing anything: point the tests at the machine's own address, e.g. `TEST_DATABASE_URL="postgresql://booking:booking@<LAN-IP>:15432/booking_test?schema=public"` (Docker still answers there). A reboot clears it. |
 | Test plan defaults | `signUpStudio` defaults orgs to plan `PRO` so plan limits don't interfere with unrelated suites. Billing tests pass `plan: 'SOLO'` explicitly. |
 
 ---
