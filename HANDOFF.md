@@ -20,6 +20,60 @@ have no concept of equipment.
 - Spec: `D:\Projects\2026\booking-saas-spec.md`
 - Phase plan: `D:\Projects\2026\booking-saas-phases.pdf`
 
+## Update — 2026-10-13: Stripe guides in Help & Support
+
+> **This file was not updated between 2026-09-03 and 2026-10-13.** Work landed
+> in that gap that is NOT described below — the new-studio UX audit and its
+> fixes (`docs/ux-audit-findings.md`, every item marked Fixed), the Stripe
+> setup work (`docs/STRIPE-SETUP-GUIDE.md`, `DEPLOY.md`, both 2026-10-08), and
+> the refunds simplification on `fix/refunds-simplify`. Read those before
+> trusting the "What is actually left" list further down, which predates them.
+
+**Two in-app guides for connecting Stripe**, made from
+`docs/STRIPE-SETUP-GUIDE.md`. That file still exists unchanged, so the content
+now lives in two places — the guides are the ones users see.
+
+- **Operator guide — "Connecting Stripe"** at `/help/guides/stripe`.
+  `client/src/guides/stripe.md`, registered in `client/src/guides/index.ts`
+  with `audience: 'admin'` (owners and admins only, like setup/activities/staff).
+  Part B of the setup doc rewritten in the other guides' style: what to have
+  ready, connecting, what each status means, payment settings, a test booking,
+  payouts and refunds, paying for the plan, troubleshooting. Every button and
+  screen name was checked against the app. The Integrations page's Payments
+  card links to it ("How connecting Stripe works", admins only).
+- **Superadmin guide — "Stripe: platform setup"** at `/admin/help/guides/stripe`.
+  Part A plus the test values and known gaps. **Served by the API, not bundled
+  with the client**, and that is the decision to keep: the client bundle is
+  public — a lazily loaded chunk is still a file anyone can fetch — and this
+  guide names server paths, environment variables and the support tooling.
+  - Markdown lives in `server/guides/stripe-platform.md`, read per request by
+    `src/modules/platform/guides.service.ts` (`PLATFORM_GUIDES` is the list).
+  - `GET /api/platform/guides` and `GET /api/platform/guides/:slug`, behind the
+    platform gate like everything else there, so a studio owner or a
+    logged-out caller gets the same 404 as an unknown route.
+  - Admin shell has a new **Help & Support** nav item (`client/src/admin/Help.tsx`).
+  - **`server/Dockerfile` now has `COPY guides ./guides`.** Without it the
+    deployed admin page lists the guide and then fails to open it. Edits to a
+    platform guide need an image rebuild to reach staging, not just a restart.
+- The Markdown renderer moved from `pages/Guide.tsx` into
+  `client/src/lib/markdown.ts` (`renderGuide`), shared by both Help pages.
+- **Contents links no longer land under the top bar** — `scroll-margin-top`
+  on guide headings in `styles.css`. Affected every studio guide, not just
+  this one.
+
+Tests: `tests/platform/guides.test.ts` (6 — list, open, every listed guide has
+its file, unknown slug, studio owner refused, no token refused). Those plus
+`tests/platform/gate.test.ts`, 18/18. Both typechecks clean. Both guides walked
+in the browser on 2026-10-13; every Contents link resolves.
+
+**Local dev only:** `owner@clayandco.test` was granted platform admin in
+`booking_dev` to preview the admin guide. Revoke with
+`npm run platform:revoke -- owner@clayandco.test` in `server` if unwanted.
+
+Committed on `docs/stripe-guides` (off `main`, separate from the refunds branch) and deployed to live on 2026-10-13, at Suren's request.
+
+---
+
 ## Status — 2026-09-03
 
 **Phases 0, 1 and 2 are code-complete. Since then: a design-system port,

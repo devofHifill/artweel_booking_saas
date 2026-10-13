@@ -68,6 +68,17 @@ export const GUIDES: Guide[] = [
     screen: '/staff',
     load: () => import('./staff.md?raw').then((m) => m.default),
   },
+  {
+    slug: 'stripe',
+    title: 'Connecting Stripe',
+    summary:
+      'Connect your studio to Stripe to take payments online, what each status means, payouts, refunds, and paying for your plan.',
+    /* Connecting is owner and admin work; the platform's own side of Stripe
+       is a separate guide, served only to platform admins (server/guides). */
+    audience: 'admin',
+    screen: '/integrations',
+    load: () => import('./stripe.md?raw').then((m) => m.default),
+  },
 ];
 
 export function findGuide(slug: string | undefined): Guide | undefined {

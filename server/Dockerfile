@@ -68,6 +68,12 @@ COPY --from=build /app/tsconfig.json ./
 # time a script changed.
 COPY scripts ./scripts
 
+# Platform admins' guides, read at request time by
+# src/modules/platform/guides.service.ts and served only behind the platform
+# gate. Markdown, so the compile never sees it; without this line the admin
+# Help & Support page lists a guide that then fails to open.
+COPY guides ./guides
+
 # TEMPORARY — static demo prototypes served at /demo (see the comment in
 # src/app.ts). Plain HTML/CSS/JS, so the compile never touches them; copied
 # from the build CONTEXT for the same reason as scripts above. Delete this
