@@ -103,6 +103,14 @@ export interface PaymentProvider {
 
   getAccountStatus(accountId: string): Promise<ConnectAccountStatus>;
 
+  /**
+   * Closes a connected account the studio has walked away from — an abandoned
+   * setup, or the half-built new account of a cancelled change. Best effort:
+   * callers have already let go of the account, and Stripe refuses to close
+   * one that still holds a balance, so a refusal is logged and not raised.
+   */
+  closeAccount(accountId: string): Promise<void>;
+
   createCheckoutSession(input: CheckoutSessionInput): Promise<CheckoutSession>;
 
   retrieveCheckoutSession(

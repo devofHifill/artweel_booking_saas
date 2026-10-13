@@ -78,6 +78,11 @@ export type StudioDetailResponse = {
     billingSubscriptionId: string | null;
     stripeAccountId: string | null;
     stripePayoutsEnabled: boolean;
+    /** A different account the studio is part-way through switching to. */
+    pendingStripeAccountId: string | null;
+    /** The account the studio's last change replaced; older refunds still use it. */
+    previousStripeAccountId: string | null;
+    stripeAccountChangedAt: string | null;
     planDefinition: { id: PlanId; name: string; priceCentsMonthly: number };
   };
   warnings: StudioWarning[];
