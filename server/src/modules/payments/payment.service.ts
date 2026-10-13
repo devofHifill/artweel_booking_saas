@@ -151,11 +151,32 @@ export async function refreshConnectStatus(organizationId: string) {
     data: connectStatusUpdate(status, org.stripeOnboardedAt),
   });
 
+  /* A studio changing account comes back here from the NEW account's setup,
+     so the pending account is what needs reading — and switching to, if
+     Stripe now says it can take payments. */
+  const { checkPendingAccount } = await import('./connect-change.service');
+  const pending = await checkPendingAccount(organizationId);
+
+  if (pending?.switched) {
+    const now = await prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { stripeChargesEnabled: true, stripePayoutsEnabled: true },
+    });
+    return {
+      connected: true,
+      chargesEnabled: now.stripeChargesEnabled,
+      payoutsEnabled: now.stripePayoutsEnabled,
+      requirements: [],
+      accountChange: { switched: true, requirements: [] },
+    };
+  }
+
   return {
     connected: true,
     chargesEnabled: status.chargesEnabled,
     payoutsEnabled: status.payoutsEnabled,
     requirements: status.requirements,
+    accountChange: pending,
   };
 }
 
@@ -781,6 +802,20 @@ async function onAccountUpdated(event: WebhookEvent) {
       ...(data.details_submitted ? { stripeOnboardedAt: new Date() } : {}),
     },
   });
+
+  // The new account of a studio changing accounts: switch once it is ready.
+  const changing = await prisma.organization.findUnique({
+    where: { pendingStripeAccountId: data.id },
+    select: { id: true },
+  });
+  if (changing) {
+    const { promotePendingAccount } = await import('./connect-change.service');
+    await promotePendingAccount(changing.id, data.id, {
+      chargesEnabled: data.charges_enabled ?? false,
+      payoutsEnabled: data.payouts_enabled ?? false,
+      detailsSubmitted: data.details_submitted ?? false,
+    });
+  }
 }
 
 async function onSubscriptionEvent(event: WebhookEvent) {

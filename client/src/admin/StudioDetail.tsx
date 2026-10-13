@@ -183,6 +183,22 @@ export default function StudioDetail() {
               : 'not connected — cannot take online payment'}
             {studio.stripePayoutsEnabled ? ', payouts enabled' : ''}
           </p>
+          {studio.pendingStripeAccountId && (
+            <p className="sub">
+              Switching Stripe account: new account {studio.pendingStripeAccountId} is
+              being set up; the current one keeps taking bookings until it is ready.
+            </p>
+          )}
+          {studio.previousStripeAccountId && (
+            <p className="sub">
+              Changed Stripe account
+              {studio.stripeAccountChangedAt
+                ? ` on ${new Date(studio.stripeAccountChangedAt).toLocaleDateString()}`
+                : ''}
+              ; refunds for earlier bookings go through the previous account,{' '}
+              {studio.previousStripeAccountId}.
+            </p>
+          )}
           {onboarding.complete && (
             <p className="sub">
               Booking page:{' '}

@@ -247,6 +247,18 @@ export class StripeProvider implements PaymentProvider {
     };
   }
 
+  async closeAccount(accountId: string): Promise<void> {
+    await this.stripe.accounts.del(accountId).catch((err: unknown) => {
+      logger.warn(
+        {
+          accountId,
+          stripeCode: err instanceof Stripe.errors.StripeError ? err.code : undefined,
+        },
+        'Stripe would not close an abandoned connected account',
+      );
+    });
+  }
+
   async createCheckoutSession(
     input: CheckoutSessionInput,
   ): Promise<CheckoutSession> {

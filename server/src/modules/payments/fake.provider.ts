@@ -31,6 +31,9 @@ export class FakePaymentProvider implements PaymentProvider {
   private sessions = new Map<string, CheckoutSessionResult & { accountId: string }>();
   private refunds: RefundResult[] = [];
   private refundKeys = new Map<string, RefundResult>();
+  private closed: string[] = [];
+  /** What each refund was asked for, including which account it went to. */
+  private refundInputs: RefundInput[] = [];
   /** Idempotency keys already seen, so a repeat returns the original result. */
   private issued = new Map<string, CheckoutSession>();
 
@@ -63,6 +66,16 @@ export class FakePaymentProvider implements PaymentProvider {
     const status = this.accounts.get(accountId);
     if (!status) throw AppError.notFound('Connected account not found.');
     return status;
+  }
+
+  async closeAccount(accountId: string): Promise<void> {
+    this.accounts.delete(accountId);
+    this.closed.push(accountId);
+  }
+
+  /** Accounts closed so far, for tests. */
+  get closedAccounts() {
+    return [...this.closed];
   }
 
   /** Test hook: pretend the studio finished Stripe onboarding. */
@@ -177,12 +190,17 @@ export class FakePaymentProvider implements PaymentProvider {
       amountCents: input.amountCents,
     };
     this.refunds.push(refund);
+    this.refundInputs.push(input);
     this.refundKeys.set(input.idempotencyKey, refund);
     return refund;
   }
 
   get refundsIssued() {
     return [...this.refunds];
+  }
+
+  get refundRequests() {
+    return [...this.refundInputs];
   }
 
   /** Signs a payload the way Stripe would, so tests can post a real webhook. */

@@ -6,10 +6,12 @@ import {
   requireAdmin,
   requireMember,
   requirePermission,
+  requireRole,
 } from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
 import { prisma } from '../../lib/prisma';
 import * as service from './payment.service';
+import * as change from './connect-change.service';
 import * as list from './payment.list';
 import * as analytics from '../analytics/analytics.service';
 import { validateQuery } from '../../middleware/validate';
@@ -89,6 +91,9 @@ paymentRouter.get(
         stripeChargesEnabled: true,
         stripePayoutsEnabled: true,
         stripeOnboardedAt: true,
+        pendingStripeAccountId: true,
+        pendingStripeStartedAt: true,
+        stripeAccountChangedAt: true,
       },
     });
 
@@ -97,6 +102,12 @@ paymentRouter.get(
       chargesEnabled: org.stripeChargesEnabled,
       payoutsEnabled: org.stripePayoutsEnabled,
       onboardedAt: org.stripeOnboardedAt,
+      /** A change to a new Stripe account under way; the current one still takes bookings. */
+      accountChange: org.pendingStripeAccountId
+        ? { startedAt: org.pendingStripeStartedAt }
+        : null,
+      /** When the studio last moved to a different Stripe account, if ever. */
+      accountChangedAt: org.stripeAccountChangedAt,
       // The account id is not secret, but it is not useful to anyone below
       // admin either, so it is not published here.
     });
@@ -132,6 +143,49 @@ paymentRouter.post(
   requireAdmin,
   asyncHandler(async (req, res) => {
     res.json(await service.refreshConnectStatus(req.tenant!.organizationId));
+  }),
+);
+
+/**
+ * Drops an unfinished Stripe setup and starts a fresh one. Owner/admin, and
+ * refused once the account takes payments — see connect-change.service.
+ */
+paymentRouter.post(
+  '/connect/restart',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const result = await change.restartConnectOnboarding(
+      req.tenant!.organizationId,
+      req.auth!.email,
+    );
+    res.json({ url: result.url, expiresAt: result.expiresAt });
+  }),
+);
+
+/**
+ * Starts or resumes moving a working studio to a different Stripe account.
+ * Owner only: it decides where the studio's money goes from now on.
+ */
+paymentRouter.post(
+  '/change-account',
+  requireRole('OWNER'),
+  validateBody(z.object({ confirm: z.literal('CHANGE').optional() })),
+  asyncHandler(async (req, res) => {
+    const result = await change.startAccountChange(
+      req.tenant!.organizationId,
+      req.auth!.email,
+      req.body.confirm === 'CHANGE',
+    );
+    res.json({ url: result.url, expiresAt: result.expiresAt });
+  }),
+);
+
+paymentRouter.post(
+  '/change-account/cancel',
+  requireRole('OWNER'),
+  asyncHandler(async (req, res) => {
+    await change.cancelAccountChange(req.tenant!.organizationId);
+    res.json({ cancelled: true });
   }),
 );
 

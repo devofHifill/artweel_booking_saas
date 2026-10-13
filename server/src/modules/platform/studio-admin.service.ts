@@ -507,6 +507,8 @@ export async function resetStudioStripe(
           stripeChargesEnabled: false,
           stripePayoutsEnabled: false,
           stripeOnboardedAt: null,
+          pendingStripeAccountId: null,
+          pendingStripeStartedAt: null,
         },
       });
 

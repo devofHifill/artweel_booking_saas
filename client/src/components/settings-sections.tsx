@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
-import { DataTable, StatusPill } from './layout';
+import { DataTable, Modal, StatusPill } from './layout';
 
 /**
  * The Settings sections added on 2026-09-07 to match the prototype's list.
@@ -621,10 +621,27 @@ type ConnectRefresh = {
   chargesEnabled: boolean;
   payoutsEnabled?: boolean;
   requirements: string[];
+  /** Set while moving to a different Stripe account. */
+  accountChange?: { switched: boolean; requirements: string[] } | null;
+};
+
+/** `GET /payments/status` — the parts the account-change controls need. */
+type ConnectStatus = {
+  accountChange: { startedAt: string | null } | null;
+  accountChangedAt: string | null;
 };
 
 /** What a refresh tells the owner, in the order the cases are checked. */
 function connectNote(res: ConnectRefresh): string {
+  if (res.accountChange?.switched) {
+    return 'Your new Stripe account is set up, and new bookings are now paid into it. Keep your old account open for refunds on earlier bookings.';
+  }
+  if (res.accountChange) {
+    const missing = res.accountChange.requirements.length;
+    return missing > 0
+      ? `Your new Stripe account still needs ${missing} more detail${missing === 1 ? '' : 's'}. Payments keep going to your current account until it is ready.`
+      : 'Stripe has not enabled payments on your new account yet. Payments keep going to your current account until it does.';
+  }
   if (!res.connected) {
     return 'Stripe is not connected yet. Connect it to take payments online.';
   }
@@ -639,9 +656,16 @@ function connectNote(res: ConnectRefresh): string {
 
 export function PaymentSettingsSection() {
   const base = useOrgBase();
+  const membership = useActiveOrg();
+  const isOwner = membership?.role === 'OWNER';
   const { org } = useOrgSettings();
   const { save, busy, saved, error } = useOrgSave();
   const [stripe, setStripe] = useState<Payments | null>(null);
+  const [connect, setConnect] = useState<ConnectStatus | null>(null);
+  /** Which confirmation is open: starting over, or changing a working account. */
+  const [dialog, setDialog] = useState<'restart' | 'change' | null>(null);
+  const [typed, setTyped] = useState('');
+  const [dialogError, setDialogError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     defaultDepositPercent: '0',
@@ -684,11 +708,58 @@ export function PaymentSettingsSection() {
         payoutsEnabled: res.payoutsEnabled ?? false,
       }));
       setStatusNote(connectNote(res));
+      void loadConnect();
     } catch (err) {
       setStatusNote(err instanceof Error ? err.message : 'Could not check with Stripe.');
     } finally {
       setChecking(false);
     }
+  }
+
+  function loadConnect() {
+    return api
+      .get<ConnectStatus>(`${base}/payments/status`)
+      .then(setConnect)
+      .catch(() => setConnect(null));
+  }
+
+  /**
+   * Both dialogs end at Stripe: a fresh setup for "start over", the new
+   * account's setup for "change". Errors stay in the dialog, where the owner
+   * is looking.
+   */
+  async function goToStripe(path: string, body?: object) {
+    setChecking(true);
+    setDialogError(null);
+    try {
+      const res = await api.post<{ url: string }>(`${base}${path}`, body);
+      window.location.href = res.url;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not reach Stripe.';
+      if (dialog) setDialogError(message);
+      else setStatusNote(message);
+      setChecking(false);
+    }
+  }
+
+  async function cancelChange() {
+    if (!confirm('Cancel the switch? Your current Stripe account carries on as it is.')) return;
+    setChecking(true);
+    try {
+      await api.post(`${base}/payments/change-account/cancel`);
+      setStatusNote('Switch cancelled. Nothing changed: payments still go to your current account.');
+      await loadConnect();
+    } catch (err) {
+      setStatusNote(err instanceof Error ? err.message : 'Could not cancel the switch.');
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  function openDialog(which: 'restart' | 'change') {
+    setTyped('');
+    setDialogError(null);
+    setDialog(which);
   }
 
   /** Mints a fresh onboarding link; Stripe's expire within minutes. */
@@ -716,6 +787,7 @@ export function PaymentSettingsSection() {
       .finally(() => {
         if (returned) void refreshStatus();
       });
+    void loadConnect();
 
     // One-shot flags: a reload should not re-run them.
     if (returned || params.has('refresh')) {
@@ -826,10 +898,32 @@ export function PaymentSettingsSection() {
         </div>
       </dl>
 
+      {connect?.accountChange && (
+        <div className="alert" role="note">
+          <b>Switching to a new Stripe account.</b> Payments keep going to your
+          current account until Stripe has finished setting up the new one.
+          {isOwner && (
+            <div className="toolbar" style={{ marginTop: 'var(--space-2)' }}>
+              <button
+                type="button"
+                className="primary"
+                disabled={checking}
+                onClick={() => void goToStripe('/payments/change-account')}
+              >
+                Continue new account setup
+              </button>
+              <button type="button" disabled={checking} onClick={() => void cancelChange()}>
+                Cancel the switch
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* The way into Stripe sits here as well as on Integrations. A refresh
           that ends "connect Stripe again" used to leave the owner on a screen
           with nothing to press. */}
-      {stripe && !(stripe.connected && stripe.chargesEnabled && stripe.payoutsEnabled) && (
+      {stripe && (
         <div className="toolbar">
           {!stripe.chargesEnabled && (
             <button
@@ -841,9 +935,24 @@ export function PaymentSettingsSection() {
               {stripe.connected ? 'Finish Stripe setup' : 'Connect Stripe'}
             </button>
           )}
-          {stripe.connected && (
-            <button type="button" disabled={checking} onClick={() => void refreshStatus()}>
-              {checking ? 'Checking with Stripe…' : 'Refresh status'}
+          {stripe.connected &&
+            (!(stripe.chargesEnabled && stripe.payoutsEnabled) || connect?.accountChange) && (
+              <button type="button" disabled={checking} onClick={() => void refreshStatus()}>
+                {checking ? 'Checking with Stripe…' : 'Refresh status'}
+              </button>
+            )}
+          {/* An unfinished setup can be thrown away and begun again, with a
+              different Stripe login or a different business. */}
+          {stripe.connected && !stripe.chargesEnabled && !connect?.accountChange && (
+            <button type="button" className="link" onClick={() => openDialog('restart')}>
+              Start over with a different Stripe account
+            </button>
+          )}
+          {/* A working account can only be replaced by the owner, and only
+              alongside it: see the dialog. */}
+          {stripe.chargesEnabled && isOwner && !connect?.accountChange && (
+            <button type="button" className="link" onClick={() => openDialog('change')}>
+              Change Stripe account
             </button>
           )}
         </div>
@@ -852,6 +961,82 @@ export function PaymentSettingsSection() {
         <p className="tiny muted" role="status">
           {statusNote}
         </p>
+      )}
+
+      {dialog === 'restart' && (
+        <Modal
+          title="Start Stripe setup over?"
+          onClose={() => setDialog(null)}
+          footer={
+            <>
+              <button onClick={() => setDialog(null)} disabled={checking}>
+                Keep it
+              </button>
+              <button
+                className="primary"
+                disabled={checking}
+                onClick={() => void goToStripe('/payments/connect/restart')}
+              >
+                {checking ? 'Starting…' : 'Start over'}
+              </button>
+            </>
+          }
+        >
+          {dialogError && <div className="err">{dialogError}</div>}
+          <p>
+            This throws away the unfinished Stripe setup. Nothing you entered
+            carries over: you will set up Stripe from the beginning, and can
+            use a different Stripe login or a different business.
+          </p>
+        </Modal>
+      )}
+
+      {dialog === 'change' && (
+        <Modal
+          title="Change Stripe account?"
+          onClose={() => setDialog(null)}
+          footer={
+            <>
+              <button onClick={() => setDialog(null)} disabled={checking}>
+                Keep current account
+              </button>
+              <button
+                className="primary"
+                disabled={checking || typed.trim().toUpperCase() !== 'CHANGE'}
+                onClick={() => void goToStripe('/payments/change-account', { confirm: 'CHANGE' })}
+              >
+                {checking ? 'Starting…' : 'Set up new account'}
+              </button>
+            </>
+          }
+        >
+          {dialogError && <div className="err">{dialogError}</div>}
+          <p>
+            You will set up a new Stripe account now. Until it is ready, bookings
+            keep being paid into your current one, so there is no gap.
+          </p>
+          <p>Once the new account is ready:</p>
+          <ul>
+            <li>New bookings are paid into the new account.</li>
+            <li>Money already in your current account stays there and pays out as usual.</li>
+            <li>
+              Refunds and disputes for earlier bookings still come from your current
+              account. Keep it open, with enough balance for refunds, for at least
+              six months.
+            </li>
+          </ul>
+          <p>
+            To change only your bank account or business details, you do not need
+            this: update them in your Stripe dashboard instead.
+          </p>
+          <label htmlFor="paChangeConfirm">Type CHANGE to continue</label>
+          <input
+            id="paChangeConfirm"
+            value={typed}
+            autoComplete="off"
+            onChange={(e) => setTyped(e.target.value)}
+          />
+        </Modal>
       )}
 
       <div className="alert" role="note">

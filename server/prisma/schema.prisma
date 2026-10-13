@@ -417,6 +417,16 @@ model Organization {
   stripePayoutsEnabled Boolean  @default(false) @map("stripe_payouts_enabled")
   stripeOnboardedAt    DateTime? @map("stripe_onboarded_at") @db.Timestamptz(3)
 
+  /// A different Stripe account being set up to replace this one. The current
+  /// account keeps taking bookings until Stripe says this one can take
+  /// payments; then the two swap.
+  pendingStripeAccountId String?   @unique @map("pending_stripe_account_id")
+  pendingStripeStartedAt DateTime? @map("pending_stripe_started_at") @db.Timestamptz(3)
+  /// The account the last change replaced. Refunds and disputes for bookings
+  /// paid before the change still go through it.
+  previousStripeAccountId String?   @map("previous_stripe_account_id")
+  stripeAccountChangedAt  DateTime? @map("stripe_account_changed_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
