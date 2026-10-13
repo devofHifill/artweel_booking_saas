@@ -698,8 +698,7 @@ describe('one transaction', () => {
       data: {
         paymentId: payment.id,
         amountCents: 2_000,
-        creditCents: 1_000,
-        reason: 'Late cancellation, half as credit',
+        reason: 'Late cancellation',
       },
     });
 
@@ -713,9 +712,9 @@ describe('one transaction', () => {
     expect(res.body.refunds).toHaveLength(1);
     expect(res.body.refunds[0]).toMatchObject({
       amountCents: 2_000,
-      creditCents: 1_000,
-      reason: 'Late cancellation, half as credit',
+      reason: 'Late cancellation',
     });
+    expect(res.body.refunds[0]).not.toHaveProperty('creditCents');
   });
 
   /** Why a card was declined is stored and has never been visible anywhere. */

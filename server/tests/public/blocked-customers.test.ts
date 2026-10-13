@@ -147,7 +147,7 @@ describe('the policy form', () => {
         name: 'Standard',
         tiers: [
           { hoursBefore: 48, refundPercent: 100 },
-          { hoursBefore: 24, refundPercent: 0, creditPercent: 100 },
+          { hoursBefore: 24, refundPercent: 50 },
           { hoursBefore: 0, refundPercent: 0 },
         ],
         allowReschedule: true,
@@ -158,7 +158,7 @@ describe('the policy form', () => {
     const saved = await prisma.cancellationPolicy.findUniqueOrThrow({ where: { id: policy.id } });
     expect(saved.tiers).toEqual([
       { hoursBefore: 48, refundPercent: 100 },
-      { hoursBefore: 24, refundPercent: 0, creditPercent: 100 },
+      { hoursBefore: 24, refundPercent: 50 },
       { hoursBefore: 0, refundPercent: 0 },
     ]);
     expect(saved.rescheduleCutoffHours).toBe(6);

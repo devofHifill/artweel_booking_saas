@@ -30,6 +30,7 @@ export class FakePaymentProvider implements PaymentProvider {
   private accounts = new Map<string, ConnectAccountStatus>();
   private sessions = new Map<string, CheckoutSessionResult & { accountId: string }>();
   private refunds: RefundResult[] = [];
+  private refundKeys = new Map<string, RefundResult>();
   /** Idempotency keys already seen, so a repeat returns the original result. */
   private issued = new Map<string, CheckoutSession>();
 
@@ -156,12 +157,27 @@ export class FakePaymentProvider implements PaymentProvider {
   }
 
   async createRefund(input: RefundInput): Promise<RefundResult> {
+    /* Stripe's idempotency, so a reused key fails here as it does there: the
+       same key and amount replay the first refund, a different amount is
+       refused. Every refund on a payment once shared one key, and the second
+       — the rest after a partial refund — could never have been issued. */
+    const replay = this.refundKeys.get(input.idempotencyKey);
+    if (replay) {
+      if (replay.amountCents !== input.amountCents) {
+        throw new Error(
+          'Keys for idempotent requests can only be used with the same parameters they were first used with.',
+        );
+      }
+      return replay;
+    }
+
     const refund = {
       id: `re_${randomUUID().replace(/-/g, '').slice(0, 20)}`,
       status: 'succeeded',
       amountCents: input.amountCents,
     };
     this.refunds.push(refund);
+    this.refundKeys.set(input.idempotencyKey, refund);
     return refund;
   }
 

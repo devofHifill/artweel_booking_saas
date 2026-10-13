@@ -420,7 +420,6 @@ export async function getPayment(organizationId: string, paymentId: string) {
         select: {
           id: true,
           amountCents: true,
-          creditCents: true,
           reason: true,
           status: true,
           createdAt: true,

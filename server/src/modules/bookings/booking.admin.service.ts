@@ -642,7 +642,7 @@ export async function cancelBookingAsStudio(
       inFull: opts.refundInFull,
     }).catch((err) => {
       logger.error({ err, bookingId }, 'Studio cancellation refund failed');
-      return { refundedCents: 0, creditCents: 0, refunds: [] };
+      return { refundedCents: 0, refunds: [] };
     });
     refundedCents = refund.refundedCents;
   }

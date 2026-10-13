@@ -161,7 +161,7 @@ async function main() {
       isDefault: true,
       tiers: [
         { hoursBefore: 48, refundPercent: 100 },
-        { hoursBefore: 24, refundPercent: 0, creditPercent: 100 },
+        { hoursBefore: 24, refundPercent: 50 },
         { hoursBefore: 0, refundPercent: 0 },
       ],
       noShowFeeCents: 0,

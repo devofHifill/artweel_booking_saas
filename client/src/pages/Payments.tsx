@@ -23,13 +23,13 @@ import { EmptyState, LoadingRegion, SkeletonTable } from '../components/states';
  * booking. It could not answer "what came in last month", which is the question
  * a studio asks at the end of every one.
  *
- * No refund button, deliberately, and D7 did not reopen it. The existing refund
- * endpoint applies the studio's CANCELLATION POLICY — for a late cancellation it
- * may refund nothing and grant a class credit instead. That is right where it
- * lives, in the cancellation flow, and wrong on a screen where "Refund" plainly
- * reads as "give this money back". A refund of an arbitrary amount is a
- * different feature: it needs its own amount field and its own provider call.
- * Rows link through to the customer, where cancelling lives.
+ * One refund action, and only one: "Refund in full" on a booking's payment,
+ * which gives back everything still held for that booking and leaves the
+ * booking itself alone. It skips the cancellation policy on purpose — on a
+ * screen where "Refund" plainly reads as "give this money back", applying
+ * late-cancellation terms would be a surprise. Policy refunds stay where they
+ * belong, in cancelling. A refund of an arbitrary amount is a different
+ * feature, with its own amount field, and is not built.
  */
 
 type Subject = {
@@ -80,7 +80,6 @@ type Detail = {
   refunds: {
     id: string;
     amountCents: number;
-    creditCents: number;
     reason: string | null;
     status: string;
     createdAt: string;
@@ -522,6 +521,7 @@ export default function Payments() {
           currency={currency}
           timezone={timezone}
           onClose={() => setOpen(null)}
+          onChanged={() => void load()}
         />
       )}
     </>
@@ -542,15 +542,22 @@ function PaymentDetail({
   currency,
   timezone,
   onClose,
+  onChanged,
 }: {
   base: string;
   paymentId: string;
   currency: string;
   timezone: string;
   onClose: () => void;
+  /** After a refund, so the list behind the dialog shows it too. */
+  onChanged: () => void;
 }) {
+  const org = useActiveOrg();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [refunding, setRefunding] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -565,20 +572,74 @@ function PaymentDetail({
     return () => {
       live = false;
     };
-  }, [base, paymentId]);
+  }, [base, paymentId, reload]);
+
+  /* What a full refund would give back: everything still held for the
+     booking, across all its payments — the same figure the server refunds.
+     Owners and admins only, matching the `payment.refund` permission. */
+  const canRefund = org?.role === 'OWNER' || org?.role === 'ADMIN';
+  const refundable =
+    detail?.booking &&
+    (detail.status === 'SUCCEEDED' || detail.status === 'PARTIALLY_REFUNDED')
+      ? detail.booking.paidCents
+      : 0;
+
+  async function refundInFull() {
+    if (!detail?.booking) return;
+    setRefunding(true);
+    setError(null);
+    try {
+      await api.post(`${base}/payments/bookings/${detail.booking.id}/refund`, {
+        inFull: true,
+        reason: 'refunded_in_full_by_studio',
+      });
+      setConfirming(false);
+      setReload((n) => n + 1);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not refund it.');
+    } finally {
+      setRefunding(false);
+    }
+  }
+
+  const footer = confirming ? (
+    <>
+      <button onClick={() => setConfirming(false)} disabled={refunding}>
+        Back
+      </button>
+      <button className="primary" onClick={() => void refundInFull()} disabled={refunding}>
+        {refunding ? 'Refunding…' : `Refund ${money(refundable, currency)}`}
+      </button>
+    </>
+  ) : (
+    <>
+      {canRefund && refundable > 0 && (
+        <button onClick={() => setConfirming(true)}>Refund in full</button>
+      )}
+      <button onClick={onClose}>Close</button>
+    </>
+  );
 
   return (
     <Modal
       title={detail ? money(detail.amountCents, currency) : 'Payment'}
       subtitle={detail ? detail.subject.label : undefined}
       onClose={onClose}
-      /* Close only. A "View booking" button belongs here and there is nowhere
-         for it to go: bookings have no page of their own, only a row in a
-         filtered list. The customer link inside the detail reaches everything
-         that booking has, which is the honest version of the same journey. */
-      footer={<button onClick={onClose}>Close</button>}
+      /* No "View booking" button: bookings have no page of their own, only a
+         row in a filtered list. The customer link inside the detail reaches
+         everything that booking has, which is the honest version of the same
+         journey. */
+      footer={footer}
     >
       {error && <div className="err">{error}</div>}
+      {confirming && (
+        <div className="alert warn" role="alert">
+          This sends {money(refundable, currency)} back to the customer's card
+          through Stripe and cannot be undone. The booking itself stays as it
+          is — cancel it from Bookings if they are not coming.
+        </div>
+      )}
       {!detail && !error && <p className="sub">Loading…</p>}
 
       {detail && (
@@ -684,11 +745,6 @@ function PaymentDetail({
                       <b>{money(refund.amountCents, currency)}</b>
                       <span className="tiny muted">
                         {refund.reason ?? 'No reason recorded'}
-                        {/* Credit issued instead of cash is the studio's
-                            cancellation policy doing its job, and it is the one
-                            thing an owner is surprised by later. */}
-                        {refund.creditCents > 0 &&
-                          ` · ${money(refund.creditCents, currency)} as studio credit`}
                       </span>
                     </span>
                     <span className="mini-end tiny muted">

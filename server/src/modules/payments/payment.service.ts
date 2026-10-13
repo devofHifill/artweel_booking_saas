@@ -882,7 +882,7 @@ export async function refundForCancellation(
 
   const collected = collectedCents(succeeded);
   if (collected <= 0) {
-    return { refundedCents: 0, creditCents: 0, refunds: [] };
+    return { refundedCents: 0, refunds: [] };
   }
 
   const policy = await resolvePolicyForService(
@@ -901,20 +901,15 @@ export async function refundForCancellation(
           collected,
           hoursOfNotice,
         )
-      : { refundCents: collected, creditCents: 0, tier: null };
+      : { refundCents: collected, tier: null };
 
   if (outcome.refundCents <= 0) {
-    return {
-      refundedCents: 0,
-      creditCents: outcome.creditCents,
-      refunds: [],
-    };
+    return { refundedCents: 0, refunds: [] };
   }
 
   const issued = await issueRefunds({
     succeeded,
     refundCents: outcome.refundCents,
-    creditCents: outcome.creditCents,
     scopeKey: booking.id,
     reason: opts.reason,
   });
@@ -926,7 +921,6 @@ export async function refundForCancellation(
 
   return {
     refundedCents: outcome.refundCents,
-    creditCents: outcome.creditCents,
     refunds: issued,
   };
 }
@@ -956,7 +950,6 @@ type RefundablePayment = {
 async function issueRefunds(params: {
   succeeded: RefundablePayment[];
   refundCents: number;
-  creditCents: number;
   scopeKey: string;
   reason?: string;
 }) {
@@ -983,7 +976,11 @@ async function issueRefunds(params: {
       paymentIntentId: payment.providerPaymentIntentId,
       amountCents: allocation.amountCents,
       reason: params.reason ?? 'requested_by_customer',
-      idempotencyKey: `refund_${params.scopeKey}_${payment.id}`,
+      // What was already refunded is part of the key: a retry of THIS refund
+      // repeats it, while a later one on the same payment (the rest, after a
+      // partial policy refund) is a new request rather than a replay of the
+      // first, which Stripe would refuse for its different amount.
+      idempotencyKey: `refund_${params.scopeKey}_${payment.id}_${payment.refundedCents}`,
     });
 
     const refundedTotal = payment.refundedCents + allocation.amountCents;
@@ -993,7 +990,6 @@ async function issueRefunds(params: {
         data: {
           paymentId: payment.id,
           amountCents: allocation.amountCents,
-          creditCents: params.creditCents,
           reason: params.reason,
           providerRefundId: refund.id,
           status: refund.status,
@@ -1055,7 +1051,7 @@ export async function refundForEnrollmentCancellation(
 
   const collected = collectedCents(succeeded);
   if (collected <= 0) {
-    return { refundedCents: 0, creditCents: 0, refunds: [] };
+    return { refundedCents: 0, refunds: [] };
   }
 
   const policy = await resolvePolicyForService(
@@ -1081,16 +1077,15 @@ export async function refundForEnrollmentCancellation(
         collected,
         hoursOfNotice,
       )
-    : { refundCents: collected, creditCents: 0, tier: null };
+    : { refundCents: collected, tier: null };
 
   if (outcome.refundCents <= 0) {
-    return { refundedCents: 0, creditCents: outcome.creditCents, refunds: [] };
+    return { refundedCents: 0, refunds: [] };
   }
 
   const issued = await issueRefunds({
     succeeded,
     refundCents: outcome.refundCents,
-    creditCents: outcome.creditCents,
     scopeKey: enrollment.id,
     reason: opts.reason,
   });
@@ -1102,7 +1097,6 @@ export async function refundForEnrollmentCancellation(
 
   return {
     refundedCents: outcome.refundCents,
-    creditCents: outcome.creditCents,
     refunds: issued,
   };
 }

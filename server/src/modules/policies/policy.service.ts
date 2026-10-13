@@ -15,7 +15,11 @@ export type PolicyTier = {
   hoursBefore: number;
   /** Percentage refunded to the original payment method. */
   refundPercent: number;
-  /** Percentage returned as studio credit instead. */
+  /**
+   * No longer read. Policies once offered "studio credit", but nothing ever
+   * issued it: a customer in a credit tier got nothing back while being told
+   * otherwise. Older rows may still carry the key; it is ignored everywhere.
+   */
   creditPercent?: number;
 };
 
@@ -43,19 +47,9 @@ function validateTiers(tiers: PolicyTier[]) {
     }
 
     const refund = tier.refundPercent;
-    const credit = tier.creditPercent ?? 0;
 
     if (typeof refund !== 'number' || refund < 0 || refund > 100) {
       throw AppError.badRequest('Refund percentage must be between 0 and 100.');
-    }
-    if (credit < 0 || credit > 100) {
-      throw AppError.badRequest('Credit percentage must be between 0 and 100.');
-    }
-    if (refund + credit > 100) {
-      throw AppError.badRequest(
-        'Refund and credit together cannot exceed 100 percent.',
-        'OVER_REFUND',
-      );
     }
 
     previous = tier.hoursBefore;
@@ -190,28 +184,24 @@ export function evaluatePolicy(
    * refund is measured against when they issue one.
    */
   noShow?: { feePercent: number },
-): { refundCents: number; creditCents: number; tier: PolicyTier | null } {
+): { refundCents: number; tier: PolicyTier | null } {
   if (noShow) {
     const keep = Math.min(100, Math.max(0, noShow.feePercent));
     return {
       // Round down, same as below: never refund more than was taken.
       refundCents: Math.floor((amountCents * (100 - keep)) / 100),
-      creditCents: 0,
       tier: null,
     };
   }
 
   const match = tiers.find((t) => hoursOfNotice >= t.hoursBefore) ?? null;
 
-  if (!match) return { refundCents: 0, creditCents: 0, tier: null };
+  if (!match) return { refundCents: 0, tier: null };
 
   // Round down: never refund more than was taken because of float dust.
   const refundCents = Math.floor((amountCents * match.refundPercent) / 100);
-  const creditCents = Math.floor(
-    (amountCents * (match.creditPercent ?? 0)) / 100,
-  );
 
-  return { refundCents, creditCents, tier: match };
+  return { refundCents, tier: match };
 }
 
 /** The policy that applies to a service, falling back to the studio default. */

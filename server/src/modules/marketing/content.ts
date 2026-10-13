@@ -68,7 +68,7 @@ export const SHIPPING_FEATURES = [
     title: 'Deposits and cancellation terms you set',
     body:
       'Take a deposit or the full amount. Write your own refund ladder — full ' +
-      'refund with two days notice, studio credit inside a day, whatever you ' +
+      'refund with two days notice, half inside a day, whatever you ' +
       'actually run. Refunds follow it automatically.',
   },
   {
@@ -403,7 +403,7 @@ export const GUIDES: Page[] = [
         body: [
           'A policy nobody applies is worse than none, because it teaches people ' +
             'the rules do not matter. Pick terms you are comfortable holding to ' +
-            'on a bad day — full refund with 48 hours notice, studio credit ' +
+            'on a bad day — full refund with 48 hours notice, half back ' +
             'inside 24, nothing after that is a common and defensible shape.',
         ],
       },
