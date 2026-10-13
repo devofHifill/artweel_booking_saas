@@ -289,6 +289,13 @@ export default function Integrations() {
                 {payments.connected ? 'Finish Stripe setup' : 'Connect Stripe'}
               </button>
             )}
+
+            {/* The guide for this card, where the question comes up. */}
+            {isAdmin && (
+              <p className="tiny">
+                <Link to="/help/guides/stripe">How connecting Stripe works</Link>
+              </p>
+            )}
           </div>
         </section>
 

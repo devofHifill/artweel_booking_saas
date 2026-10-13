@@ -43,6 +43,7 @@ import {
   getRevenueModel,
 } from './insights.service';
 import { getPlatformHealth } from './health.service';
+import { getPlatformGuide, listPlatformGuides } from './guides.service';
 import {
   availablePlans,
   extendTrial,
@@ -759,5 +760,29 @@ platformRouter.get(
   '/health',
   asyncHandler(async (_req, res) => {
     res.json({ health: await getPlatformHealth() });
+  }),
+);
+
+/**
+ * Guides for platform admins — Help & Support in the admin area.
+ *
+ * Here rather than in the client bundle so that only a live grant can read
+ * them; see `guides.service.ts`.
+ */
+platformRouter.get(
+  '/guides',
+  asyncHandler(async (_req, res) => {
+    res.json({ guides: listPlatformGuides() });
+  }),
+);
+
+platformRouter.get(
+  '/guides/:slug',
+  asyncHandler(async (req, res) => {
+    const guide = await getPlatformGuide(req.params.slug ?? '');
+    if (!guide) {
+      throw AppError.notFound('Guide not found.', 'GUIDE_NOT_FOUND');
+    }
+    res.json({ guide });
   }),
 );

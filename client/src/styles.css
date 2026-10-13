@@ -3349,6 +3349,9 @@ td.strong { font-weight: 600; }
 .guide h2 { margin-top: var(--space-6); padding-top: var(--space-3); border-top: 1px solid var(--line); }
 .guide h2:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
 .guide h3 { margin-top: var(--space-4); }
+/* A Contents link scrolls the window, and the studio shell's sticky top bar
+   (60px) would cover the heading it lands on. Harmless in /admin, which has none. */
+.guide :is(h2, h3) { scroll-margin-top: 76px; }
 .guide table { width: 100%; border-collapse: collapse; margin: var(--space-3) 0; font-size: var(--text-sm); }
 .guide th, .guide td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
 .guide th { color: var(--muted); font-weight: 600; }

@@ -1,40 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Marked } from 'marked';
 import { api } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import { PageHead } from '../components/layout';
 import { EmptyState, LoadingRegion, SkeletonCard } from '../components/states';
 import { findGuide, guidesFor } from '../guides';
+import { renderGuide } from '../lib/markdown';
 
 /**
  * One user guide, rendered from the Markdown that ships with the dashboard.
- *
- * The HTML is set directly, which is safe only because the input is ours: the
- * guides are files in this repository, bundled at build time, never anything a
- * user typed. Should a guide ever come from somewhere else, this needs a
- * sanitiser before it needs anything else.
+ * See `lib/markdown` for why setting its HTML directly is safe.
  */
-
-/** GitHub's heading ids, so the guides' own "Contents" links keep working. */
-function headingId(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/<[^>]+>/g, '')
-    .replace(/[^\w\s-]/g, '')
-    .trim()
-    .replace(/\s/g, '-');
-}
-
-const markdown = new Marked({
-  gfm: true,
-  renderer: {
-    heading({ tokens, depth, text }) {
-      const html = this.parser.parseInline(tokens);
-      return `<h${depth} id="${headingId(text)}">${html}</h${depth}>\n`;
-    },
-  },
-});
 
 export default function GuidePage() {
   const { slug } = useParams();
@@ -66,8 +42,7 @@ export default function GuidePage() {
 
   const html = useMemo(() => {
     if (!source) return '';
-    // The title is the page head's; the Markdown's own first heading would repeat it.
-    let text = source.replace(/^# .*\n+/, '');
+    let text = source;
     if (bookingUrl) {
       const origin = new URL(bookingUrl).origin;
       text = text.replaceAll('https://bookaihub.com', origin);
@@ -77,7 +52,7 @@ export default function GuidePage() {
         .replaceAll('<your-studio-slug>', org.organization.slug)
         .replaceAll('your-studio-slug', org.organization.slug);
     }
-    return markdown.parse(text) as string;
+    return renderGuide(text);
   }, [source, bookingUrl, org?.organization.slug]);
 
   if (!guide || !allowed) {

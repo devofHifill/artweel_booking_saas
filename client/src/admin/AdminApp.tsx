@@ -17,6 +17,7 @@ import {
 } from './Catalog';
 import { PlatformIntegrations, PlatformWebhooks } from './Management';
 import { PlatformPlans } from './Plans';
+import { PlatformGuide, PlatformHelp } from './Help';
 import { Shell } from '../components/Shell';
 import { Icon } from '../components/Icon';
 import { LoadingRegion, SkeletonList } from '../components/states';
@@ -197,6 +198,13 @@ export default function AdminApp() {
               <Icon name="audit" />
               Audit Log
             </NavLink>
+
+            {/* Same label and icon as the studio sidebar's, so it reads as
+                the same place; the guides behind it are the platform's own. */}
+            <NavLink to="/admin/help">
+              <Icon name="external" />
+              Help &amp; Support
+            </NavLink>
           </nav>
 
           <div className="spacer" />
@@ -266,6 +274,8 @@ export default function AdminApp() {
         <Route path="/admin/webhooks" element={<PlatformWebhooks />} />
         <Route path="/admin/health" element={<Health />} />
         <Route path="/admin/audit" element={<Audit />} />
+        <Route path="/admin/help" element={<PlatformHelp />} />
+        <Route path="/admin/help/guides/:slug" element={<PlatformGuide />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     </Shell>
