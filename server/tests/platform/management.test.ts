@@ -9,6 +9,7 @@ import {
   listWebhooks,
 } from '../../src/modules/platform/management.service';
 import { FEATURE_ENFORCED, type Feature } from '../../src/modules/billing/plan';
+import { handleWebhook } from '../../src/modules/payments/payment.service';
 
 /**
  * Platform management.
@@ -177,6 +178,84 @@ describe('webhooks', () => {
 
     // The screen must not let an absent provider read as a healthy one.
     expect(failed.note).toMatch(/only stripe/i);
+  });
+
+  /*
+    The log's Studio column read "—" for every row: events were stored
+    without the studio they concern. Types the handlers ignore are used here
+    so only the attribution is under test.
+  */
+  it('records which studio each event is about', async () => {
+    const studio = await createStudio({ name: 'Clay & Co' });
+    const id = studio.organization.id;
+    await prisma.organization.update({
+      where: { id },
+      data: {
+        stripeAccountId: 'acct_current',
+        previousStripeAccountId: 'acct_previous',
+        billingCustomerId: 'cus_clay',
+      },
+    });
+
+    const send = (eventId: string, accountId: string | null, data: Record<string, unknown>) =>
+      handleWebhook({ id: eventId, type: 'test.ignored', accountId, data });
+
+    await send('evt_connect', 'acct_current', { id: 'pi_1' });
+    await send('evt_old_account', 'acct_previous', { id: 'pi_2' });
+    await send('evt_metadata', null, { id: 'cs_1', metadata: { organizationId: id } });
+    await send('evt_billing', null, { id: 'in_1', customer: 'cus_clay' });
+    await send('evt_stranger', 'acct_unknown', { id: 'pi_3' });
+    // Not a studio: must not trip the foreign key and lose the event.
+    await send('evt_bad_meta', null, {
+      id: 'cs_2',
+      metadata: { organizationId: '00000000-0000-0000-0000-000000000000' },
+    });
+
+    const { rows } = await listWebhooks(query);
+    const studioOf = (eventId: string) =>
+      rows.find((r) => r.eventId === eventId)?.organization?.name ?? null;
+
+    expect(studioOf('evt_connect')).toBe('Clay & Co');
+    expect(studioOf('evt_old_account')).toBe('Clay & Co');
+    expect(studioOf('evt_metadata')).toBe('Clay & Co');
+    expect(studioOf('evt_billing')).toBe('Clay & Co');
+    expect(studioOf('evt_stranger')).toBeNull();
+    expect(studioOf('evt_bad_meta')).toBeNull();
+    expect(rows).toHaveLength(6);
+  });
+
+  it('fills in the studio for events logged before it was recorded', async () => {
+    const studio = await createStudio({ name: 'Clay & Co' });
+    const id = studio.organization.id;
+    await prisma.organization.update({
+      where: { id },
+      data: { stripeAccountId: 'acct_current', billingCustomerId: 'cus_clay' },
+    });
+    await prisma.webhookEvent.createMany({
+      data: [
+        { eventId: 'evt_a', eventType: 'checkout.session.completed', payload: { metadata: { organizationId: id } } },
+        { eventId: 'evt_b', eventType: 'invoice.payment_succeeded', payload: { customer: 'cus_clay' } },
+        { eventId: 'evt_c', eventType: 'account.updated', payload: { id: 'acct_current' } },
+        { eventId: 'evt_d', eventType: 'account.updated', payload: { id: 'acct_someone_else' } },
+      ],
+    });
+
+    const sql = readFileSync(
+      join(__dirname, '../../prisma/migrations/20261014120000_webhook_event_studio/migration.sql'),
+      'utf8',
+    );
+    // Comments out first: they contain semicolons.
+    const statements = sql.replace(/--.*$/gm, '').split(';').map((s) => s.trim());
+    for (const statement of statements.filter(Boolean)) {
+      await prisma.$executeRawUnsafe(statement);
+    }
+
+    const rows = await prisma.webhookEvent.findMany({ select: { eventId: true, organizationId: true } });
+    const of = (e: string) => rows.find((r) => r.eventId === e)!.organizationId;
+    expect(of('evt_a')).toBe(id);
+    expect(of('evt_b')).toBe(id);
+    expect(of('evt_c')).toBe(id);
+    expect(of('evt_d')).toBeNull();
   });
 });
 

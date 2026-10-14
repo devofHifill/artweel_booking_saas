@@ -510,6 +510,7 @@ export async function handleWebhook(event: WebhookEvent) {
         eventId: event.id,
         eventType: event.type,
         payload: event.data as Prisma.InputJsonValue,
+        organizationId: await studioForEvent(event),
       },
     });
   } catch (err) {
@@ -572,6 +573,48 @@ export async function handleWebhook(event: WebhookEvent) {
       data: { error: err instanceof Error ? err.message : String(err) },
     });
     throw err;
+  }
+}
+
+/**
+ * Which studio a webhook is about, for the platform's webhook log.
+ *
+ * Read off the event the way each handler finds its studio: the connected
+ * account for Connect events (current, pending or previous — a studio mid-
+ * switch gets events for both), the checkout's own metadata, or the billing
+ * customer for our subscription and invoice events. Looked up rather than
+ * trusted, because the row's foreign key refuses an id that is not a studio.
+ * Best effort: a log entry without a studio beats a webhook that fails.
+ */
+async function studioForEvent(event: WebhookEvent): Promise<string | null> {
+  const data = event.data as {
+    id?: string;
+    customer?: unknown;
+    metadata?: Record<string, string> | null;
+  };
+  const accountId =
+    event.accountId ?? (event.type === 'account.updated' ? (data.id ?? null) : null);
+  const metaOrg = data.metadata?.organizationId;
+  const customerId = typeof data.customer === 'string' ? data.customer : null;
+
+  const or: Prisma.OrganizationWhereInput[] = [];
+  if (accountId) {
+    or.push(
+      { stripeAccountId: accountId },
+      { pendingStripeAccountId: accountId },
+      { previousStripeAccountId: accountId },
+    );
+  }
+  if (metaOrg && /^[0-9a-f-]{36}$/i.test(metaOrg)) or.push({ id: metaOrg });
+  if (customerId) or.push({ billingCustomerId: customerId });
+  if (or.length === 0) return null;
+
+  try {
+    const org = await prisma.organization.findFirst({ where: { OR: or }, select: { id: true } });
+    return org?.id ?? null;
+  } catch (err) {
+    logger.warn({ err, eventId: event.id }, 'Could not tell which studio a webhook is about');
+    return null;
   }
 }
 
