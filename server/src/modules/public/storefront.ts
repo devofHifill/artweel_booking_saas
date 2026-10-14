@@ -156,8 +156,8 @@ function footer(store: Storefront): string {
       </div>
       <div>
         <h4>Get in touch</h4>
-        ${org.contactEmail ? `<p>${escapeHtml(org.contactEmail)}</p>` : ''}
-        ${org.contactPhone ? `<p>${escapeHtml(org.contactPhone)}</p>` : ''}
+        ${org.contactEmail ? `<a href="mailto:${escapeHtml(org.contactEmail)}">${escapeHtml(org.contactEmail)}</a>` : ''}
+        ${org.contactPhone ? `<a href="tel:${escapeHtml(org.contactPhone.replace(/[^+\d]/g, ''))}">${escapeHtml(org.contactPhone)}</a>` : ''}
       </div>
     </div>
     <div class="sf-foot-bottom">

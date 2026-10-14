@@ -195,9 +195,20 @@ describe('the copy reaches the booking page', () => {
     // The default sub-heading is replaced by the studio's tagline.
     expect(page.text).toContain('Bring a friend');
     expect(page.text).not.toContain('Choose a class and reserve your place');
-    // The about paragraph and the contact address appear.
-    expect(page.text).toContain('Fifteen years of taking people');
+    // Since /book wears the storefront's header and footer (2026-09-30), the
+    // contact address is in that footer and the about paragraph lives on the
+    // storefront's About page, which the header and footer link to.
     expect(page.text).toContain('mailto:hello@studio.test');
+    expect(page.text).not.toContain('Fifteen years of taking people');
+
+    const about = await request(app).get(`/public/${org.slug}/about`).expect(200);
+    expect(about.text).toContain('Fifteen years of taking people');
+
+    // Embedded in the studio's own site there is no storefront around it, so
+    // the bare page carries both itself.
+    const embedded = await request(app).get(`/public/${org.slug}/book?embed=1`).expect(200);
+    expect(embedded.text).toContain('Fifteen years of taking people');
+    expect(embedded.text).toContain('mailto:hello@studio.test');
   });
 
   it('falls back to the generic strings when nothing is set', async () => {
