@@ -34,6 +34,7 @@ export default function Billing() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   /* Stripe sends a studio back with `subscribed=1` after checkout. The plan
      itself flips when the subscription webhook lands, which can trail the
@@ -69,14 +70,35 @@ export default function Billing() {
   }, [load]);
 
   async function subscribe(plan: string) {
+    // A paying studio's plan changes in place, and Stripe charges or credits
+    // the difference at once — say so before it happens.
+    const target = plans.find((p) => p.id === plan);
+    const paying = state?.status === 'ACTIVE';
+    if (
+      paying &&
+      target &&
+      !confirm(
+        `Switch to ${target.name} at ${money(target.priceCentsMonthly)} a month? ` +
+          'The change is immediate. Moving up, you pay the difference for the rest of this month now; ' +
+          'moving down, the difference is credited to your next bills.',
+      )
+    ) {
+      return;
+    }
+
     setBusy(true);
+    setError(null);
+    setNote(null);
     try {
-      const res = await api.post<{ url: string; simulated: boolean }>(
+      const res = await api.post<{ url: string; simulated: boolean; changed?: boolean }>(
         `${base}/billing/subscribe`,
         { plan },
       );
 
-      if (res.simulated) {
+      if (res.changed) {
+        await load();
+        setNote(`You are now on the ${target?.name ?? 'new'} plan.`);
+      } else if (res.simulated) {
         // No Stripe keys configured locally — the server activated directly
         // so the flow can still be walked end to end.
         await load();
@@ -123,6 +145,11 @@ export default function Billing() {
       />
 
       {error && <div className="err">{error}</div>}
+      {note && (
+        <div className="alert" role="status">
+          {note}
+        </div>
+      )}
       {justSubscribed && state.status !== 'ACTIVE' && (
         <div className="alert" role="status">
           Thanks — Stripe has your payment. Your plan switches over as soon as
