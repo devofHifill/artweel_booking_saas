@@ -20,6 +20,96 @@ have no concept of equipment.
 - Spec: `D:\Projects\2026\booking-saas-spec.md`
 - Phase plan: `D:\Projects\2026\booking-saas-phases.pdf`
 
+## Update — 2026-10-14
+
+### Where things stand at the end of 2026-10-14
+
+- **`main` is at `bf8da4b` and live (bookaihub.com) runs exactly that.**
+  Three releases since the 2026-10-13 handoff (PRs #31, #32, #33), each
+  deployed with `deploy/deploy.sh` on `my-vps`. One migration
+  (`20261013120000_stripe_account_change`), applied; none since. Expect the
+  site to answer 404 for a few seconds right after a deploy while containers
+  restart — it recovers on its own.
+- **The dashboard is `app.bookaihub.com`**, not `bookaihub.com/...`
+  (`APP_URL`). `bookaihub.com/billing` 404s by design.
+- **Merged branches still exist** locally and on GitHub:
+  `feat/stripe-account-change`, `fix/plan-change-single-subscription`,
+  `fix/ignore-duplicate-subscription-events`. Safe to delete.
+- **Git and deploys were run by Claude at Suren's explicit request each time.**
+  `gh` is not logged in, so PRs are opened by Suren from a compare URL. Rule 1
+  still stands.
+- **Staging untouched again.** Still behind; Suren asked to leave it.
+
+### What landed
+
+1. **Studios can change Stripe account themselves** — PR #31.
+   `server/src/modules/payments/connect-change.service.ts`, controls in
+   Settings → Payments (`PaymentSettingsSection`).
+   - *Start over* (admins): throws away an UNFINISHED setup (closes the old
+     account, best effort) and starts a new one. Refused once the account
+     takes payments (`STRIPE_ACCOUNT_ACTIVE`).
+   - *Change Stripe account* (owners, typed `CHANGE`): builds a new account
+     ALONGSIDE the working one (`pendingStripeAccountId`). Bookings keep paying
+     into the old one until the new one can take payments, then it switches
+     once (`promotePendingAccount`, conditional update) on refresh or
+     `account.updated`, records `previousStripeAccountId`, and emails owners.
+     Refused while a checkout is under way (`CHECKOUT_IN_PROGRESS`).
+     Cancellable; the half-built account is closed.
+   - Refunds always go to the account that took the payment
+     (`payment.providerAccountId`), so old bookings refund from the old account.
+   - Platform admin studio detail shows a pending switch and the previous account.
+   - Tests: `tests/payments/connect-change.test.ts` (16). Verified locally
+     against the real Stripe sandbox.
+2. **Plan change no longer creates a second subscription** — PR #32.
+   `createSubscriptionCheckout` in `billing.service.ts`: a studio with a live
+   subscription (stored id, else the customer's list in case the webhook
+   lags) has it UPDATED in place — `proration_behavior: 'always_invoice'`,
+   `payment_behavior: 'error_if_incomplete'` (declined card → plan unchanged,
+   402 `CARD_DECLINED`); past-due → 409 `PAYMENT_OVERDUE`. Per-plan Stripe
+   products with fixed ids `bookaihub_plan_<plan>`, created on first use.
+   `subscribedPriceCents` is restated on a plan change (a new commitment).
+   Billing page confirms before changing and shows the result. Checkout is
+   still used when there is no live subscription. `setBillingStripe()` lets
+   tests inject a fake Stripe.
+3. **Events for other subscriptions are ignored** — PR #33.
+   `onSubscriptionChanged` ignores any subscription that is not the one on
+   record while that one is ACTIVE or PAST_DUE — even an "active" one (a
+   duplicate cancelled at period end stays active). A different subscription
+   is taken up only after the recorded one has ended (re-subscribing).
+   Billing tests: 33/33.
+
+The full suite was not re-run for #32/#33 (billing suite only). Last full run,
+before #31 merged: 324/326, both failures passing on re-run.
+
+### Live test results (test-mode Stripe, studio Galaxy Empire)
+
+- Connect onboarding (v2 account), webhooks, paid booking and a refund were
+  verified on live earlier in this stretch (refund `re_3UOXltFzi8YCahtu0O2ur0fj`, $390).
+- **Subscription billing, 2026-10-14:** Pro → Studio changed the existing
+  subscription in place, no Checkout, $0 proration invoice (downgrade credit);
+  Manage billing (portal) opens. Galaxy Empire had **six** live subscriptions
+  from the old bug; the five extras were cancelled in the portal (it only
+  offers cancel at period end — they end 16 Oct–7 Nov). The studio stayed on
+  Studio throughout, confirming #33. Kept: Studio $89, renews 10 Nov.
+- Not tested on live: a first-time Checkout from a trial.
+
+### Open, in rough priority
+
+1. **Live-mode Stripe before real money** (guide step A9): activate the
+   account, public details, statement descriptor, branding, platform profile,
+   live keys, two live webhook destinations; studios then reconnect.
+2. Galaxy Empire's cancellation policy: the old credit tier is now
+   "24h → 0% refund"; Suren to pick the percentage.
+3. Old unpaid booking `0FF2D6D1` on Galaxy Empire — cancel if unwanted.
+4. Staging sync (deliberately left).
+5. Admin → Webhooks "Studio" column shows "—".
+6. `website.test.ts` fails on `main` (pre-existing copy test).
+7. Optional cleanup: sandbox test accounts `acct_1UOExVFzi8BBdmAs`,
+   `acct_1UOEyZFzi8YAhhqj`; local `server/.env` has a placeholder
+   `STRIPE_WEBHOOK_SECRET`.
+
+---
+
 ## Update — 2026-10-13
 
 > **This file was not updated between 2026-09-03 and 2026-10-13.** Work landed
