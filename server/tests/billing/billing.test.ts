@@ -10,6 +10,7 @@ import {
   TRIAL_DAYS,
   onPaymentFailed,
   onPaymentSucceeded,
+  setBillingStripe,
   sweepExpiredSubscriptions,
 } from '../../src/modules/billing/billing.service';
 import { handleWebhook } from '../../src/modules/payments/payment.service';
@@ -528,5 +529,170 @@ describe('a subscription event at our destinations’ API version', () => {
     });
     expect(org.subscriptionStatus).toBe('ACTIVE');
     expect(org.currentPeriodEnd?.getTime()).toBe(periodEnd * 1000);
+  });
+});
+
+describe('changing plan while subscribed', () => {
+  /**
+   * Picking another plan used to send a subscribed studio through Checkout
+   * again, which made a second subscription next to the first: two monthly
+   * charges. It now changes the one they have.
+   */
+  type Sub = {
+    id: string;
+    status: string;
+    metadata: Record<string, string>;
+    items: { data: { id: string; price: { unit_amount: number } }[] };
+  };
+  let subs: Sub[];
+  let calls: { method: string; args: unknown[] }[];
+  let declineNext: boolean;
+
+  const fakeStripe = () => ({
+    subscriptions: {
+      async retrieve(id: string) {
+        const sub = subs.find((s) => s.id === id);
+        if (!sub) throw Object.assign(new Error('No such subscription'), { code: 'resource_missing' });
+        return sub;
+      },
+      async list() {
+        return { data: subs };
+      },
+      async update(id: string, params: unknown) {
+        calls.push({ method: 'subscriptions.update', args: [id, params] });
+        if (declineNext) {
+          throw Object.assign(new Error('Your card was declined.'), { type: 'StripeCardError' });
+        }
+        return subs.find((s) => s.id === id);
+      },
+    },
+    products: {
+      async retrieve(id: string) {
+        throw Object.assign(new Error(`No such product: ${id}`), { code: 'resource_missing' });
+      },
+      async create(params: unknown) {
+        calls.push({ method: 'products.create', args: [params] });
+        return params;
+      },
+    },
+    customers: {
+      async create() {
+        calls.push({ method: 'customers.create', args: [] });
+        return { id: 'cus_new' };
+      },
+    },
+    checkout: {
+      sessions: {
+        async create(params: unknown) {
+          calls.push({ method: 'checkout.sessions.create', args: [params] });
+          return { url: 'https://checkout.stripe.test/session' };
+        },
+      },
+    },
+  });
+
+  beforeEach(async () => {
+    subs = [];
+    calls = [];
+    declineNext = false;
+    setBillingStripe(fakeStripe());
+    await prisma.organization.update({
+      where: { id: studio.organizationId },
+      data: {
+        billingCustomerId: 'cus_paying',
+        billingSubscriptionId: 'sub_current',
+        subscriptionStatus: 'ACTIVE',
+        plan: 'SOLO',
+        subscribedPriceCents: 2900,
+      },
+    });
+    subs.push({
+      id: 'sub_current',
+      status: 'active',
+      metadata: { planId: 'SOLO' },
+      items: { data: [{ id: 'si_current', price: { unit_amount: 2900 } }] },
+    });
+  });
+  afterAll(() => setBillingStripe(null));
+
+  const subscribe = (plan: string) =>
+    request(app).post(`${studio.base}/billing/subscribe`).set(studio.headers).send({ plan });
+  const org = () => prisma.organization.findUniqueOrThrow({ where: { id: studio.organizationId } });
+
+  it('changes the existing subscription instead of starting a second one', async () => {
+    const res = await subscribe('STUDIO');
+
+    expect(res.status).toBe(200);
+    expect(res.body.changed).toBe(true);
+    expect(calls.map((c) => c.method)).not.toContain('checkout.sessions.create');
+    const update = calls.find((c) => c.method === 'subscriptions.update')!;
+    expect(update.args[0]).toBe('sub_current');
+    expect(update.args[1]).toMatchObject({
+      items: [{ id: 'si_current' }],
+      proration_behavior: 'always_invoice',
+      payment_behavior: 'error_if_incomplete',
+      metadata: { planId: 'STUDIO' },
+    });
+    const after = await org();
+    expect(after.plan).toBe('STUDIO');
+    expect(after.subscribedPriceCents).toBe(
+      (update.args[1] as { items: { price_data: { unit_amount: number } }[] }).items[0]!.price_data
+        .unit_amount,
+    );
+  });
+
+  it('finds the subscription even before its webhook has recorded it', async () => {
+    await prisma.organization.update({
+      where: { id: studio.organizationId },
+      data: { billingSubscriptionId: null },
+    });
+
+    await subscribe('STUDIO').expect(200);
+
+    expect(calls.map((c) => c.method)).not.toContain('checkout.sessions.create');
+    expect((await org()).billingSubscriptionId).toBe('sub_current');
+  });
+
+  it('leaves the plan alone when the card is declined', async () => {
+    declineNext = true;
+
+    const res = await subscribe('PRO');
+
+    expect(res.status).toBe(402);
+    expect(res.body.error.code).toBe('CARD_DECLINED');
+    expect((await org()).plan).toBe('SOLO');
+  });
+
+  it('asks for a working card first when the last payment failed', async () => {
+    subs[0]!.status = 'past_due';
+
+    const res = await subscribe('STUDIO');
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('PAYMENT_OVERDUE');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('still goes through Checkout when the old subscription was cancelled', async () => {
+    subs[0]!.status = 'canceled';
+
+    const res = await subscribe('STUDIO');
+
+    expect(res.status).toBe(200);
+    expect(res.body.url).toContain('checkout.stripe.test');
+    expect(calls.map((c) => c.method)).toContain('checkout.sessions.create');
+  });
+
+  it('ignores a cancellation of some other subscription', async () => {
+    await handleWebhook({
+      id: 'evt_duplicate_cancelled',
+      type: 'customer.subscription.deleted',
+      accountId: null,
+      data: { id: 'sub_duplicate', status: 'canceled', customer: 'cus_paying', metadata: {} },
+    });
+
+    const after = await org();
+    expect(after.subscriptionStatus).toBe('ACTIVE');
+    expect(after.billingSubscriptionId).toBe('sub_current');
   });
 });

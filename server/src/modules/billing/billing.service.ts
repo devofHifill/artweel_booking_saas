@@ -18,6 +18,30 @@ import { PLANS, canWrite, type PlanId } from './plan';
  * signups.
  */
 
+/**
+ * The slice of the Stripe client billing uses. Tests put a recording fake
+ * here; everywhere else it is the real client on the platform's own key.
+ */
+type BillingStripe = InstanceType<typeof import('stripe').default>;
+let stripeOverride: BillingStripe | null = null;
+
+/** Tests only: billing talks to this instead of Stripe. `null` restores it. */
+export function setBillingStripe(client: unknown) {
+  stripeOverride = client as BillingStripe | null;
+}
+
+async function billingStripe(): Promise<BillingStripe | null> {
+  if (stripeOverride) return stripeOverride;
+  if (!config.STRIPE_SECRET_KEY) return null;
+  const Stripe = (await import('stripe')).default;
+  return new Stripe(config.STRIPE_SECRET_KEY, {
+    apiVersion: '2025-01-27.acacia' as never,
+  });
+}
+
+/** Stripe statuses where the studio is still subscribed and being billed. */
+const LIVE_SUBSCRIPTION = new Set(['active', 'trialing', 'past_due', 'unpaid']);
+
 export const TRIAL_DAYS = 14;
 /** How long a failed payment stays a warning rather than a block. */
 export const GRACE_DAYS = 7;
@@ -137,11 +161,17 @@ function noticeFor(
 }
 
 /**
- * Starts a subscription checkout.
+ * Starts a subscription checkout, or changes the plan of the subscription the
+ * studio already has.
  *
  * Uses the platform's own Stripe account, not the studio's connected one —
  * this is money flowing to us. Reusing the Connect provider here would be a
  * subtle and expensive mistake, so billing has its own thin client.
+ *
+ * A subscribed studio picking another plan used to go through Checkout again,
+ * which made a SECOND subscription alongside the first: two monthly charges,
+ * and nothing cancelled the old one. Now that case changes the existing
+ * subscription in place and charges or credits the difference.
  */
 export async function createSubscriptionCheckout(
   organizationId: string,
@@ -152,7 +182,9 @@ export async function createSubscriptionCheckout(
     where: { id: organizationId },
   });
 
-  if (!config.STRIPE_SECRET_KEY) {
+  const stripe = await billingStripe();
+
+  if (!stripe) {
     /**
      * Development without Stripe keys: activate directly so the onboarding
      * flow can be walked end to end. Production cannot reach this — config
@@ -181,10 +213,10 @@ export async function createSubscriptionCheckout(
     return { url: `${config.APP_URL}/billing?activated=1`, simulated: true };
   }
 
-  const Stripe = (await import('stripe')).default;
-  const stripe = new Stripe(config.STRIPE_SECRET_KEY, {
-    apiVersion: '2025-01-27.acacia' as never,
-  });
+  if (org.billingCustomerId) {
+    const live = await findLiveSubscription(stripe, org);
+    if (live) return changePlan(stripe, org.id, live, planId);
+  }
 
   let customerId = org.billingCustomerId;
 
@@ -230,23 +262,135 @@ export async function createSubscriptionCheckout(
   return { url: session.url!, simulated: false };
 }
 
+/**
+ * The subscription this studio is currently paying on, if any.
+ *
+ * The stored id first; failing that, the customer's own list, because the
+ * webhook that records the id can trail a checkout by a few seconds and a
+ * studio clicking again in that window must not get a second subscription.
+ */
+async function findLiveSubscription(
+  stripe: BillingStripe,
+  org: { billingCustomerId: string | null; billingSubscriptionId: string | null },
+) {
+  if (org.billingSubscriptionId) {
+    try {
+      const sub = await stripe.subscriptions.retrieve(org.billingSubscriptionId);
+      if (LIVE_SUBSCRIPTION.has(sub.status)) return sub;
+    } catch (err) {
+      logger.warn({ err, subscriptionId: org.billingSubscriptionId }, 'Stored subscription not found');
+    }
+  }
+  const list = await stripe.subscriptions.list({
+    customer: org.billingCustomerId!,
+    status: 'all',
+    limit: 10,
+  });
+  return list.data.find((sub) => LIVE_SUBSCRIPTION.has(sub.status)) ?? null;
+}
+
+/**
+ * The Stripe product for a plan, made the first time it is needed.
+ *
+ * Changing a subscription's price takes a product id, where Checkout took the
+ * product inline. A fixed id per plan means one product each, not one per
+ * change.
+ */
+async function planProductId(stripe: BillingStripe, planId: PlanId) {
+  const id = `bookaihub_plan_${planId.toLowerCase()}`;
+  try {
+    await stripe.products.retrieve(id);
+  } catch {
+    await stripe.products.create({ id, name: `${PLANS[planId].name} plan` });
+  }
+  return id;
+}
+
+/**
+ * Moves an existing subscription to another plan.
+ *
+ * The difference is invoiced straight away (`always_invoice`): an upgrade is
+ * charged now, a downgrade becomes credit against the next invoices. With
+ * `error_if_incomplete` a declined card changes nothing, so the studio is
+ * never on a plan it has not paid for.
+ */
+async function changePlan(
+  stripe: BillingStripe,
+  organizationId: string,
+  sub: import('stripe').Stripe.Subscription,
+  planId: PlanId,
+) {
+  if (sub.status === 'past_due' || sub.status === 'unpaid') {
+    throw AppError.conflict(
+      'Your last payment did not go through. Update your card in Manage billing, then change plan.',
+      'PAYMENT_OVERDUE',
+    );
+  }
+
+  const item = sub.items.data[0];
+  if (!item) throw AppError.conflict('This subscription has nothing to change.', 'NO_SUBSCRIPTION_ITEM');
+
+  const plan = PLANS[planId];
+  if (item.price.unit_amount === plan.priceCentsMonthly && sub.metadata?.planId === planId) {
+    return { url: `${config.APP_URL}/billing`, simulated: false, changed: true };
+  }
+
+  try {
+    await stripe.subscriptions.update(sub.id, {
+      items: [
+        {
+          id: item.id,
+          price_data: {
+            currency: 'usd',
+            unit_amount: plan.priceCentsMonthly,
+            recurring: { interval: 'month' },
+            product: await planProductId(stripe, planId),
+          },
+        },
+      ],
+      proration_behavior: 'always_invoice',
+      payment_behavior: 'error_if_incomplete',
+      metadata: { ...sub.metadata, organizationId, planId },
+    });
+  } catch (err) {
+    const e = err as { type?: string; message?: string };
+    if (e.type === 'StripeCardError') {
+      throw new AppError(
+        `Your card was declined, so your plan has not changed. ${e.message ?? ''}`.trim(),
+        402,
+        'CARD_DECLINED',
+      );
+    }
+    throw err;
+  }
+
+  // Shown at once rather than waiting for the webhook. A plan change is a
+  // new commitment, so unlike a list-price change it does restate the price.
+  await prisma.organization.update({
+    where: { id: organizationId },
+    data: {
+      plan: planId,
+      billingSubscriptionId: sub.id,
+      subscribedPriceCents: plan.priceCentsMonthly,
+    },
+  });
+
+  return { url: `${config.APP_URL}/billing?changed=1`, simulated: false, changed: true };
+}
+
 /** Stripe's own billing portal — card updates, invoices, cancellation. */
 export async function createBillingPortalSession(organizationId: string) {
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
   });
 
-  if (!org.billingCustomerId || !config.STRIPE_SECRET_KEY) {
+  const stripe = await billingStripe();
+  if (!org.billingCustomerId || !stripe) {
     throw AppError.badRequest(
       'No subscription to manage yet.',
       'NO_SUBSCRIPTION',
     );
   }
-
-  const Stripe = (await import('stripe')).default;
-  const stripe = new Stripe(config.STRIPE_SECRET_KEY, {
-    apiVersion: '2025-01-27.acacia' as never,
-  });
 
   const session = await stripe.billingPortal.sessions.create({
     customer: org.billingCustomerId,
@@ -294,6 +438,24 @@ export async function onSubscriptionChanged(data: {
   });
   if (!org) {
     logger.warn({ customerId: data.customerId }, 'Subscription for unknown org');
+    return;
+  }
+
+  /*
+    News about some OTHER subscription than the one on record — a duplicate
+    being cancelled, say — must not switch off the one the studio pays on.
+    A different subscription that is active is adopted: that is a studio
+    subscribing again after cancelling.
+  */
+  if (
+    org.billingSubscriptionId &&
+    org.billingSubscriptionId !== data.id &&
+    !(data.status === 'active' || data.status === 'trialing')
+  ) {
+    logger.info(
+      { organizationId: org.id, subscriptionId: data.id, current: org.billingSubscriptionId },
+      'Ignoring event for a subscription that is not the current one',
+    );
     return;
   }
 
