@@ -683,6 +683,44 @@ describe('changing plan while subscribed', () => {
     expect(calls.map((c) => c.method)).toContain('checkout.sessions.create');
   });
 
+  it('ignores an active duplicate, such as one cancelled at period end', async () => {
+    await handleWebhook({
+      id: 'evt_duplicate_cancel_at_end',
+      type: 'customer.subscription.updated',
+      accountId: null,
+      data: {
+        id: 'sub_duplicate',
+        status: 'active',
+        cancel_at_period_end: true,
+        customer: 'cus_paying',
+        metadata: { planId: 'STUDIO' },
+      },
+    });
+
+    const after = await org();
+    expect(after.billingSubscriptionId).toBe('sub_current');
+    expect(after.plan).toBe('SOLO');
+  });
+
+  it('takes up a new subscription once the old one has ended', async () => {
+    await prisma.organization.update({
+      where: { id: studio.organizationId },
+      data: { subscriptionStatus: 'CANCELED' },
+    });
+
+    await handleWebhook({
+      id: 'evt_resubscribed',
+      type: 'customer.subscription.created',
+      accountId: null,
+      data: { id: 'sub_again', status: 'active', customer: 'cus_paying', metadata: { planId: 'STUDIO' } },
+    });
+
+    const after = await org();
+    expect(after.billingSubscriptionId).toBe('sub_again');
+    expect(after.subscriptionStatus).toBe('ACTIVE');
+    expect(after.plan).toBe('STUDIO');
+  });
+
   it('ignores a cancellation of some other subscription', async () => {
     await handleWebhook({
       id: 'evt_duplicate_cancelled',
