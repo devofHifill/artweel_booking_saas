@@ -443,14 +443,19 @@ export async function onSubscriptionChanged(data: {
 
   /*
     News about some OTHER subscription than the one on record — a duplicate
-    being cancelled, say — must not switch off the one the studio pays on.
-    A different subscription that is active is adopted: that is a studio
-    subscribing again after cancelling.
+    being cancelled, say — must not touch the one the studio pays on. Not even
+    when it says "active": a duplicate cancelled at period end stays active
+    until then, and adopting it would move the studio onto its plan.
+
+    A different subscription is adopted only when the one on record is no
+    longer running: a studio subscribing again after cancelling or lapsing.
   */
+  const recordStillRunning =
+    org.subscriptionStatus === 'ACTIVE' || org.subscriptionStatus === 'PAST_DUE';
   if (
     org.billingSubscriptionId &&
     org.billingSubscriptionId !== data.id &&
-    !(data.status === 'active' || data.status === 'trialing')
+    recordStillRunning
   ) {
     logger.info(
       { organizationId: org.id, subscriptionId: data.id, current: org.billingSubscriptionId },
