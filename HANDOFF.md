@@ -24,17 +24,22 @@ have no concept of equipment.
 
 ### Where things stand at the end of 2026-10-14
 
-- **`main` is at `bf8da4b` and live (bookaihub.com) runs exactly that.**
-  Three releases since the 2026-10-13 handoff (PRs #31, #32, #33), each
-  deployed with `deploy/deploy.sh` on `my-vps`. One migration
-  (`20261013120000_stripe_account_change`), applied; none since. Expect the
-  site to answer 404 for a few seconds right after a deploy while containers
-  restart — it recovers on its own.
+- **`main` is at `9ec00ee` and live (bookaihub.com) runs exactly that.**
+  Five releases since the 2026-10-13 handoff (PRs #31, #32, #33, #35, #36;
+  #34 was this file), each deployed with `deploy/deploy.sh` on `my-vps`. Two
+  migrations, both applied: `20261013120000_stripe_account_change` and
+  `20261014120000_webhook_event_studio` (data only). Expect the site to answer
+  404 for a few seconds right after a deploy while containers restart — it
+  recovers on its own.
+- **Full suite on `main`: 1,290/1,290** (after #35 fixed the one stale test).
+  A full run takes about 64 minutes.
 - **The dashboard is `app.bookaihub.com`**, not `bookaihub.com/...`
   (`APP_URL`). `bookaihub.com/billing` 404s by design.
 - **Merged branches still exist** locally and on GitHub:
   `feat/stripe-account-change`, `fix/plan-change-single-subscription`,
-  `fix/ignore-duplicate-subscription-events`. Safe to delete.
+  `fix/ignore-duplicate-subscription-events`, `docs/handoff-2026-10-14`,
+  `fix/website-about-on-booking-page`, `fix/webhooks-studio-column`. Safe to
+  delete.
 - **Git and deploys were run by Claude at Suren's explicit request each time.**
   `gh` is not logged in, so PRs are opened by Suren from a compare URL. Rule 1
   still stands.
@@ -77,6 +82,20 @@ have no concept of equipment.
    duplicate cancelled at period end stays active). A different subscription
    is taken up only after the recorded one has ended (re-subscribing).
    Billing tests: 33/33.
+4. **Stale website test fixed; storefront footer contact is clickable** —
+   PR #35. Since the storefront look (2026-09-30) `/book` wears the
+   storefront header/footer, and the studio's About text lives on
+   `/public/:slug/about` (the bare `?embed=1` page still shows it). The test
+   now checks each place. The storefront footer's email and phone are now
+   `mailto:`/`tel:` links (`storefront.ts` `footer()`).
+5. **Webhook log shows the studio** — PR #36. `handleWebhook` records
+   `organizationId` on arrival via `studioForEvent`: connected account
+   (current, pending or previous), checkout `metadata.organizationId`, or
+   billing `customer`. Looked up, never trusted, so a bad id cannot trip the
+   FK; best effort, never fails a webhook. Migration
+   `20261014120000_webhook_event_studio` backfilled existing rows. On live 33
+   of the latest 50 now show a studio; the rest are events for things not on
+   live (local and staging tests share the sandbox) and correctly show "—".
 
 The full suite was not re-run for #32/#33 (billing suite only). Last full run,
 before #31 merged: 324/326, both failures passing on re-run.
@@ -95,18 +114,31 @@ before #31 merged: 324/326, both failures passing on re-run.
 
 ### Open, in rough priority
 
-1. **Live-mode Stripe before real money** (guide step A9): activate the
-   account, public details, statement descriptor, branding, platform profile,
-   live keys, two live webhook destinations; studios then reconnect.
-2. Galaxy Empire's cancellation policy: the old credit tier is now
-   "24h → 0% refund"; Suren to pick the percentage.
-3. Old unpaid booking `0FF2D6D1` on Galaxy Empire — cancel if unwanted.
-4. Staging sync (deliberately left).
-5. Admin → Webhooks "Studio" column shows "—".
-6. `website.test.ts` fails on `main` (pre-existing copy test).
-7. Optional cleanup: sandbox test accounts `acct_1UOExVFzi8BBdmAs`,
-   `acct_1UOEyZFzi8YAhhqj`; local `server/.env` has a placeholder
-   `STRIPE_WEBHOOK_SECRET`.
+1. **Live-mode Stripe before real money** (guide step A9) — **POSTPONED by
+   Suren on 2026-10-14.** Do not push it as the next step; it stays open.
+   Activate the account, public details, statement descriptor, branding,
+   platform profile, live keys, two live webhook destinations; studios then
+   reconnect.
+2. Staging sync (deliberately left).
+3. Not tested on live: a first-time subscription Checkout from a trial.
+4. Local `server/.env` has a placeholder `STRIPE_WEBHOOK_SECRET`.
+
+Closed on 2026-10-14:
+
+- Galaxy Empire's policy set by Suren: 48h → 100%, 24h → **60%**, later → 0%.
+- Booking `0FF2D6D1` (Galaxy Empire, 10 Oct, unpaid) cancelled.
+- Sandbox cleanup: the four "Dev Studio"/"Dev Studio2" subscriptions
+  (customers `cus_V7795sTLjUQz49`, `cus_V3K4HFcmE6fshA`,
+  `cus_V4UNmYKFvEdRNu`) cancelled immediately; the local plan-change test
+  subscription cancelled. Still running in the sandbox: Galaxy Empire's Studio
+  ($89, renews 10 Nov), FDG's, and Galaxy Empire's five duplicates ending
+  16 Oct–7 Nov.
+- Three leftover connected accounts could NOT be deleted from the dashboard
+  and are left on purpose (harmless: payments and payouts paused, unused):
+  `acct_1UQ7CgFzi8P8SkOZ`, `acct_1UOEyZFzi8YAhhqj`, `acct_1UOExVFzi8BBdmAs`.
+  Keep `acct_1UOHx0Fzi8YCahtu` (Galaxy Empire) and `acct_1UQ4jqFzi8gy6naR` (FDG).
+- About 100 "Clay & Co" `owner-*@clay.test` customers in the sandbox come from
+  test runs before `tests/setup.ts` blanked the keys. Clutter only; left.
 
 ---
 
