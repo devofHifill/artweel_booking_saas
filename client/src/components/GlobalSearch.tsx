@@ -58,7 +58,7 @@ function flatten(results: Results): Hit[] {
     ...results.classes.map((s) => ({
       key: `s-${s.id}`,
       label: s.name,
-      meta: 'Class',
+      meta: 'Activity',
       to: '/classes',
     })),
   ];

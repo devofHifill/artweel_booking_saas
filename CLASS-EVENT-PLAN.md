@@ -6,6 +6,29 @@ the ones deliberately left open.
 
 ---
 
+## Status
+
+| Stage | State |
+|---|---|
+| 0 — Existing data | **Done** in migration `20261105120000_activity_kind`. Live counts not yet checked. |
+| 1 — Server | **Done**, branch `feat/class-event-server`. `POST /activities/events`, `POST /activities/classes`, `/activities/drafts`; `kind` and `lifecycle` on `GET /services`; Classes count in readiness (`STARTED` once the first session begins); the only building is used without asking. Tests: `tests/admin/activities.test.ts` (23). |
+| 2 — Picker and Event flow | **Done** — `client/src/components/CreateActivity.tsx`. Drafts listed on Activities with Continue / Discard. Walked in a browser, phone width included. |
+| 3 — Class flow | **Done** except the clash check, which is Stage 4. Live date list with skip-a-date (`client/src/lib/class-dates.ts`, a copy of the server's rule). |
+| 4 — Clashes | **Not started.** Clashes are still refused on publish (nothing half-made); the live per-date check is not built. |
+| 5 — Past and Duplicate | **Done** in the dashboard: Live / Past tabs, Ended cards (Duplicate, no Edit), Duplicate opens at the dates step. |
+| 6 — Booking page and naming | **Partly.** Dashboard labels fixed; "Add a session" / "Scheduled sessions" wording. Public booking page still shows Classes under its existing "Courses" section; separate Classes and Events sections not built. Help guides not updated. |
+
+Checked 2026-11-05: full server suite 1,311 / 1,313. The two failures: a
+database connection dropped under load (passes alone), and a real, older
+daylight-saving bug in `resolveLocal`, fixed in its own commit.
+
+**Open, needs Suren:** every Class is a course underneath, and courses are
+gated to Studio and Pro (`requireFeature(…, 'courseSeries')`). A Solo studio
+can therefore create Events only. Kept as-is; decide whether Classes should
+be on every plan.
+
+---
+
 ## What this is
 
 Today **Create activity** is one long form with six sections, and its schedule
@@ -95,9 +118,14 @@ live, it can be dropped from the UI entirely.
    **Trap:** `BookingMode.EVENT` already means "seat-based on a dated session"
    and covers drop-in repeats. Do **not** reuse it as the kind. The new enum is
    separate, and code reads `kind` for anything the operator sees.
-2. **Draft** — `ServiceType.publishedAt` (nullable). Null = draft: invisible on
-   the booking page, listed under **Drafts**. The step flow saves after each
-   step so closing the tab loses nothing.
+2. **Draft** — a separate `activity_drafts` table holding the step flow's
+   answers as JSON, listed under **Drafts**. The step flow saves after each
+   step so closing the tab loses nothing. Publishing deletes the draft in the
+   same transaction.
+   *Changed while building:* the first idea was an unpublished `ServiceType`
+   (`publishedAt` null). Rejected because its sessions would hold the
+   instructor's time in `staff_time_blocks` — an abandoned draft would block
+   real bookings and show as a clash.
 3. **Past is computed, not stored.** An activity is Past when its last
    session's `endsAt` is before now. Worked out in the query that lists
    activities and in the public booking page query — no scheduled job, so it

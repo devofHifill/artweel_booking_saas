@@ -45,7 +45,7 @@ const STEP_LINKS: Record<string, { to: string; todo: string; done: string }[]> =
   payments: [{ to: '/integrations', todo: 'Connect Stripe', done: 'Stripe settings' }],
 };
 
-type Problem = 'NO_DATES' | 'NO_INSTRUCTOR' | 'NO_HOURS' | 'NO_LOCATION';
+type Problem = 'NO_DATES' | 'NO_INSTRUCTOR' | 'NO_HOURS' | 'NO_LOCATION' | 'STARTED';
 
 /** The same wording as the activity cards, so the two screens agree. */
 const PROBLEM_TEXT: Record<Problem, string> = {
@@ -53,6 +53,7 @@ const PROBLEM_TEXT: Record<Problem, string> = {
   NO_INSTRUCTOR: 'nobody teaches it',
   NO_HOURS: 'its instructors have no working hours',
   NO_LOCATION: 'its instructors do not work where it runs',
+  STARTED: 'it has started, so booking is closed',
 };
 
 /** Activities customers cannot book yet, each with why and where to fix it. */

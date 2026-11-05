@@ -43,6 +43,23 @@ export type CreateSessionInput = {
  * stored staff_id = NULL, so nothing anywhere knew the instructor was busy.
  */
 export async function createSession(input: CreateSessionInput) {
+  try {
+    return await prisma.$transaction((tx: Tx) => insertSession(tx, input), TX_OPTIONS);
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    translateSchedulingError(err);
+  }
+}
+
+/**
+ * The two inserts of `createSession`, inside a transaction the caller owns.
+ *
+ * For callers that must write a session together with other rows or not at
+ * all — publishing a Class or Event creates the activity and its dates in one
+ * transaction, so an instructor clash leaves nothing half-made behind. The
+ * caller translates scheduling errors (`translateSchedulingError`).
+ */
+export async function insertSession(tx: Tx, input: CreateSessionInput) {
   if (input.startsAt >= input.endsAt) {
     throw AppError.badRequest('Session must start before it ends.');
   }
@@ -57,44 +74,37 @@ export async function createSession(input: CreateSessionInput) {
     input.endsAt.getTime() + (input.paddingAfterMinutes ?? 0) * 60_000,
   );
 
-  try {
-    return await prisma.$transaction(async (tx: Tx) => {
-      const session = await tx.session.create({
-        data: {
-          organizationId: input.organizationId,
-          serviceTypeId: input.serviceTypeId,
-          courseSeriesId: input.courseSeriesId ?? null,
-          seriesIndex: input.seriesIndex ?? null,
-          staffId: input.staffId ?? null,
-          locationId: input.locationId ?? null,
-          startsAt: input.startsAt,
-          endsAt: input.endsAt,
-          timezone: input.timezone,
-          localStartTime: input.localStartTime,
-          capacity: input.capacity,
-          seatsTaken: 0,
-          status: 'SCHEDULED',
-        },
-      });
+  const session = await tx.session.create({
+    data: {
+      organizationId: input.organizationId,
+      serviceTypeId: input.serviceTypeId,
+      courseSeriesId: input.courseSeriesId ?? null,
+      seriesIndex: input.seriesIndex ?? null,
+      staffId: input.staffId ?? null,
+      locationId: input.locationId ?? null,
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      timezone: input.timezone,
+      localStartTime: input.localStartTime,
+      capacity: input.capacity,
+      seatsTaken: 0,
+      status: 'SCHEDULED',
+    },
+  });
 
-      if (input.staffId) {
-        await tx.$executeRaw`
-          INSERT INTO staff_time_blocks
-            (id, organization_id, staff_id, session_id, starts_at, ends_at,
-             lat, lng, source, created_at)
-          VALUES
-            (gen_random_uuid(), ${input.organizationId}::uuid, ${input.staffId}::uuid,
-             ${session.id}::uuid, ${blockStart}, ${blockEnd},
-             ${input.lat ?? null}, ${input.lng ?? null}, 'session', now())
-        `;
-      }
-
-      return session;
-    }, TX_OPTIONS);
-  } catch (err) {
-    if (err instanceof AppError) throw err;
-    translateSchedulingError(err);
+  if (input.staffId) {
+    await tx.$executeRaw`
+      INSERT INTO staff_time_blocks
+        (id, organization_id, staff_id, session_id, starts_at, ends_at,
+         lat, lng, source, created_at)
+      VALUES
+        (gen_random_uuid(), ${input.organizationId}::uuid, ${input.staffId}::uuid,
+         ${session.id}::uuid, ${blockStart}, ${blockEnd},
+         ${input.lat ?? null}, ${input.lng ?? null}, 'session', now())
+    `;
   }
+
+  return session;
 }
 
 /** Cancels a session and frees the instructor. Bookings are cancelled separately. */

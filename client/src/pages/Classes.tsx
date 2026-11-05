@@ -15,6 +15,12 @@ import {
 import { Icon } from '../components/Icon';
 import { EmptyState } from '../components/states';
 import { ServiceForm, type ServiceDraft } from '../components/ServiceForm';
+import {
+  CreateActivity,
+  duplicateOf,
+  type ResumableDraft,
+} from '../components/CreateActivity';
+import { shortDate } from '../lib/class-dates';
 
 /**
  * Scheduling classes.
@@ -30,6 +36,12 @@ type ServiceOption = {
   name: string;
   description?: string | null;
   bookingMode: string;
+  /** CLASS, EVENT, or OLDER (made before the two existed). */
+  kind?: 'CLASS' | 'EVENT' | 'OLDER';
+  /** PAST once its last date has ended, worked out by the server. */
+  lifecycle?: 'LIVE' | 'PAST';
+  firstStartsAt?: string | null;
+  lastEndsAt?: string | null;
   capacityMax: number;
   durationMinutes: number;
   priceCents?: number;
@@ -77,7 +89,12 @@ type ServiceOption = {
   readiness?: { bookable: boolean; problem: ReadinessProblem | null } | null;
 };
 
-type ReadinessProblem = 'NO_DATES' | 'NO_INSTRUCTOR' | 'NO_HOURS' | 'NO_LOCATION';
+type ReadinessProblem =
+  | 'NO_DATES'
+  | 'NO_INSTRUCTOR'
+  | 'NO_HOURS'
+  | 'NO_LOCATION'
+  | 'STARTED';
 
 /** What each problem means, in the operator's words. */
 const PROBLEM_TEXT: Record<ReadinessProblem, string> = {
@@ -85,6 +102,7 @@ const PROBLEM_TEXT: Record<ReadinessProblem, string> = {
   NO_INSTRUCTOR: 'Not bookable: nobody teaches it',
   NO_HOURS: 'Not bookable: its instructors have no working hours',
   NO_LOCATION: 'Not bookable: its instructors do not work where it runs',
+  STARTED: 'Booking closed: the class has started',
 };
 
 type SessionRow = {
@@ -216,6 +234,30 @@ export default function Classes() {
   }
 
   /**
+   * Duplicate a Class or Event: everything copied but the dates, opened at
+   * the dates step. A class's session count comes from its course, which the
+   * catalogue row does not carry; if that read fails the step's default
+   * stands and the studio sets it.
+   */
+  async function duplicate(svc: ServiceOption) {
+    if (svc.kind !== 'CLASS' && svc.kind !== 'EVENT') return;
+    let sessionCount: number | undefined;
+    if (svc.kind === 'CLASS') {
+      try {
+        const res = await api.get<{ series: { sessionCount: number }[] }>(
+          `${base}/courses?serviceTypeId=${svc.id}`,
+        );
+        sessionCount = res.series[0]?.sessionCount;
+      } catch {
+        /* Default count; the step shows it to change. */
+      }
+    }
+    setResume(duplicateOf({ ...svc, kind: svc.kind }, timezone, sessionCount));
+    setNotice(null);
+    setCreating(true);
+  }
+
+  /**
    * The calendar icon on a card.
    *
    * Preselects the class in the schedule form below and takes you to it. The
@@ -286,9 +328,41 @@ export default function Classes() {
     }
   }
 
-  /** The catalogue editor. Null `editing` means creating a new one. */
+  /** The catalogue editor — now for EDITING only; creating is CreateActivity. */
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<ServiceDraft | null>(null);
+
+  /**
+   * Create activity: the Class / Event choice and its steps. `resume` is the
+   * draft being continued, if any. Unfinished drafts are listed above the
+   * catalogue so closing the dialog halfway never loses the work.
+   */
+  const [creating, setCreating] = useState(false);
+  const [resume, setResume] = useState<ResumableDraft | undefined>(undefined);
+  const [drafts, setDrafts] = useState<(ResumableDraft & { updatedAt: string })[]>([]);
+
+  const loadDrafts = useCallback(async () => {
+    try {
+      const res = await api.get<{ drafts: (ResumableDraft & { updatedAt: string })[] }>(
+        `${base}/activities/drafts`,
+      );
+      setDrafts(res.drafts);
+    } catch {
+      setDrafts([]);
+    }
+  }, [base]);
+
+  useEffect(() => {
+    if (isAdmin) void loadDrafts();
+  }, [isAdmin, loadDrafts]);
+
+  async function discardDraft(id: string) {
+    try {
+      await api.del(`${base}/activities/drafts/${id}`);
+    } finally {
+      void loadDrafts();
+    }
+  }
 
   const [from, setFrom] = useState(() => todayIn(timezone));
   const [to, setTo] = useState(() => plusDays(todayIn(timezone), 30));
@@ -299,9 +373,22 @@ export default function Classes() {
   /** The activity whose instructor picker is open, if any. */
   const [teachersFor, setTeachersFor] = useState<string | null>(null);
 
-  /** What a studio can actually schedule today. */
-  const bookable = services.filter((s) => s.isActive !== false);
-  const inactive = services.length - bookable.length;
+  /**
+   * Live or Past (CLASS-EVENT-PLAN.md, Stage 5). Past is an activity whose
+   * last date has ended — closed for booking, kept with its bookings and
+   * payments, and out of the way under its own tab.
+   */
+  const [shelf, setShelf] = useState<'live' | 'past'>('live');
+  const isPast = (s: ServiceOption) => s.lifecycle === 'PAST';
+  const pastCount = services.filter(isPast).length;
+
+  /** What a studio can actually schedule today: switched on, and not over. */
+  const bookable = services.filter((s) => s.isActive !== false && !isPast(s));
+  /** The older activities a loose date can still be added to. */
+  const looseDates = bookable.filter(
+    (s) => s.bookingMode !== 'COURSE_SERIES' && s.kind !== 'CLASS' && s.kind !== 'EVENT',
+  );
+  const inactive = services.filter((s) => s.isActive === false && !isPast(s)).length;
   /* Of the live ones, how many customers can book right now. Readiness is
      absent only if the server predates it; count those as bookable rather
      than alarm anybody. */
@@ -332,7 +419,9 @@ export default function Classes() {
    * on the row. An owner hunting "wheel" is looking at names anyway.
    */
   const needle = query.trim().toLowerCase();
-  const visible = services.filter((svc) => {
+  /* The tab first: the search and category filter work within Live or Past. */
+  const onShelf = services.filter((svc) => isPast(svc) === (shelf === 'past'));
+  const visible = onShelf.filter((svc) => {
     if (categoryFilter && svc.category?.id !== categoryFilter) return false;
     if (!needle) return true;
     /*
@@ -436,8 +525,13 @@ export default function Classes() {
       const s = await api.get<{ services: ServiceOption[] }>(
         `${base}/services?includeInactive=true&withStats=true&withReadiness=true`,
       );
-      // A course service cannot take a loose class, so it is not offered.
-      setServices(s.services.filter((x) => x.bookingMode !== 'COURSE_SERIES'));
+      /* Older course services stay out (they are sold from Courses). A Class
+         IS a course underneath, but it is what the studio created here, so it
+         is listed — the schedule form below still leaves it out, because a
+         course cannot take a loose date. */
+      setServices(
+        s.services.filter((x) => x.bookingMode !== 'COURSE_SERIES' || x.kind === 'CLASS'),
+      );
     } catch {
       // The form simply stays empty; the list above is still useful.
     }
@@ -709,9 +803,9 @@ export default function Classes() {
               <button
                 className="primary"
                 onClick={() => {
-                  setEditing(null);
+                  setResume(undefined);
                   setNotice(null);
-                  setShowForm(true);
+                  setCreating(true);
                 }}
               >
                 <Icon name="plus" size={16} />
@@ -727,6 +821,63 @@ export default function Classes() {
         <div className="alert" role="status">
           {notice}
         </div>
+      )}
+
+      {isAdmin && drafts.length > 0 && (
+        <section className="draft-strip" aria-label="Unfinished">
+          {drafts.map((draft) => (
+            <div className="draft-row" key={draft.id}>
+              <span>
+                <strong>
+                  {String(draft.data.name ?? '').trim() ||
+                    (draft.kind === 'CLASS' ? 'Untitled class' : 'Untitled event')}
+                </strong>{' '}
+                <span className="muted">
+                  · {draft.kind === 'CLASS' ? 'Class' : 'Event'} draft, saved{' '}
+                  {shortDate(draft.updatedAt.slice(0, 10))}
+                </span>
+              </span>
+              <span className="draft-row-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResume(draft);
+                    setNotice(null);
+                    setCreating(true);
+                  }}
+                >
+                  Continue
+                </button>
+                <button type="button" onClick={() => void discardDraft(draft.id)}>
+                  Discard
+                </button>
+              </span>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {creating && isAdmin && (
+        <CreateActivity
+          base={base}
+          timezone={timezone}
+          currency={currency}
+          resume={resume}
+          onCreated={(message) => {
+            setCreating(false);
+            setResume(undefined);
+            setNotice(message);
+            void loadServices();
+            void load();
+            void loadDrafts();
+          }}
+          onClose={() => {
+            setCreating(false);
+            setResume(undefined);
+            // Closing keeps the draft; show it so it can be found again.
+            void loadDrafts();
+          }}
+        />
       )}
 
       {/*
@@ -820,7 +971,7 @@ export default function Classes() {
           label="Average price"
           value={money(averageCents, currency)}
           icon="money"
-          foot="Across your live classes"
+          foot="Across your live activities"
         />
         <Kpi
           label="Seats scheduled"
@@ -871,13 +1022,28 @@ export default function Classes() {
         <section className="card" style={{ marginBottom: 'var(--space-5)' }}>
           <div className="panel-head" style={{ margin: '-14px -16px 16px' }}>
             <h2>What you offer</h2>
-            <div className="right tiny muted">
+            <div className="right tiny muted shelf-head">
+              {/* Only once something has ended. A studio with nothing past
+                  does not need a tab that always shows an empty list. */}
+              {(pastCount > 0 || shelf === 'past') && (
+                <SegRange
+                  label="Live or past activities"
+                  options={[
+                    { value: 'live', label: 'Live' },
+                    { value: 'past', label: `Past (${pastCount})` },
+                  ]}
+                  value={shelf}
+                  onChange={setShelf}
+                />
+              )}
               {/* The count follows the filter, and says so when one is on.
                   "3 activities" under a search box that is hiding nine is a
                   number the owner will misread as their whole catalogue. */}
-              {filtering
-                ? `${visible.length} of ${services.length}`
-                : `${services.length} ${services.length === 1 ? 'activity' : 'activities'}`}
+              <span>
+                {filtering
+                  ? `${visible.length} of ${onShelf.length}`
+                  : `${onShelf.length} ${onShelf.length === 1 ? 'activity' : 'activities'}`}
+              </span>
             </div>
           </div>
 
@@ -912,6 +1078,10 @@ export default function Classes() {
             <EmptyState hint={isAdmin ? 'Create one to start taking bookings.' : undefined}>
               Nothing set up yet.
             </EmptyState>
+          ) : onShelf.length === 0 ? (
+            <EmptyState>
+              {shelf === 'past' ? 'Nothing has ended yet.' : 'Everything you offer has ended.'}
+            </EmptyState>
           ) : visible.length === 0 ? (
             /* Distinct from the empty catalogue above. "Nothing set up yet" in
                front of a studio with nine classes and a stray search term is a
@@ -929,7 +1099,14 @@ export default function Classes() {
                    rather than a flat block. */
                 const accent =
                   svc.colorAccent ?? `color-mix(in srgb, ${colour} 65%, #000)`;
-                const problem = svc.readiness?.problem ?? null;
+                /* A past activity has nothing left to fix: "no upcoming dates"
+                   is simply true of something that has ended. */
+                const past = isPast(svc);
+                const problem = past ? null : (svc.readiness?.problem ?? null);
+                /* Classes and Events keep the dates they were published with.
+                   A loose extra date would turn an event into a series and
+                   put a stray session outside a class's course. */
+                const fixedDates = svc.kind === 'CLASS' || svc.kind === 'EVENT';
 
                 return (
                   <article className="cat-card" key={svc.id}>
@@ -953,9 +1130,16 @@ export default function Classes() {
                         {svc.emoji || initials(svc.name)}
                       </span>
                       <span className="cat-pins">
-                        <StatusPill
-                          status={svc.isActive === false ? 'INACTIVE' : 'ACTIVE'}
-                        />
+                        {past ? (
+                          <span className="cat-tag">Ended</span>
+                        ) : (
+                          <StatusPill
+                            status={svc.isActive === false ? 'INACTIVE' : 'ACTIVE'}
+                          />
+                        )}
+                        {fixedDates && (
+                          <span className="cat-tag">{svc.kind === 'CLASS' ? 'Class' : 'Event'}</span>
+                        )}
                         {svc.category && (
                           <span className="cat-tag">{svc.category.name}</span>
                         )}
@@ -982,6 +1166,16 @@ export default function Classes() {
                       )}
 
                       <div className="cat-meta tiny muted">
+                        {/* When it runs, for the two kinds that have fixed dates. */}
+                        {fixedDates && svc.firstStartsAt && (
+                          <span>
+                            {past && svc.lastEndsAt
+                              ? `Ended ${dateIn(svc.lastEndsAt, timezone)}`
+                              : svc.kind === 'EVENT'
+                                ? dateIn(svc.firstStartsAt, timezone)
+                                : `From ${dateIn(svc.firstStartsAt, timezone)}`}
+                          </span>
+                        )}
                         <span>{svc.durationMinutes} min</span>
                         <span>
                           {svc.bookingMode === 'APPOINTMENT'
@@ -1040,22 +1234,38 @@ export default function Classes() {
                             >
                               <Icon name="staff" size={15} />
                             </button>
-                            <button
-                              className="icon-btn"
-                              title={`Schedule ${svc.name}`}
-                              aria-label={`Schedule ${svc.name}`}
-                              onClick={() => scheduleFor(svc)}
-                            >
-                              <Icon name="calendar" size={15} />
-                            </button>
-                            <button
-                              className="icon-btn"
-                              title={`Edit ${svc.name}`}
-                              aria-label={`Edit ${svc.name}`}
-                              onClick={() => edit(svc)}
-                            >
-                              <Icon name="edit" size={15} />
-                            </button>
+                            {!fixedDates && !past && (
+                              <button
+                                className="icon-btn"
+                                title={`Schedule ${svc.name}`}
+                                aria-label={`Schedule ${svc.name}`}
+                                onClick={() => scheduleFor(svc)}
+                              >
+                                <Icon name="calendar" size={15} />
+                              </button>
+                            )}
+                            {fixedDates && (
+                              <button
+                                className="icon-btn"
+                                title={`Duplicate ${svc.name}`}
+                                aria-label={`Duplicate ${svc.name}`}
+                                onClick={() => void duplicate(svc)}
+                              >
+                                <Icon name="copy" size={15} />
+                              </button>
+                            )}
+                            {/* Something that has ended is history: it is
+                                copied, not edited. */}
+                            {!past && (
+                              <button
+                                className="icon-btn"
+                                title={`Edit ${svc.name}`}
+                                aria-label={`Edit ${svc.name}`}
+                                onClick={() => edit(svc)}
+                              >
+                                <Icon name="edit" size={15} />
+                              </button>
+                            )}
                             <button
                               className="icon-btn danger"
                               title={`Delete ${svc.name}`}
@@ -1073,7 +1283,7 @@ export default function Classes() {
                           those go to Staff & Guides. */}
                       {isAdmin && problem && (
                         <div className="cat-fix">
-                          {problem === 'NO_DATES' && (
+                          {problem === 'NO_DATES' && !fixedDates && (
                             <button className="link" onClick={() => scheduleFor(svc)}>
                               Schedule dates
                             </button>
@@ -1160,7 +1370,13 @@ export default function Classes() {
                     )}
                   </td>
                   <td>
-                    {svc.bookingMode === 'APPOINTMENT' ? 'One to one' : 'Group class'}
+                    {svc.kind === 'CLASS'
+                      ? 'Class'
+                      : svc.kind === 'EVENT'
+                        ? 'Event'
+                        : svc.bookingMode === 'APPOINTMENT'
+                          ? 'One to one'
+                          : 'Group class'}
                   </td>
                   <td className="num nowrap">{svc.durationMinutes} min</td>
                   {/* An appointment is one-to-one by a schema rule, so a
@@ -1178,10 +1394,20 @@ export default function Classes() {
                     <StatusPill status={svc.isActive === false ? 'INACTIVE' : 'ACTIVE'} />
                   </td>
                   {isAdmin && (
-                    <td>
-                      <button className="link" onClick={() => edit(svc)}>
-                        Edit
-                      </button>
+                    <td className="nowrap">
+                      {svc.kind === 'CLASS' || svc.kind === 'EVENT' ? (
+                        <button className="link" onClick={() => void duplicate(svc)}>
+                          Duplicate
+                        </button>
+                      ) : null}
+                      {!isPast(svc) && (
+                        <>
+                          {(svc.kind === 'CLASS' || svc.kind === 'EVENT') && ' · '}
+                          <button className="link" onClick={() => edit(svc)}>
+                            Edit
+                          </button>
+                        </>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -1191,17 +1417,20 @@ export default function Classes() {
         </section>
       )}
 
-      {isAdmin && (
+      {/* Adding a loose date is only for activities made before Classes and
+          Events (CLASS-EVENT-PLAN.md): those two get their dates when they
+          are published. With none of the older kind left, the form goes. */}
+      {isAdmin && looseDates.length > 0 && (
         <form
           id="scheduleForm"
           className="card schedule"
           onSubmit={(e) => void schedule(e)}
         >
-          <h2>Schedule a class</h2>
+          <h2>Add a session</h2>
 
           <div className="fields">
             <label>
-              Class
+              Activity
               <select
                 value={serviceTypeId}
                 onChange={(e) => {
@@ -1215,11 +1444,13 @@ export default function Classes() {
                 {/* Active only. Scheduling a class a studio has switched off
                     would put a session on the calendar that its own booking
                     page will not sell. */}
-                {bookable.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
+                {/* And never a Class: its dates are its course's, fixed when
+                    it was published, and a loose extra date is not part of it. */}
+                {looseDates.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
               </select>
             </label>
 
@@ -1372,7 +1603,7 @@ export default function Classes() {
         has the range it refers to next to it.
       */}
       <div className="panel-head" style={{ marginBottom: 'var(--space-3)' }}>
-        <h2>Scheduled classes</h2>
+        <h2>Scheduled sessions</h2>
         <div className="right row" style={{ gap: 'var(--space-2)' }}>
           <input
             type="date"
@@ -1390,7 +1621,7 @@ export default function Classes() {
       </div>
 
       {sessions.length === 0 && !error && (
-        <EmptyState icon="◷">No classes in this range.</EmptyState>
+        <EmptyState icon="◷">No sessions in this range.</EmptyState>
       )}
 
       <div className="list">

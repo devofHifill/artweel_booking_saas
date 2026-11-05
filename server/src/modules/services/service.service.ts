@@ -71,10 +71,19 @@ export async function listServices(
     ? await readinessFor(organizationId, services)
     : null;
 
+  const lifecycle = await lifecycleFor(
+    organizationId,
+    services.map((s) => s.id),
+  );
+  const withLifecycle = services.map((service) => ({
+    ...service,
+    ...lifecycle(service.id),
+  }));
+
   if (!opts.withStats) {
     return readiness
-      ? services.map((service) => ({ ...service, readiness: readiness.get(service.id)! }))
-      : services;
+      ? withLifecycle.map((service) => ({ ...service, readiness: readiness.get(service.id)! }))
+      : withLifecycle;
   }
 
   /*
@@ -87,7 +96,7 @@ export async function listServices(
   const { serviceStats } = await import('../analytics/analytics.service');
   const stats = await serviceStats(organizationId);
 
-  return services.map((service) => ({
+  return withLifecycle.map((service) => ({
     ...service,
     ...(readiness ? { readiness: readiness.get(service.id)! } : {}),
     // Zero rather than absent for a class nobody has booked: the card prints
@@ -99,6 +108,55 @@ export async function listServices(
       revenueCents: 0,
     },
   }));
+}
+
+/**
+ * When an activity runs, and whether it is over (CLASS-EVENT-PLAN.md, Stage 1).
+ *
+ * PAST once it has dates and the last of them has ended. Worked out here, from
+ * the dates, every time it is asked — never stored and never flipped by a
+ * scheduled job, so it cannot show as live by mistake when a job is late.
+ *
+ * Cancelled dates do not count: a class whose final week was cancelled is
+ * over when the week before it ends. An activity with no dates at all (a
+ * private lesson, or a group class nobody has scheduled) is never PAST.
+ */
+export type Lifecycle = {
+  firstStartsAt: Date | null;
+  lastEndsAt: Date | null;
+  lifecycle: 'LIVE' | 'PAST';
+};
+
+async function lifecycleFor(
+  organizationId: string,
+  serviceTypeIds: string[],
+): Promise<(id: string) => Lifecycle> {
+  const rows = serviceTypeIds.length
+    ? await prisma.session.groupBy({
+        by: ['serviceTypeId'],
+        where: {
+          organizationId,
+          serviceTypeId: { in: serviceTypeIds },
+          status: { not: 'CANCELLED' },
+        },
+        _min: { startsAt: true },
+        _max: { endsAt: true },
+      })
+    : [];
+
+  const byId = new Map(rows.map((r) => [r.serviceTypeId, r]));
+  const now = Date.now();
+
+  return (id) => {
+    const row = byId.get(id);
+    const firstStartsAt = row?._min.startsAt ?? null;
+    const lastEndsAt = row?._max.endsAt ?? null;
+    return {
+      firstStartsAt,
+      lastEndsAt,
+      lifecycle: lastEndsAt && lastEndsAt.getTime() <= now ? 'PAST' : 'LIVE',
+    };
+  };
 }
 
 /**
@@ -120,7 +178,13 @@ export async function listServices(
  * had: true of group classes that were selling fine, and silent about the
  * reasons One to one lessons really failed.
  */
-export type ReadinessProblem = 'NO_DATES' | 'NO_INSTRUCTOR' | 'NO_HOURS' | 'NO_LOCATION';
+export type ReadinessProblem =
+  | 'NO_DATES'
+  | 'NO_INSTRUCTOR'
+  | 'NO_HOURS'
+  | 'NO_LOCATION'
+  /** A Class whose first session has begun: booking closed when it started. */
+  | 'STARTED';
 export type Readiness = { bookable: boolean; problem: ReadinessProblem | null };
 
 async function readinessFor(
@@ -128,6 +192,7 @@ async function readinessFor(
   services: {
     id: string;
     bookingMode: string;
+    kind?: string;
     isActive: boolean;
     maxHorizonDays: number;
     serviceLocations: { locationId: string }[];
@@ -135,6 +200,27 @@ async function readinessFor(
 ): Promise<Map<string, Readiness>> {
   const now = new Date();
   const live = services.filter((s) => s.isActive);
+
+  /*
+    A Class is sold as its one course, which is on sale from publishing until
+    its first session starts (late joining is off by default). Its first
+    session is therefore the whole question.
+  */
+  const classIds = live.filter((s) => s.kind === 'CLASS').map((s) => s.id);
+  const classStarts = classIds.length
+    ? await prisma.session.groupBy({
+        by: ['serviceTypeId'],
+        where: {
+          organizationId,
+          serviceTypeId: { in: classIds },
+          courseSeriesId: { not: null },
+          status: 'SCHEDULED',
+          courseSeries: { status: 'PUBLISHED' },
+        },
+        _min: { startsAt: true },
+      })
+    : [];
+  const classStart = new Map(classStarts.map((r) => [r.serviceTypeId, r._min.startsAt]));
   const groupIds = live.filter((s) => s.bookingMode === 'EVENT').map((s) => s.id);
   const oneToOneIds = live
     .filter((s) => s.bookingMode === 'APPOINTMENT')
@@ -187,6 +273,17 @@ async function readinessFor(
   for (const service of services) {
     let problem: ReadinessProblem | null = null;
 
+    if (service.isActive && service.kind === 'CLASS') {
+      const first = classStart.get(service.id);
+      const problem: ReadinessProblem | null = !first
+        ? 'NO_DATES'
+        : first.getTime() <= now.getTime()
+          ? 'STARTED'
+          : null;
+      result.set(service.id, { bookable: problem === null, problem });
+      continue;
+    }
+
     if (!service.isActive || service.bookingMode === 'COURSE_SERIES') {
       // Switched off is its own state, and a course sells as a cohort.
       result.set(service.id, { bookable: false, problem: null });
@@ -230,11 +327,17 @@ async function readinessFor(
  */
 export async function activityReadiness(organizationId: string) {
   const services = await prisma.serviceType.findMany({
-    where: { organizationId, isActive: true, bookingMode: { not: 'COURSE_SERIES' } },
+    where: {
+      organizationId,
+      isActive: true,
+      // Older course services sell from Courses; a Class is created here.
+      OR: [{ bookingMode: { not: 'COURSE_SERIES' } }, { kind: 'CLASS' }],
+    },
     select: {
       id: true,
       name: true,
       bookingMode: true,
+      kind: true,
       isActive: true,
       maxHorizonDays: true,
       serviceLocations: { select: { locationId: true } },
