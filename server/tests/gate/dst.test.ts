@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DateTime } from 'luxon';
+import { DateTime, Settings } from 'luxon';
 import {
   localDateRange,
   localTimeOf,
@@ -72,6 +72,28 @@ describe('wall-clock resolution', () => {
     const dt = DateTime.fromJSDate(resolved.instant, { zone: NY });
     expect(dt.toFormat('HH:mm')).toBe('01:30');
     expect(dt.offset).toBe(-4 * 60); // EDT — still daylight time
+  });
+
+  /*
+    Luxon resolves an ambiguous wall time using the zone's offset at the moment
+    the code runs. The test above was written in summer and began failing on
+    1 November 2026, when "now" moved to standard time and Luxon started
+    handing back the SECOND 01:30. Pinning "now" to each half of the year makes
+    the policy hold whenever the suite runs.
+  */
+  it('takes the first occurrence whatever the date the server is asked on', () => {
+    const realNow = Settings.now;
+    try {
+      for (const today of ['2026-01-15T12:00:00Z', '2026-07-15T12:00:00Z', '2026-12-15T12:00:00Z']) {
+        Settings.now = () => Date.parse(today);
+        const resolved = resolveLocal('2026-11-01', 60 + 30, NY);
+
+        expect(resolved.kind, today).toBe('ambiguous');
+        expect(resolved.instant.toISOString(), today).toBe('2026-11-01T05:30:00.000Z');
+      }
+    } finally {
+      Settings.now = realNow;
+    }
   });
 
   it('reports ordinary times as exact', () => {

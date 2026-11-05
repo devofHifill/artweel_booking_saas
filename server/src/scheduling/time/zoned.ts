@@ -82,22 +82,35 @@ export function resolveLocal(
   );
 
   const landedMinutes = dt.hour * 60 + dt.minute;
-  const instant = dt.toJSDate();
+  let instant = dt.toJSDate();
 
   let kind: ResolutionKind = 'exact';
+
+  /** Whether `ms` reads as the same wall-clock time as `dt` in the zone. */
+  const sameWallClock = (ms: number) => {
+    const other = DateTime.fromMillis(ms, { zone });
+    return other.hour === dt.hour && other.minute === dt.minute;
+  };
 
   if (landedMinutes !== within) {
     // Luxon already moves forward out of a gap, which matches our policy.
     kind = 'shifted';
-  } else {
-    // A wall-clock time that still reads the same one real hour later is one
-    // that occurs twice.
-    const oneHourLater = DateTime.fromMillis(instant.getTime() + 3_600_000, {
-      zone,
-    });
-    if (oneHourLater.hour === dt.hour && oneHourLater.minute === dt.minute) {
-      kind = 'ambiguous';
-    }
+  } else if (sameWallClock(instant.getTime() - 3_600_000)) {
+    /*
+      The same wall time one real hour EARLIER: Luxon chose the SECOND
+      occurrence, so step back to the first, as the policy says.
+
+      Luxon resolves an ambiguous time by guessing with the zone's offset at
+      the moment the code RUNS, not on the date asked about. So from November
+      to March (standard time "now") it picks the later 01:30, and from March
+      to October the earlier one. Both directions are checked so the answer
+      does not depend on when the server happens to be asked.
+    */
+    instant = new Date(instant.getTime() - 3_600_000);
+    kind = 'ambiguous';
+  } else if (sameWallClock(instant.getTime() + 3_600_000)) {
+    // The same wall time one real hour LATER: this is already the first.
+    kind = 'ambiguous';
   }
 
   return {
