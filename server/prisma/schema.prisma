@@ -442,6 +442,7 @@ model Organization {
   availabilityOverride AvailabilityOverride[]
   busyBlocks           BusyBlock[]
   courseSeries         CourseSeries[]
+  activityDrafts       ActivityDraft[]
   enrollments          Enrollment[]
   classCredits         ClassCredit[]
   classPacks           ClassPack[]
@@ -755,6 +756,18 @@ enum BookingMode {
   COURSE_SERIES
 }
 
+/// The two things a studio creates (CLASS-EVENT-PLAN.md), plus everything made
+/// before that choice existed.
+enum ActivityKind {
+  /// A fixed run of sessions, booked and paid for once. A course underneath.
+  CLASS
+  /// One date. Seats on a single session.
+  EVENT
+  /// Drop-in repeats, private lessons, and anything else from before. Keeps
+  /// working; cannot be created any more.
+  OLDER
+}
+
 enum StaffPreference {
   MANUAL
   LEAST_BUSY
@@ -787,6 +800,12 @@ model ServiceType {
   shortDescription String? @map("short_description")
 
   bookingMode    BookingMode  @default(APPOINTMENT) @map("booking_mode")
+
+  /// What the studio sees: a Class, an Event, or an activity made before the
+  /// two existed. NOT the same thing as bookingMode — BookingMode.EVENT means
+  /// "seats on a dated session" and also covers drop-in repeats, which are
+  /// OLDER here. See CLASS-EVENT-PLAN.md.
+  kind ActivityKind @default(OLDER)
 
   durationMinutes Int @map("duration_minutes")
 
@@ -1417,6 +1436,34 @@ model CourseSeries {
   @@index([organizationId])
   @@index([organizationId, status])
   @@map("course_series")
+}
+
+/**
+ * A Class or Event the studio started creating and has not published.
+ *
+ * Deliberately NOT an unpublished ServiceType with sessions. Sessions occupy
+ * an instructor's time (staff_time_blocks) the moment they exist, so a
+ * half-finished class abandoned in a tab would block real bookings and show
+ * up as a clash against the next thing the studio schedules. A draft is the
+ * step flow's answers and nothing else; publishing turns it into the real
+ * rows in one transaction and deletes it.
+ */
+model ActivityDraft {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  kind           ActivityKind
+  /// The step flow's answers so far. Shape is the client's; validated only
+  /// when published.
+  data           Json         @default("{}")
+  createdById    String?      @map("created_by_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, updatedAt])
+  @@map("activity_drafts")
 }
 
 enum EnrollmentStatus {

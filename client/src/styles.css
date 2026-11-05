@@ -4586,3 +4586,72 @@ code.path {
   .sidebar-collapsed .side-user .mini-main,
   .sidebar-collapsed .admin-who { display: none; }
 }
+
+/* --- Create activity: Class or Event, then steps (CLASS-EVENT-PLAN.md) ------ */
+
+/* The choice. Two big targets side by side, stacked on a phone. */
+.kind-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-4); }
+.kind-card {
+  /* justify-content and white-space undo the global button rule (centred,
+     one line), which pushed the text off the card and the dialog sideways. */
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
+  gap: var(--space-2); white-space: normal; min-width: 0;
+  padding: var(--space-5); text-align: left; height: auto;
+  background: var(--card); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--radius);
+}
+/* Restates the background: the global button:hover would repaint the card. */
+.kind-card:hover:not(:disabled) { background: var(--clay-lt); border-color: var(--clay); }
+.kind-card:disabled { opacity: .6; }
+.kind-card-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 10px;
+  background: var(--clay-lt); color: var(--clay-text);
+}
+.kind-card-title { font-size: var(--text-lg); font-weight: 600; }
+.kind-card-text { color: var(--muted); font-size: var(--text-sm); line-height: 1.45; }
+.kind-card-note { font-size: var(--text-xs); color: var(--clay-text); font-weight: 600; }
+
+/* Progress: step names, finished ones clickable. Wraps rather than scrolls. */
+.step-bar { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin: var(--space-2) 0 0; padding: 0; }
+.step-bar > span { display: flex; align-items: center; gap: var(--space-2); }
+.step-bar > span + span::before { content: '›'; color: var(--muted); }
+.step-bar button {
+  background: none; border: 0; padding: 2px 0; height: auto;
+  font-size: var(--text-sm); color: var(--muted); box-shadow: none;
+}
+.step-bar button:hover:not(:disabled) { background: none; color: var(--ink); text-decoration: underline; }
+.step-bar button:disabled { opacity: 1; cursor: default; }
+.step-bar > span.done button { color: var(--clay-text); }
+.step-bar > span.on button { color: var(--ink); font-weight: 600; }
+
+.step-form { display: flex; flex-direction: column; gap: var(--space-4); }
+.step-field { gap: var(--space-2); }
+.step-label { font-weight: 600; font-size: var(--text-sm); }
+.field-error { margin: 0; color: var(--danger); font-size: var(--text-sm); }
+
+/* The class's real dates, as they are typed. */
+.date-list { border: 1px solid var(--line); border-radius: var(--radius); padding: var(--space-4); background: var(--bg); }
+.date-list-head { margin: 0 0 var(--space-3); font-weight: 600; }
+.date-list ul { list-style: none; margin: 0 0 var(--space-3); padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--space-2); }
+.date-list label { display: flex; align-items: center; gap: var(--space-2); font-weight: 400; cursor: pointer; white-space: nowrap; margin: 0; }
+/* The global input rule is full-width, which stretched each box across its cell. */
+.date-list input[type='checkbox'] { width: auto; height: auto; flex: 0 0 auto; margin: 0; }
+.date-list li.skipped label { color: var(--muted); text-decoration: line-through; }
+
+/* The Review step's stand-in for the booking-page card. */
+.review-card { border: 1px solid var(--line); border-radius: var(--radius); padding: var(--space-5); background: var(--card); }
+.review-card h3 { margin: var(--space-1) 0 var(--space-2); font-size: var(--text-lg); }
+.review-card p { margin: 0 0 var(--space-3); }
+.review-card-kind { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--clay-text); font-weight: 600; }
+.review-card dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin: 0 0 var(--space-3); }
+.review-card dt { color: var(--muted); }
+.review-card dd { margin: 0; }
+
+/* Unfinished drafts on the Activities page. */
+.draft-strip { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-5); }
+.draft-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-3) var(--space-4); border: 1px dashed var(--line); border-radius: var(--radius); background: var(--card); }
+.draft-row-actions { display: flex; gap: var(--space-2); }
+
+/* Live / Past switch beside the catalogue count. */
+.shelf-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; justify-content: flex-end; }

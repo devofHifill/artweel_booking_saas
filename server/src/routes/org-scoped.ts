@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, withOrganization } from '../middleware/authenticate';
 import { serviceRouter } from '../modules/services/service.route';
+import { activityRouter } from '../modules/activities/activity.route';
 import { staffRouter } from '../modules/staff/staff.route';
 import { locationRouter } from '../modules/locations/location.route';
 import { resourceRouter } from '../modules/resources/resource.route';
@@ -77,6 +78,7 @@ orgScopedRouter.get(
 orgScopedRouter.use(requireActiveSubscription);
 
 orgScopedRouter.use('/services', serviceRouter);
+orgScopedRouter.use('/activities', activityRouter);
 orgScopedRouter.use('/staff', staffRouter);
 orgScopedRouter.use('/locations', locationRouter);
 orgScopedRouter.use('/resources', resourceRouter);

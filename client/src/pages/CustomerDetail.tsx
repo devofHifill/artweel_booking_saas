@@ -559,7 +559,7 @@ export default function CustomerDetail() {
             head={
               <tr>
                 <th>When</th>
-                <th>Class</th>
+                <th>Activity</th>
                 <th>With</th>
                 <th>Status</th>
                 <th>Value</th>

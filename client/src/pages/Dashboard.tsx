@@ -274,7 +274,7 @@ export default function Dashboard() {
                 <thead>
                   <tr>
                     <th>Customer</th>
-                    <th>Class</th>
+                    <th>Activity</th>
                     <th>When</th>
                     <th>Guests</th>
                     <th>Amount</th>

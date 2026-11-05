@@ -163,7 +163,7 @@ export function CounterBookingForm({
         setStaff(st.staff);
         setCustomers(cust.customers ?? []);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not load your classes.');
+        setError(err instanceof Error ? err.message : 'Could not load your activities.');
       }
     })();
   }, [base]);
