@@ -96,7 +96,7 @@ A moved booking **keeps its payment, reference and booking link**, so a refund l
 
 ## 7. Classes, waitlists and cancelling a class
 
-**Activities → Scheduled classes** lists each class date with its places taken.
+**Activities → Scheduled sessions** lists each session with its places taken.
 
 - **Waitlist**: see who's waiting for a full class. **Offer next seat** offers a freed place to the next person in the queue. A place freed by a cancellation or a move is offered automatically.
 - **A class with no location** (when you have several) is flagged **Not on your booking page**. Pick its location on the row to fix it.

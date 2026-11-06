@@ -1,6 +1,6 @@
 # Creating an activity
 
-How to set up your studio, create an activity customers can book, and put the booking widget on your own website.
+How to set up your studio, create a Class or an Event customers can book, and put the booking widget on your own website.
 
 > **Your booking page:** `https://bookaihub.com/public/<your-studio-slug>`
 
@@ -11,11 +11,11 @@ How to set up your studio, create an activity customers can book, and put the bo
 1. [Before you start: important rules](#1-before-you-start-important-rules)
 2. [Part A: Studio setup (once)](#part-a-studio-setup-once)
 3. [Part B: Staff](#part-b-staff)
-4. [Part C: Create the activity](#part-c-create-the-activity)
+4. [Part C: Create a Class or an Event](#part-c-create-a-class-or-an-event)
 5. [Part D: Payments (optional)](#part-d-payments-optional)
 6. [Part E: Publish and test](#part-e-publish-and-test)
 7. [Part F: Put the widget on your website](#part-f-put-the-widget-on-your-website)
-8. [Worked example: Pottery Wheel Throwing Party](#worked-example-pottery-wheel-throwing-party)
+8. [Worked examples](#worked-examples)
 9. [Deleting or hiding an activity](#deleting-or-hiding-an-activity)
 10. [Plan limits](#plan-limits)
 11. [Known limitations](#known-limitations)
@@ -78,7 +78,7 @@ If you added the pottery examples, for each one you don't want: **Activities →
 ### Step 7: Assign activities
 On the staff member's card, click the **activity chips** to turn them on. If no chip is on, they show **"Not bookable yet"**.
 
-You can also do this from the activity's side: the **Who teaches it** section when you create or edit it (Step 9.4), or the **Who teaches** button on its card in **Activities**.
+You can also do this from the activity's side: the **Where and who** step when you create a Class, **Seats and price** for an Event, or the **Who teaches** button on its card in **Activities**.
 
 ### Step 8: Working hours
 On the staff member's row, click **Hours**.
@@ -89,111 +89,104 @@ On the staff member's row, click **Hours**.
 
 ---
 
-## Part C: Create the activity
+## Part C: Create a Class or an Event
 
-### Step 9: Open the form
-**Activities → Create activity**
+### Step 9: Choose Class or Event
+**Activities → Create activity** asks one question first.
 
-The form has seven sections.
-
-### 9.1 Basics
-
-| Field | Required | Notes |
+| | **Class** | **Event** |
 |---|---|---|
-| Activity name | ✅ | e.g. "Beginner Wheel Throwing" |
-| Short description | | One line shown on the booking page |
-| Full description | | What happens, in order, and what a beginner should expect |
-| **Type** | ✅ | **Group class**: several people book seats on the same session. **One to one**: a single person books time with an instructor |
-| Category | | Groups activities on the booking page (optional) |
-| **Status** | ✅ | **Active** = bookable. **Draft** = hidden from the booking page |
+| What it is | Runs over several weeks, e.g. a 6-week beginner course | One date, e.g. a date night, a workshop, a party |
+| How customers book | Once, for **every session** | A seat on that date |
+| Price | For the whole class | Per seat |
+| Plan | Studio and Pro | Every plan |
 
-### 9.2 Pricing & capacity
+Then a few short steps. **Next** checks each step before moving on, and **Back** never loses what you typed.
 
-| Field | Required | Notes |
-|---|---|---|
-| Adult price / Price | | Per person (Group class) or per booking (One to one) |
-| Child price | | *Group class only.* **0 means adults only.** Keep it at or below the adult price |
-| Currency | | Normally the studio currency |
-| Duration (minutes) | ✅ | 5–1440 |
-| Maximum capacity | ✅ | *Group class only.* Seats per session (1–500) |
-| Minimum guests | | *Group class only.* See [Known limitations](#known-limitations) |
+> **Nothing is lost if you close it.** Each step is saved as a draft. Drafts appear at the top of **Activities** with **Continue** and **Discard**. A draft is invisible to customers and doesn't hold anyone's time.
 
-### 9.3 Where
+### 9.1 An Event: four steps
+
+| Step | What you fill in |
+|---|---|
+| **What** | Name, and an optional one-line description for the booking page |
+| **When and where** | Date, start and end time, location. With one location (or one building plus a mobile service area) it's chosen for you |
+| **Seats and price** | Seats, price per seat, instructor |
+| **Review** | How it will look on your booking page. Press **Publish** |
+
+Two time slots on the same day are two events: publish the first, then **Duplicate** it (Step 11).
+
+### 9.2 A Class: five steps
+
+| Step | What you fill in |
+|---|---|
+| **What** | Name and an optional one-line description |
+| **Schedule** | **Starts on** (a date), **Every** (one or two weekdays), start and end time, and the number of **Sessions** |
+| **Where and who** | Location and instructor |
+| **Seats and price** | Seats, and the price for the **whole** class |
+| **Review** | How it will look. Press **Publish** |
+
+On **Schedule**, the real dates appear as you type, for example:
+
+> 6 sessions · Tue 6:00pm–8:00pm · ends Tue 22 Dec
+> ☑ Tue 17 Nov ☑ Tue 24 Nov ☑ Tue 1 Dec …
+
+- **Untick a date** to skip it (a holiday). Another is added at the end, so the class keeps the same number of sessions and the end date moves.
+- One time per class. A morning and an evening group are two classes: **Duplicate** the first.
+- Times stay the same on the clock across a daylight-saving change.
+
+### 9.3 Clashes
+While you choose dates, the steps check each one and show what is already there, beside the date:
+
+> **Tue 17 Nov** Rowan Pike is teaching Wheel Basics 6–8pm
+
+| Clash | When |
+|---|---|
+| **Instructor** | They're already teaching, or away, at that time |
+| **Location** | Something else is on at a location marked **One thing at a time** |
+
+**Next** and **Publish** wait until every clash is fixed: change the time, the instructor or the location, or untick the date (Class). If something is booked in the moment between checking and publishing, publishing refuses and names the date. Nothing is half-created.
+
+> **One thing at a time** is a setting on each building in **Settings → Locations → Edit**. Tick it for a single room. Leave it off for a studio that runs things side by side (it's off unless you change it).
+
+### Step 10: Publish
+**Publish** puts it on your booking page straight away and says so at the top of **Activities**.
+
+- An **Event** appears under **Events** on the booking page, with its date first.
+- A **Class** appears under **Classes**. Customers book it once and are booked into every session. **Booking closes when the first session starts**, and missed sessions are not made up.
+
+Each card in **Activities** shows **Class** or **Event**, and says whether customers can book it. If not, it says why, with a link to fix it. **Bookable now** at the top counts only the ones customers can book.
+
+### Step 11: Run it again: Duplicate
+On any Class or Event card, live or past, the **Duplicate** button (two sheets) copies everything except the dates and opens at the dates step. Pick new dates and publish. This is how you run "Beginner Wheel" again next term.
+
+### Step 12: Change it later
+**Edit** (the pencil) opens the full form, where you can also set what the steps leave at sensible defaults:
 
 | Field | Notes |
 |---|---|
-| **Location** | With one location it's chosen for you. With several, **pick the one it runs at** rather than *"Anywhere you run it"* |
-| Meeting point | Details a map can't give, e.g. "Second door on the left, ring the bell". Sent with the confirmation |
-
-### 9.4 Who teaches it
-
-Click the chip for each instructor who teaches it. With only one instructor, they're chosen already.
-
-- **One to one:** at least one is **required**. Customers pick from these, inside their working hours. The form warns you if nobody is chosen.
-- **Group class:** optional. Group classes are booked from their dates.
-
-### 9.5 Availability
-*Shown only when creating a new activity. Creates the sessions when you save.*
-
-| Field | Notes |
-|---|---|
-| Available days | Click the day chips (Mon–Sun) |
-| Start times | Enter a time → **Add time**. Repeat for each start time |
-| Schedule for | The next **4, 8 or 12 weeks** |
-
-- The note under this section shows **how many sessions will be created**.
-- If it warns about a location, go back to **Where** and pick one.
-- You can leave days and times empty and schedule sessions later (Step 11).
-
-### 9.6 Presentation
-
-| Field | Notes |
-|---|---|
-| Icon | Shown on the booking page |
-| Colour | Used on the calendar and booking page |
-
-### 9.7 Policies
-
-| Field | Notes |
-|---|---|
+| Full description, category, icon, colour | How it looks on the booking page |
 | Cancellation policy | e.g. **Standard**: 100% refund 48h+ before, 100% credit 24–48h before, nothing under 24h |
-| Minimum notice (minutes) | How soon before the start people can still book. `0` = up to the last minute. `1440` = 24h, `2880` = 48h |
-| Bookable up to (days ahead) | How far ahead people can book. **Must cover your schedule** (e.g. 90 days for 12 weeks) |
+| Minimum notice | How soon before the start people can still book |
 | Deposit | Percentage or fixed amount. **Only collected when Stripe is connected** |
-| What is included | One item per line, e.g. Clay / Tools / Firing |
-| Before you come | Preparation notes, e.g. "Short nails, closed shoes" |
-| Booking instructions | Arrival details, e.g. parking, which door |
+| What is included / Before you come / Booking instructions | Shown to customers and sent with the confirmation |
 
-### Step 10: Save
-Click **Create activity** (or **Save** when editing). The page then says how many classes it scheduled.
+A Class or Event keeps the dates it was published with. To change a single date, use **Scheduled sessions** at the bottom of **Activities**.
 
-Each card in **Activities** says whether customers can book it. If not, it says why (no upcoming dates, nobody teaches it, no working hours, or not working where it runs), with a button or link to fix it. **Bookable now** at the top counts only the ones customers can book.
+### Step 13: When it's over
+Once the last date has ended, a Class or Event moves to the **Past** tab in **Activities** and leaves the booking page. Its bookings, payments and pieces are all kept. Past ones can be **Duplicated** but not edited.
 
-### Step 11: Add more dates (optional)
-In **Activities → Schedule a class**:
+### Older activities
+Activities created before Classes and Events existed (group classes with many separate dates, and one to one lessons) keep working exactly as before.
 
-| Field | Notes |
-|---|---|
-| Activity | Choose the activity |
-| Date / time | Start |
-| Capacity | Up to the activity's maximum capacity |
-| Instructor | Pick one, or "Nobody yet" |
-| **Location** | With one location, leave it: the class goes there. With several, **pick one**. *"Not set"* hides the class from customers |
-| Repeat weekly | Tick and pick weekdays to create a recurring series |
-
-Use this to schedule beyond 12 weeks, or to add one-off dates.
-
-### Step 12: One to one activities: extra checks
-- Somebody **teaches** it (Step 9.4 or Step 7).
-- They have **working hours** covering when you want to offer it (Step 8).
-
-Without both, **no time slots appear** on the booking page. The activity's card will say which is missing.
+- **Add more dates** to an older group class with **Activities → Add a session**. With several locations, **pick one**: *"Not set"* hides the session from customers.
+- **One to one** lessons need somebody who **teaches** them (Step 7) and **working hours** that cover when you offer them (Step 8). Without both, no time slots appear, and the card says which is missing.
 
 ---
 
 ## Part D: Payments (optional)
 
-### Step 13: Connect Stripe
+### Step 14: Connect Stripe
 **Settings → Payment Settings** (or **Payments**): connect Stripe.
 
 | Setup | What customers experience |
@@ -202,17 +195,17 @@ Without both, **no time slots appear** on the booking page. The activity's card 
 | **Stripe connected** | Customers **pay online when they book** |
 | **Stripe + "Allow pay on arrival"** | Customers can choose to pay at the studio |
 
-Deposits (Step 9.7) only take effect once Stripe is connected.
+Deposits (set with **Edit**, Step 12) only take effect once Stripe is connected.
 
 ---
 
 ## Part E: Publish and test
 
-### Step 14: Publish
+### Step 15: Publish
 Go to **Setup** → **Publish my booking page**.
 This button appears once every step is done **and at least one activity can actually be booked**. If nothing can be booked yet, Setup lists each activity that's stuck, with why and a link to fix it.
 
-### Step 15: Test the booking page directly
+### Step 16: Test the booking page directly
 1. Open `https://bookaihub.com/public/<your-studio-slug>`.
 2. Book the activity end to end.
 3. Check **Bookings** in the dashboard. The booking should be there, with source **web**.
@@ -226,7 +219,7 @@ This button appears once every step is done **and at least one activity can actu
 
 ## Part F: Put the widget on your website
 
-### Step 16: Copy the snippet
+### Step 17: Copy the snippet
 **Website & widget → Booking Widget → Copy snippet**
 
 It looks like this:
@@ -236,7 +229,7 @@ It looks like this:
 <script src="https://bookaihub.com/embed.js" async></script>
 ```
 
-### Step 17: Paste it into your website
+### Step 18: Paste it into your website
 Paste it where you want the booking form to appear.
 - **WordPress:** add a **Custom HTML** block.
 - **Other sites:** any HTML embed / code block.
@@ -257,88 +250,45 @@ The widget **resizes to fit its content**. To set the height it starts at, add `
 </iframe>
 ```
 
-### Step 18: Test through your website
+### Step 19: Test through your website
 1. Make a booking through the widget on your site.
 2. Check **Bookings** in the dashboard. Its source should be **embed**.
 3. If it was a test, cancel it.
 
 ---
 
-## Worked example: Pottery Wheel Throwing Party
+## Worked examples
 
-A group party held at the studio, where one host books several guests in a single booking.
+### An Event: Valentine Date Night
+A one-evening couples' class.
 
-### Why "Group class"
-- **One to one** has no capacity setting, so it can't hold a group.
-- **Group class** lets the host book **up to 50 guests in one booking**.
-
-### Before creating it
-1. **Settings → Localisation**: correct timezone.
-2. Hide any activities you no longer want (**Status: Draft**).
-
-### Basics
-
-| Field | Value |
+| Step | Value |
 |---|---|
-| Activity name | `Pottery Wheel Throwing Party` |
-| Short description | `A private wheel-throwing party for your group — clay, tools and firing included.` |
-| Full description | Welcome and demo (15 min), everyone at the wheel (75 min), glazing choices and wrap-up (30 min). *Minimum 6 guests. Pieces are fired and ready to collect in about 2 weeks.* |
-| Type | **Group class** |
-| Category | Uncategorised |
-| Status | **Active** |
+| Choose | **Event** |
+| What | `Valentine Date Night`, short description `Two of you, one wheel, a bottle of something` |
+| When and where | `Fri 12 Feb`, `18:30`–`21:00`, **the studio** |
+| Seats and price | `12` seats, `85.00` per seat, instructor **you** |
+| Review | Check the card, then **Publish** |
 
-### Pricing & capacity
+Next year: **Duplicate** it from the **Past** tab and pick the new date.
 
-| Field | Value |
+### A Class: Beginner Wheel, six Tuesdays
+A course where everyone starts together and builds week on week.
+
+| Step | Value |
 |---|---|
-| Adult price | e.g. `65.00` per guest |
-| Child price | e.g. `45.00` (`0` only if adults-only) |
-| Currency | USD |
-| Duration (minutes) | `120` |
-| Maximum capacity | Number of guests you can seat at wheels, e.g. `10` |
-| Minimum guests | `6` (not enforced; see [Known limitations](#known-limitations)) |
+| Choose | **Class** |
+| What | `Beginner Wheel`, short description `Centre, open and pull your first pots` |
+| Schedule | Starts on `3 Mar`, every **Tue**, `18:00`–`20:00`, `6` sessions. Untick `17 Mar` for spring break: the class now ends a week later |
+| Where and who | **The studio**, instructor **you** |
+| Seats and price | `8` seats (one per wheel), `320.00` for the whole class |
+| Review | **Publish** |
 
-### Where
-
-| Field | Value |
-|---|---|
-| Location | **The studio** |
-| Meeting point | `Front entrance, ring the bell — we'll bring you to the wheel room` |
-
-### Availability
-
-| Field | Value |
-|---|---|
-| Available days | **Sat, Sun** |
-| Start times | `11:00`, `14:00`, `17:00` (**Add time** after each) |
-| Schedule for | **The next 12 weeks** |
-
-### Presentation
-Any icon and colour.
-
-### Policies
-
-| Field | Value |
-|---|---|
-| Cancellation policy | **Standard** |
-| Minimum notice (minutes) | `2880` (48 hours to prepare) |
-| Bookable up to (days ahead) | `90` |
-| Deposit | Off until Stripe is connected |
-| What is included | `Clay` / `Tools & aprons` / `Glazing` / `Firing` / `Instructor for the whole party` |
-| Before you come | `Short nails, closed shoes, clothes you don't mind getting muddy.` |
-| Booking instructions | `Arrive 10 minutes early. Parking at the rear.` |
-
-### After saving
-1. **Staff & Guides → instructor → turn on the "Pottery Wheel Throwing Party" chip.**
-2. **Hours**: make sure the instructor works **Saturday and Sunday**, and **until at least 19:00** (the 17:00 party ends at 19:00). The setup defaults (Tue–Sat, 10:00–18:00) don't cover this.
-3. Optional: set the instructor when you schedule each session (**Schedule a class → Instructor**).
-4. Optional: connect Stripe (Part D).
-
-### Test
-1. Open the booking page, pick the party and a Saturday, book **6 guests**.
-2. **Bookings** shows it with 6 seats, and the session shows **4 of 10** left.
-3. Cancel if it was a test.
-4. Embed the widget (Part F) and test once more through your site.
+### After publishing
+1. Optional: **Edit** to add what's included, preparation notes and a cancellation policy (Step 12).
+2. Optional: connect Stripe (Part D).
+3. Open the booking page and book it end to end. **Bookings** shows it; a Class booking covers every session.
+4. Cancel if it was a test.
 
 ---
 
@@ -375,7 +325,9 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 |---|---|
 | **Minimum guests is saved but not enforced.** A booking below the minimum is still accepted | State the minimum clearly in the description |
 | **Group sessions aren't private.** If a host books 6 of 10 seats, others can book the remaining 4 | Set **Maximum capacity** to the full party size you expect |
-| **Availability creates at most 12 weeks** of sessions | Add more with **Schedule a class → Repeat weekly** |
+| **A Class has at most 52 sessions** | Publish a second class for the next term (**Duplicate**) |
+| **Equipment is not checked for clashes** (e.g. more seats than wheels) | Set seats to the number of wheels |
+| **Add a session** (older activities) doesn't check one-thing-at-a-time locations | Check the calendar first |
 | **Changing the timezone doesn't move existing sessions** | Delete wrongly-timed sessions and schedule them again |
 | **Deposits need Stripe** | Connect Stripe first (Part D) |
 | **Max 50 guests per booking** | Split very large groups across bookings |
@@ -387,11 +339,13 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 | Symptom | Cause | Fix |
 |---|---|---|
 | Activity not on the booking page | Status is **Draft** | Set **Status: Active** |
-| Activity listed but **no dates** | You have several locations and the sessions have **none** | In **Activities → Scheduled classes**, each such class is flagged **Not on your booking page**. Pick its location there |
+| Activity listed but **no dates** | You have several locations and the sessions have **none** | In **Activities → Scheduled sessions**, each such session is flagged **Not on your booking page**. Pick its location there |
 | Card says **Not bookable: …** | What it names: no dates, nobody teaches it, no hours, or instructors not at that location | Use the button or link on the card |
 | No dates in the next day or two | **Minimum notice** hides them | Expected. Lower the minimum notice if needed |
 | Later dates missing | **Bookable up to (days ahead)** is too short | Increase it |
-| Dates stop after 12 weeks | Availability limit | **Schedule a class → Repeat weekly** |
+| **Next** won't move on, dates shown in red | Those dates clash (Step 9.3) | Change the time, instructor or location, or untick the dates |
+| **Class** card is greyed out | Classes are on the Studio and Pro plans | Upgrade in **Billing**, or create an Event |
+| A Class or Event disappeared from the booking page | Its last date has passed | It's under **Activities → Past**. **Duplicate** it to run it again |
 | **One to one** shows no times | Instructor not assigned, or no working hours | Steps 7–8 |
 | Instructor not shown | Not assigned, or **Show on the booking page** is off | Steps 6–7 |
 | Staff shows "Not bookable yet" | No activities assigned | Step 7 |

@@ -65,7 +65,7 @@ export async function getStorefront(slug: string) {
       where: { organizationId: organization.id, isActive: true },
     })) > 0;
 
-  const [services, staff, guestsHosted, policy, pages] = await Promise.all([
+  const [allServices, staff, guestsHosted, policy, pages] = await Promise.all([
     prisma.serviceType.findMany({
       where: {
         organizationId: organization.id,
@@ -81,6 +81,7 @@ export async function getStorefront(slug: string) {
         slug: true,
         description: true,
         shortDescription: true,
+        kind: true,
         durationMinutes: true,
         capacityMax: true,
         priceCents: true,
@@ -164,6 +165,26 @@ export async function getStorefront(slug: string) {
       select: { path: true, title: true },
     }),
   ]);
+
+  /*
+    An Event whose one date has passed is over (CLASS-EVENT-PLAN.md, Past): it
+    leaves the website as it leaves the booking page, rather than sitting in
+    the list as "No dates scheduled yet". Older activities with no dates stay,
+    as they always have. Asked of the event's LAST date, not of the 90-day
+    lookahead above: an event booked for next spring is not over.
+  */
+  const eventIds = allServices.filter((s) => s.kind === 'EVENT').map((s) => s.id);
+  const eventEnds = eventIds.length
+    ? await prisma.session.groupBy({
+        by: ['serviceTypeId'],
+        where: { serviceTypeId: { in: eventIds }, status: { not: 'CANCELLED' } },
+        _max: { endsAt: true },
+      })
+    : [];
+  const lastEnd = new Map(eventEnds.map((r) => [r.serviceTypeId, r._max.endsAt]));
+  const services = allServices.filter(
+    (s) => s.kind !== 'EVENT' || (lastEnd.get(s.id)?.getTime() ?? 0) > now.getTime(),
+  );
 
   const categories = [
     ...new Map(
