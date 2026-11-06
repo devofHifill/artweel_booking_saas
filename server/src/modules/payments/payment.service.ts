@@ -275,10 +275,12 @@ export async function startCheckout(input: StartCheckoutInput) {
   const price = priceBooking({
     unitPriceCents: series ? series.priceCents : service.priceCents,
     seats: input.seats,
-    // Zero on a course, matching quoteBooking exactly. If these two ever
-    // disagree the customer is charged something other than what they read.
-    children: series ? 0 : input.children,
-    childPriceCents: service.childPriceCents,
+    // A course's child rate is the cohort's own, for the whole run (0 on every
+    // older cohort, so all seats there are adult). Matches quoteBooking
+    // exactly: if the two ever disagree the customer is charged something
+    // other than what they read.
+    children: input.children,
+    childPriceCents: series ? series.childPriceCents : service.childPriceCents,
     travelFeeCents: input.travelFeeCents,
     depositType: service.depositType as 'none' | 'percent' | 'fixed',
     depositValue: service.depositValue,
@@ -673,6 +675,8 @@ async function onCheckoutCompleted(event: WebhookEvent) {
       holdId,
       customerId: customer.id,
       totalCents,
+      // What the charged amount was worked out from, as for a single class below.
+      children: Math.max(0, Number(metadata.children ?? 0) || 0),
       checkoutSessionId: data.id,
       paymentIntentId: data.payment_intent ?? null,
     });
@@ -762,6 +766,7 @@ async function completeCourseCheckout(input: {
   holdId: string;
   customerId: string;
   totalCents: number;
+  children: number;
   checkoutSessionId: string;
   paymentIntentId: string | null;
 }) {
@@ -770,6 +775,7 @@ async function completeCourseCheckout(input: {
     holdId: input.holdId,
     customerId: input.customerId,
     totalCents: input.totalCents,
+    children: input.children,
     source: 'web',
   });
 

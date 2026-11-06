@@ -429,6 +429,8 @@ publicRouter.post(
   validateBody(
     z.object({
       seats: z.number().int().min(1).max(50).default(1),
+      /** How many of `seats` are children, at the cohort's child price. */
+      children: z.number().int().min(0).max(50).default(0),
       customer: z.object({
         name: z.string().min(1).max(120),
         email: z.string().email().max(255),
@@ -523,6 +525,8 @@ publicRouter.post(
   validateBody(
     z.object({
       seats: z.number().int().min(1).max(50).default(1),
+      /** How many of `seats` are children, at the cohort's child price. */
+      children: z.number().int().min(0).max(50).default(0),
       customer: z.object({
         name: z.string().min(1).max(120),
         email: z.string().email().max(255),
@@ -544,6 +548,7 @@ publicRouter.post(
       serviceTypeId: series.serviceTypeId,
       courseSeriesId: series.id,
       seats: req.body.seats,
+      children: req.body.children,
       customerEmail: req.body.customer.email,
       customerName: req.body.customer.name,
       successUrl: `${base}?enrolled=1`,

@@ -181,6 +181,8 @@ type PageData = {
     endsAt: Date;
     seatsRemaining: number;
     enrollable: boolean;
+    /** Set while a Class is further out than it may be booked yet. */
+    bookingOpensAt?: Date | null;
     instructor: string | null;
   }[];
 };
@@ -590,7 +592,13 @@ export function renderBookingPage(
       const window = `${dateRange(c.startsAt, c.endsAt, organization.timezone)}`;
       const places = c.enrollable
         ? `${c.seatsRemaining} ${c.seatsRemaining === 1 ? 'place' : 'places'} left`
-        : 'Closed';
+        : c.bookingOpensAt
+          ? `Booking opens ${new Date(c.bookingOpensAt).toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'short',
+              timeZone: organization.timezone,
+            })}`
+          : 'Closed';
 
       return `
       <button class="card" data-course="${escapeHtml(c.id)}" type="button"${

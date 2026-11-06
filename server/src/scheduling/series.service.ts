@@ -192,6 +192,12 @@ export type EnrollInput = {
   courseSeriesId: string;
   customerId: string;
   seats?: number;
+  /**
+   * How many of `seats` are children, at the cohort's child price. Only a
+   * Class sets one (CLASS-EVENT-PLAN.md); an older cohort's is 0, so every
+   * seat there stays the adult price, as before.
+   */
+  children?: number;
   source?: string;
   notes?: string;
   /** Skips the on-sale and enrolment-window checks. Admin adding someone by hand. */
@@ -240,7 +246,22 @@ type EnrollableSeries = {
   status: string;
   enrollmentClosesAt: Date | null;
   allowLateEnrollment: boolean;
+  timezone: string;
+  /** The activity's own rules. Only a Class's are applied to its cohort. */
+  serviceType?: { kind: string; capacityMin: number; maxHorizonDays: number } | null;
 };
+
+/** What `assertSeriesEnrollable` reads off the activity. */
+const ENROLLABLE_SERVICE = {
+  serviceType: { select: { kind: true, capacityMin: true, maxHorizonDays: true } },
+} as const;
+
+/** Splits a party into adults and children, never more children than seats. */
+function childrenOf(seats: number, children: number | undefined, childPriceCents: number) {
+  // No child price means no child seats: every seat is an adult, as before.
+  if (childPriceCents <= 0) return 0;
+  return Math.min(seats, Math.max(0, Math.floor(children ?? 0)));
+}
 
 /**
  * Decides whether a cohort can take `seats` more people, under the locks.
@@ -291,6 +312,40 @@ function assertSeriesEnrollable(
     );
   }
 
+  /*
+    A Class's own "Bookable up to" and "Minimum guests". Applied to Classes
+    only: an older cohort was never held to its service's values, and
+    starting now would refuse enrolments studios have been taking.
+
+    Its "Minimum notice" needs nothing here — it is written to the cohort's
+    enrollmentClosesAt when the Class is published, and checked above.
+  */
+  const rules = series.serviceType;
+  if (rules?.kind === 'CLASS' && !opts.overrideWindow) {
+    const opensAt = new Date(
+      sessions[0]!.starts_at.getTime() - rules.maxHorizonDays * 86_400_000,
+    );
+    if (opensAt > new Date()) {
+      const day = opensAt.toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'long',
+        timeZone: series.timezone,
+      });
+      throw new AppError(
+        `Booking for this class opens on ${day}.`,
+        409,
+        BookingErrorCode.COURSE_NOT_ENROLLABLE,
+      );
+    }
+    if (seats < rules.capacityMin) {
+      throw new AppError(
+        `This class takes bookings of at least ${rules.capacityMin} people.`,
+        409,
+        BookingErrorCode.COURSE_NOT_ENROLLABLE,
+      );
+    }
+  }
+
   let tightest = sessions[0]!;
   for (const session of sessions) {
     if (
@@ -324,6 +379,7 @@ async function createEnrollmentBookings(
   sessions: LockedSeriesSession[],
   seats: number,
   source: string,
+  children = 0,
 ) {
   for (const session of sessions) {
     await tx.booking.create({
@@ -338,6 +394,8 @@ async function createEnrollmentBookings(
         endsAt: session.ends_at,
         timezone: session.timezone,
         seats,
+        // Each week's booking says who is coming, so the manifest can too.
+        children,
         status: 'CONFIRMED',
         cancelToken: randomBytes(32),
         source,
@@ -378,6 +436,7 @@ export async function enrollInSeries(input: EnrollInput) {
     return await prisma.$transaction(async (tx: Tx) => {
       const series = await tx.courseSeries.findFirst({
         where: { id: input.courseSeriesId, organizationId: input.organizationId },
+        include: ENROLLABLE_SERVICE,
       });
       if (!series) throw AppError.notFound('Course series not found.');
 
@@ -391,14 +450,18 @@ export async function enrollInSeries(input: EnrollInput) {
         overrideWindow: input.overrideWindow,
       });
 
+      const children = childrenOf(seats, input.children, series.childPriceCents);
+
       const enrollment = await tx.enrollment.create({
         data: {
           organizationId: input.organizationId,
           courseSeriesId: series.id,
           customerId: input.customerId,
           seats,
+          children,
           status: 'ACTIVE',
-          totalCents: series.priceCents * seats,
+          totalCents:
+            series.priceCents * (seats - children) + series.childPriceCents * children,
           cancelToken: randomBytes(32),
           source: input.source ?? 'web',
           notes: input.notes,
@@ -422,6 +485,7 @@ export async function enrollInSeries(input: EnrollInput) {
         sessions,
         seats,
         input.source ?? 'web',
+        children,
       );
 
       return { enrollment, sessionCount: sessions.length };
@@ -502,6 +566,7 @@ export async function createSeriesHold(input: CreateSeriesHoldInput) {
     return await prisma.$transaction(async (tx: Tx) => {
       const series = await tx.courseSeries.findFirst({
         where: { id: input.courseSeriesId, organizationId: input.organizationId },
+        include: ENROLLABLE_SERVICE,
       });
       if (!series) throw AppError.notFound('Course series not found.');
 
@@ -546,6 +611,8 @@ export type ConvertSeriesHoldInput = {
   holdId: string;
   customerId: string;
   totalCents: number;
+  /** From the checkout's metadata — what the charged amount was worked out from. */
+  children?: number;
   source?: string;
   notes?: string;
 };
@@ -637,12 +704,15 @@ export async function convertSeriesHold(input: ConvertSeriesHoldInput) {
       );
     }
 
+    const children = childrenOf(hold.seats, input.children, series.childPriceCents);
+
     const enrollment = await tx.enrollment.create({
       data: {
         organizationId: input.organizationId,
         courseSeriesId: series.id,
         customerId: input.customerId,
         seats: hold.seats,
+        children,
         status: 'ACTIVE',
         totalCents: input.totalCents,
         cancelToken: randomBytes(32),
@@ -660,6 +730,7 @@ export async function convertSeriesHold(input: ConvertSeriesHoldInput) {
       sessions,
       hold.seats,
       input.source ?? 'web',
+      children,
     );
 
     await tx.bookingHold.update({

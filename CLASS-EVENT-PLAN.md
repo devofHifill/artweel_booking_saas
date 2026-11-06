@@ -30,6 +30,23 @@ behind a Class (enrol by hand, seats, cancel) works on Solo. Shown on the
 pricing page, the home page's plans, Billing ("Classes running") and the
 Class card.
 
+**Decided 2026-11-06 (later):** a Class asks every field the activity editor
+has, over eight steps — What, Schedule, Where and who, Seats and price, Look,
+Policies, For customers, Review. Required: name, a weekday, an adult price.
+What each means for a Class, booked once for the whole run:
+- **Child price** is per child place for the whole run, kept on the cohort
+  (`course_series.child_price_cents`) beside its adult price; enrolments record
+  `children`. Older cohorts have 0, so nothing changes for them.
+- **Minimum guests** is the smallest party per booking (not class size), and
+  **Bookable up to** opens booking N days before the first session (blank:
+  open now). Both are enforced on enrolment for Classes only.
+- **Minimum notice** is written to the cohort's `enrollmentClosesAt`.
+- **Status: Hidden** keeps it off the page and out of Solo's count; switching
+  it on re-checks the limit.
+- **Type**, **Duration** and **Currency** are shown, not edited.
+- Editing a Class's prices or notice later carries them to its cohort.
+Events keep their four steps for now; they get the same fields later.
+
 ---
 
 ## What this is

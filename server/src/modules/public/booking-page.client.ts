@@ -248,14 +248,30 @@ export const clientScript = String.raw`
       return;
     }
 
+    /* A Class's own minimum party and child price (0 on older cohorts), the
+       same fields the single-class form asks. */
+    var minSeats = Math.max(1, course.minGuests || 1);
+    var maxSeats = course.seatsRemaining;
+    var childRate = course.childPriceCents || 0;
+    state.seats = minSeats;
+
     app.innerHTML = head +
       '<div id="err"></div>' +
       '<label for="name">Full name</label><input id="name" autocomplete="name">' +
       '<label for="email">Email</label><input id="email" type="email" autocomplete="email">' +
       '<label for="phone">Mobile (optional)</label><input id="phone" type="tel" autocomplete="tel">' +
-      (course.seatsRemaining > 1
+      (maxSeats > 1
         ? '<label for="seats">How many places?</label>' +
-          '<input id="seats" type="number" min="1" max="' + course.seatsRemaining + '" value="1">'
+          '<input id="seats" type="number" min="' + minSeats + '" max="' + maxSeats +
+            '" value="' + minSeats + '">' +
+          (minSeats > 1
+            ? '<p class="hint">Bookings start at ' + minSeats + ' guests.</p>'
+            : '')
+        : '') +
+      (childRate > 0 && maxSeats > 1
+        ? '<label for="children">How many of those are children?</label>' +
+          '<input id="children" type="number" min="0" max="' + maxSeats + '" value="0">' +
+          '<p class="hint">Children are ' + money(childRate) + ' each, for the whole class.</p>'
         : '') +
       '<label for="notes">Anything else? (optional)</label><textarea id="notes" rows="3"></textarea>' +
       '<label class="check"><input type="checkbox" id="sms">' +
@@ -268,12 +284,28 @@ export const clientScript = String.raw`
     paintSummary();
 
     var seatsInput = document.getElementById('seats');
-    if (seatsInput) {
-      seatsInput.addEventListener('change', function () {
-        state.seats = parseInt(seatsInput.value, 10) || 1;
-        paintSummary();
-      });
+    var childrenInput = document.getElementById('children');
+
+    // Same clamping as the single-class form: never more children than places.
+    function syncParty() {
+      state.seats = seatsInput ? parseInt(seatsInput.value, 10) || minSeats : 1;
+      if (seatsInput && state.seats < minSeats) {
+        state.seats = minSeats; seatsInput.value = String(minSeats);
+      }
+      if (seatsInput && state.seats > maxSeats) {
+        state.seats = maxSeats; seatsInput.value = String(maxSeats);
+      }
+      if (childrenInput) {
+        childrenInput.max = String(state.seats);
+        var kids = parseInt(childrenInput.value, 10) || 0;
+        if (kids > state.seats) { kids = state.seats; childrenInput.value = String(kids); }
+        state.children = kids;
+      }
+      paintSummary();
     }
+
+    if (seatsInput) seatsInput.addEventListener('change', syncParty);
+    if (childrenInput) childrenInput.addEventListener('change', syncParty);
 
     document.getElementById('confirm').addEventListener('click', function () {
       submitCourse(this);
@@ -283,8 +315,8 @@ export const clientScript = String.raw`
   function submitCourse(btn) {
     var name = document.getElementById('name').value.trim();
     var email = document.getElementById('email').value.trim();
-    var seatsEl = document.getElementById('seats');
-    var seats = seatsEl ? parseInt(seatsEl.value, 10) || 1 : 1;
+    var seats = state.seats || 1;
+    var children = state.children || 0;
 
     if (!name || !email) {
       document.getElementById('err').innerHTML = error('Please add your name and email.');
@@ -303,9 +335,10 @@ export const clientScript = String.raw`
     btn.textContent = paying ? 'Taking you to payment...' : 'Booking...';
 
     var body = paying
-      ? { seats: seats, customer: customer }
+      ? { seats: seats, children: children, customer: customer }
       : {
           seats: seats,
+          children: children,
           customer: customer,
           smsConsent: document.getElementById('sms').checked,
           notes: document.getElementById('notes').value.trim() || undefined
@@ -977,10 +1010,10 @@ export const clientScript = String.raw`
     var body = {
       serviceTypeId: course ? course.service.id : state.service.id,
       seats: state.seats,
-      /* Zero on a cohort. A course is sold at one price for the whole run and
-         the server ignores it there; sending the party's real split would
-         make this line disagree with the total beside it. */
-      children: course ? 0 : (state.children || 0)
+      /* On a cohort the server prices children at the cohort's own child
+         rate — a Class's, for the whole run — and at the adult price where
+         it has none, so the party's real split is always safe to send. */
+      children: state.children || 0
     };
     /* The cohort's price wins over the service's drop-in rate. Sending the id
        rather than a price keeps that decision on the server, where checkout

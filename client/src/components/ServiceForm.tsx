@@ -110,7 +110,7 @@ const DAYS = [
  * the studio only finds out when the card is already on their booking page.
  * Everything here predates Emoji 5.0 and is a single code point.
  */
-const EMOJI = [
+export const EMOJI = [
   '🏺', '🎨', '🖌️', '🔥', '🌿', '☕', '🌺', '✨', '🧵', '📷', '🍰', '🌟',
 ];
 
@@ -120,7 +120,7 @@ const EMOJI = [
  * `from` is also the calendar colour, so picking a gradient sets both and the
  * two can never look like they belong to different classes.
  */
-const GRADS = [
+export const GRADS = [
   ['#4f46e5', '#7c3aed'],
   ['#0891b2', '#0ea5e9'],
   ['#059669', '#10b981'],

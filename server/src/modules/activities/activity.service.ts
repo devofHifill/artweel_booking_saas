@@ -4,6 +4,7 @@ import { AppError } from '../../lib/app-error';
 import { uniqueSlug } from '../../lib/slug';
 import { requireCapacity, type PlanId } from '../billing/plan';
 import { countRunningClasses } from './class-limit';
+import { assertReferencesBelong } from '../services/service.service';
 import { insertSession } from '../../scheduling/session.service';
 import { translateSchedulingError } from '../../scheduling/pg-error';
 import { resolveLocal, type ResolutionKind } from '../../scheduling/time/zoned';
@@ -122,6 +123,8 @@ async function insertActivity(
     maxHorizonDays?: number;
     locationId: string | null;
     staffId: string | null;
+    /** The rest of a Class's answers. An Event's steps do not ask them yet. */
+    details?: Partial<Prisma.ServiceTypeUncheckedCreateInput>;
   },
 ) {
   const service = await tx.serviceType.create({
@@ -139,6 +142,7 @@ async function insertActivity(
       capacityMax: input.seats,
       priceCents: input.priceCents,
       ...(fields.maxHorizonDays ? { maxHorizonDays: fields.maxHorizonDays } : {}),
+      ...fields.details,
     },
   });
 
@@ -322,7 +326,11 @@ export async function createClass(organizationId: string, input: CreateClassInpu
     older Courses module stays a Studio/Pro feature; a Class is a course
     underneath, but it is created here and counted here.
   */
-  requireCapacity(org.plan as PlanId, 'maxClasses', await countRunningClasses(organizationId));
+  // A Class published Hidden is not running, so it takes no place yet. Showing
+  // it later checks again (updateService).
+  if (input.isActive) {
+    requireCapacity(org.plan as PlanId, 'maxClasses', await countRunningClasses(organizationId));
+  }
 
   const { plan, planned } = classSessions(input, org.timezone);
   const startMinute = minutesOf(input.startTime);
@@ -336,8 +344,19 @@ export async function createClass(organizationId: string, input: CreateClassInpu
   }
 
   const { location, staffId } = await resolveWhereAndWho(organizationId, input);
+  await assertReferencesBelong(organizationId, input);
   await assertDraftBelongs(organizationId, input.draftId);
   const slug = await slugFor(organizationId, input.name);
+
+  /*
+    "Minimum notice" on a Class closes booking that long before its FIRST
+    session — a Class is booked once, for the whole run. It is written to the
+    cohort's enrolment deadline, which enrolment already enforces.
+  */
+  const enrollmentClosesAt =
+    input.minNoticeMinutes > 0
+      ? new Date(planned[0]!.startsAt.getTime() - input.minNoticeMinutes * 60_000)
+      : null;
 
   return inTransaction(async (tx) => {
     await assertNoClashes(tx, organizationId, org.timezone, planned, {
@@ -352,6 +371,28 @@ export async function createClass(organizationId: string, input: CreateClassInpu
       durationMinutes: endMinute - startMinute,
       locationId: location?.id ?? null,
       staffId,
+      details: {
+        categoryId: input.categoryId ?? null,
+        meetingPoint: input.meetingPoint || null,
+        // The service's own prices mirror the cohort's: for a Class both are
+        // for the whole run.
+        childPriceCents: input.childPriceCents,
+        capacityMin: input.minGuests,
+        depositType: input.depositType,
+        depositValue: input.depositType === 'none' ? 0 : input.depositValue,
+        ...(input.color ? { color: input.color, colorAccent: input.colorAccent ?? null } : {}),
+        cancellationPolicyId: input.cancellationPolicyId ?? null,
+        minNoticeMinutes: input.minNoticeMinutes,
+        // Left blank, booking opens at once — far enough to reach the first
+        // session, as an Event's does.
+        maxHorizonDays:
+          input.maxHorizonDays ??
+          Math.max(120, Math.ceil((planned[0]!.startsAt.getTime() - Date.now()) / 86_400_000) + 1),
+        highlights: input.highlights || null,
+        preparationNotes: input.preparationNotes || null,
+        bookingInstructions: input.bookingInstructions || null,
+        isActive: input.isActive,
+      },
     });
 
     const series = await tx.courseSeries.create({
@@ -363,6 +404,8 @@ export async function createClass(organizationId: string, input: CreateClassInpu
         sessionCount: input.sessionCount,
         capacity: input.seats,
         priceCents: input.priceCents,
+        childPriceCents: input.childPriceCents,
+        enrollmentClosesAt,
         timezone: org.timezone,
         staffId,
         locationId: location?.id ?? null,
