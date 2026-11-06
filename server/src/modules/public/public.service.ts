@@ -302,7 +302,7 @@ export async function quoteBooking(params: {
           organizationId: organization.id,
           status: 'PUBLISHED',
         },
-        select: { priceCents: true },
+        select: { priceCents: true, childPriceCents: true },
       })
     : null;
 
@@ -324,13 +324,13 @@ export async function quoteBooking(params: {
     unitPriceCents: series ? series.priceCents : service.priceCents,
     seats: params.seats,
     /*
-      A cohort is sold at one price for the whole run and carries no child
-      rate of its own, so a course prices every seat the same. Passing the
-      service's child rate here would apply a per-class discount to a
-      six-week course.
+      A cohort carries its own child rate, for the whole run — set on a Class,
+      0 on every older cohort, which then prices every seat the same. Never
+      the service's child rate on a course: that is a per-class rate, and
+      would discount a six-week course every week.
     */
-    children: series ? 0 : params.children,
-    childPriceCents: service.childPriceCents,
+    children: params.children,
+    childPriceCents: series ? series.childPriceCents : service.childPriceCents,
     travelFeeCents: params.travelFeeCents,
     /*
       The studio-wide gate over the activity's own deposit terms. Off means
@@ -1043,13 +1043,23 @@ export async function listPublicCourses(organizationId: string) {
       description: true,
       sessionCount: true,
       priceCents: true,
+      childPriceCents: true,
       capacity: true,
       timezone: true,
       enrollmentClosesAt: true,
       allowLateEnrollment: true,
       serviceType: {
         // `kind`: the page files a Class under "Classes", older cohorts under "Courses".
-        select: { id: true, name: true, durationMinutes: true, skillLevel: true, kind: true },
+        select: {
+          id: true,
+          name: true,
+          durationMinutes: true,
+          skillLevel: true,
+          kind: true,
+          isActive: true,
+          capacityMin: true,
+          maxHorizonDays: true,
+        },
       },
       staff: { select: { id: true, name: true } },
       location: { select: { id: true, name: true, locationType: true, address: true } },
@@ -1081,6 +1091,8 @@ export async function listPublicCourses(organizationId: string) {
           s.serviceType.kind !== 'CLASS' ||
           s.sessions[s.sessions.length - 1]!.endsAt > now,
       )
+      // A Class the studio published as Hidden is not on the page.
+      .filter((s) => s.serviceType.kind !== 'CLASS' || s.serviceType.isActive)
       .map((s) => {
         const seatsRemaining = Math.min(
           ...s.sessions.map((session) => session.capacity - session.seatsTaken),
@@ -1091,12 +1103,20 @@ export async function listPublicCourses(organizationId: string) {
         const windowClosed =
           s.enrollmentClosesAt !== null && s.enrollmentClosesAt <= now;
 
+        /* A Class's own "Bookable up to" and "Minimum guests", the same rules
+           enrolment applies (assertSeriesEnrollable). */
+        const { isActive: _isActive, capacityMin, maxHorizonDays, ...service } = s.serviceType;
+        const isClass = s.serviceType.kind === 'CLASS';
+        const opensAt = new Date(startsAt.getTime() - maxHorizonDays * 86_400_000);
+        const bookingOpensAt = isClass && opensAt > now ? opensAt : null;
+        const minGuests = isClass ? capacityMin : 1;
+
         return {
           id: s.id,
           name: s.name,
           cohortLabel: s.cohortLabel,
           description: s.description,
-          service: s.serviceType,
+          service,
           instructor: s.staff?.name ?? null,
           location: s.location
             ? {
@@ -1109,6 +1129,11 @@ export async function listPublicCourses(organizationId: string) {
           timezone: s.timezone,
           sessionCount: s.sessions.length,
           priceCents: s.priceCents,
+          /** Per child place for the whole run. 0: adults only. */
+          childPriceCents: s.childPriceCents,
+          minGuests,
+          /** Set while a Class is further out than it may be booked. */
+          bookingOpensAt,
           startsAt,
           endsAt,
           seatsRemaining: Math.max(0, seatsRemaining),
@@ -1119,8 +1144,9 @@ export async function listPublicCourses(organizationId: string) {
             endsAt: session.endsAt,
           })),
           enrollable:
-            seatsRemaining > 0 &&
+            seatsRemaining >= minGuests &&
             !windowClosed &&
+            bookingOpensAt === null &&
             (!hasStarted || s.allowLateEnrollment),
           hasStarted,
         };
@@ -1154,6 +1180,8 @@ export async function getPublicCourseForCheckout(
       id: courseSeriesId,
       organizationId: organization.id,
       status: 'PUBLISHED',
+      // A Class published as Hidden is not on sale, whoever has its id.
+      NOT: { serviceType: { kind: 'CLASS', isActive: false } },
     },
     select: { id: true, name: true, serviceTypeId: true, priceCents: true },
   });
@@ -1166,6 +1194,8 @@ export type PublicEnrollInput = {
   slug: string;
   courseSeriesId: string;
   seats?: number;
+  /** How many of `seats` are children. */
+  children?: number;
   customer: { name: string; email: string; phone?: string };
   smsConsent?: boolean;
   notes?: string;
@@ -1196,12 +1226,15 @@ export async function enrollPublic(input: PublicEnrollInput) {
       id: input.courseSeriesId,
       organizationId: organization.id,
       status: 'PUBLISHED',
+      NOT: { serviceType: { kind: 'CLASS', isActive: false } },
     },
-    select: { id: true, priceCents: true, name: true },
+    select: { id: true, priceCents: true, childPriceCents: true, name: true },
   });
   if (!series) throw AppError.notFound('Course not found.');
 
-  if (series.priceCents > 0) {
+  // Free for adults but priced for children still costs something.
+  const childSeats = Math.min(input.seats ?? 1, input.children ?? 0);
+  if (series.priceCents > 0 || (series.childPriceCents > 0 && childSeats > 0)) {
     throw new AppError(
       'This course must be paid for online. Please use the checkout.',
       409,
@@ -1216,6 +1249,7 @@ export async function enrollPublic(input: PublicEnrollInput) {
     courseSeriesId: series.id,
     customerId: customer.id,
     seats: input.seats ?? 1,
+    children: input.children,
     notes: input.notes,
     source: 'web',
   });

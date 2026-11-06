@@ -53,10 +53,47 @@ export const createEventSchema = z
   })
   .refine(endsAfterStarts, endsAfterStartsMessage);
 
+const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #A6522C.');
+
+/**
+ * Everything else an activity carries, asked on the Class steps (Look,
+ * Policies, For customers) — all optional, with the same limits as the
+ * activity editor (`service.schema.ts`) so a Class published here can be
+ * opened and saved there unchanged.
+ */
+const classDetails = {
+  categoryId: z.string().uuid().optional(),
+  meetingPoint: z.string().trim().max(300).optional(),
+  /** Per child place, for the whole run. 0 means adults only. */
+  childPriceCents: z.number().int().min(0).max(10_000_000).default(0),
+  /** The smallest party one booking may be. Not the minimum class size. */
+  minGuests: z.number().int().min(1).max(500).default(1),
+  depositType: z.enum(['none', 'percent', 'fixed']).default('none'),
+  /** Percent when depositType is "percent", otherwise cents. */
+  depositValue: z.number().int().min(0).default(0),
+  color: hex.optional(),
+  colorAccent: hex.optional(),
+  cancellationPolicyId: z.string().uuid().optional(),
+  minNoticeMinutes: z.number().int().min(0).max(525_600).default(0),
+  /** Booking opens this many days before the first session. Left out: open now. */
+  maxHorizonDays: z.number().int().min(1).max(730).optional(),
+  highlights: z.string().trim().max(1200).optional(),
+  preparationNotes: z.string().trim().max(2000).optional(),
+  bookingInstructions: z.string().trim().max(2000).optional(),
+  /** false publishes it Hidden: made, but not on the booking page. */
+  isActive: z.boolean().default(true),
+};
+
+/** Matches the database's CHECK on highlights, which counts newlines exactly. */
+function countLines(value: string | undefined): number {
+  return value ? value.split('\n').length : 0;
+}
+
 export const createClassSchema = z
   .object({
     ...common,
     ...times,
+    ...classDetails,
     startDate: localDate,
     weekdays: z
       .array(z.enum(WEEKDAYS))
@@ -67,7 +104,23 @@ export const createClassSchema = z
     sessionCount: z.number().int().min(1).max(52),
     skipDates: z.array(localDate).max(100).optional(),
   })
-  .refine(endsAfterStarts, endsAfterStartsMessage);
+  .refine(endsAfterStarts, endsAfterStartsMessage)
+  .refine((c) => c.minGuests <= c.seats, {
+    message: 'The minimum guests cannot be more than the seats.',
+    path: ['minGuests'],
+  })
+  .refine((c) => c.depositType !== 'percent' || c.depositValue <= 100, {
+    message: 'A percentage deposit cannot exceed 100.',
+    path: ['depositValue'],
+  })
+  .refine((c) => c.depositType === 'none' || c.depositValue > 0, {
+    message: 'A deposit needs a value above zero.',
+    path: ['depositValue'],
+  })
+  .refine((c) => countLines(c.highlights) <= 12, {
+    message: 'Twelve lines is the most a booking page will show.',
+    path: ['highlights'],
+  });
 
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 export type CreateClassInput = z.infer<typeof createClassSchema>;

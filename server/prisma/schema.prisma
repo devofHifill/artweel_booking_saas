@@ -1399,6 +1399,10 @@ model CourseSeries {
   sessionCount   Int    @map("session_count")
   priceCents     Int    @default(0) @map("price_cents")
 
+  /// Per child place, for the whole run — a Class's (CLASS-EVENT-PLAN.md).
+  /// 0 means adults only, and is what every older cohort has.
+  childPriceCents Int @default(0) @map("child_price_cents")
+
   status CourseSeriesStatus @default(DRAFT)
 
   /// The cohort's wall-clock zone. Sessions are re-resolved against this per
@@ -1504,6 +1508,8 @@ model Enrollment {
   customerId     String @map("customer_id") @db.Uuid
 
   seats  Int              @default(1)
+  /// How many of `seats` are children. Adults are seats - children.
+  children Int @default(0)
   status EnrollmentStatus @default(ACTIVE)
 
   totalCents Int @default(0) @map("total_cents")

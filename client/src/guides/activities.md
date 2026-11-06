@@ -116,15 +116,30 @@ Then a few short steps. **Next** checks each step before moving on, and **Back**
 
 Two time slots on the same day are two events: publish the first, then **Duplicate** it (Step 11).
 
-### 9.2 A Class: five steps
+### 9.2 A Class: eight steps
+
+Only three things are required: a **name**, at least one **weekday**, and an **adult price** (`0` if it's free). Everything else is filled in for you or optional.
 
 | Step | What you fill in |
 |---|---|
-| **What** | Name and an optional one-line description |
-| **Schedule** | **Starts on** (a date), **Every** (one or two weekdays), start and end time, and the number of **Sessions** |
-| **Where and who** | Location and instructor |
-| **Seats and price** | Seats, and the price for the **whole** class |
-| **Review** | How it will look. Press **Publish** |
+| **What** | **Activity name**, short description, full description, **Category**. **Type** shows *Class* (it was chosen on the first screen) |
+| **Schedule** | **Starts on**, **Every** (weekdays), start and end time, **Duration** (worked out from the times), number of **Sessions** |
+| **Where and who** | Location, **Meeting point** (which door or room), instructor |
+| **Seats and price** | **Adult price** and **Child price**, both for the **whole** class (child `0` = adults only), **Currency** (set for the whole studio), **Maximum capacity**, **Minimum guests**, **Deposit** |
+| **Look** | **Icon** and **Colour** for its card and calendar block |
+| **Policies** | **Cancellation policy**, **Minimum notice (minutes)**, **Bookable up to (days ahead)** |
+| **For customers** | **What is included** (one per line), **Before you come**, **Booking instructions** (sent after booking) |
+| **Review** | How it will look, and **Status**: **Active** or **Hidden**. Press **Publish** (or **Save as hidden**) |
+
+What the booking rules mean for a Class, which is booked once for the whole run:
+
+| Field | For a Class |
+|---|---|
+| **Child price** | The booking page asks how many of the places are children, and charges each one the child price, for every session |
+| **Minimum guests** | The smallest party one booking can be (e.g. `2` for a parent-and-child class). Not the minimum class size |
+| **Minimum notice** | Booking closes this long before the **first** session. `0`: right up to the start |
+| **Bookable up to** | Booking opens this many days before the first session. **Blank: open as soon as you publish.** Until then the card says *Booking opens …* |
+| **Status: Hidden** | Saved, but not on the booking page and can't be booked. On Solo it doesn't use your one class until you switch it to Active |
 
 On **Schedule**, the real dates appear as you type, for example:
 
@@ -161,7 +176,7 @@ Each card in **Activities** shows **Class** or **Event**, and says whether custo
 On any Class or Event card, live or past, the **Duplicate** button (two sheets) copies everything except the dates and opens at the dates step. Pick new dates and publish. This is how you run "Beginner Wheel" again next term.
 
 ### Step 12: Change it later
-**Edit** (the pencil) opens the full form, where you can also set what the steps leave at sensible defaults:
+**Edit** (the pencil) opens the full form with the same fields. An Event's steps don't ask these yet, so set them here for an Event:
 
 | Field | Notes |
 |---|---|
@@ -170,6 +185,8 @@ On any Class or Event card, live or past, the **Duplicate** button (two sheets) 
 | Minimum notice | How soon before the start people can still book |
 | Deposit | Percentage or fixed amount. **Only collected when Stripe is connected** |
 | What is included / Before you come / Booking instructions | Shown to customers and sent with the confirmation |
+
+For a Class, a new adult or child price, or a new minimum notice, applies to bookings made from then on. People already booked keep what they paid.
 
 A Class or Event keeps the dates it was published with. To change a single date, use **Scheduled sessions** at the bottom of **Activities**.
 
@@ -281,11 +298,14 @@ A course where everyone starts together and builds week on week.
 | What | `Beginner Wheel`, short description `Centre, open and pull your first pots` |
 | Schedule | Starts on `3 Mar`, every **Tue**, `18:00`–`20:00`, `6` sessions. Untick `17 Mar` for spring break: the class now ends a week later |
 | Where and who | **The studio**, instructor **you** |
-| Seats and price | `8` seats (one per wheel), `320.00` for the whole class |
-| Review | **Publish** |
+| Seats and price | Adult price `320.00`, child price blank (adults only), maximum capacity `8` (one per wheel), minimum guests `1`, pay in full |
+| Look | 🏺, the terracotta colour |
+| Policies | **Standard** policy, minimum notice `1440` (booking closes a day before), bookable up to blank |
+| For customers | `Clay, tools and glazes` / `Firing for your pieces`; before you come: `Short nails, closed shoes` |
+| Review | Status **Active**, then **Publish** |
 
 ### After publishing
-1. Optional: **Edit** to add what's included, preparation notes and a cancellation policy (Step 12).
+1. Optional, for an Event: **Edit** to add what's included, preparation notes and a cancellation policy (Step 12). A Class asked for these in its steps.
 2. Optional: connect Stripe (Part D).
 3. Open the booking page and book it end to end. **Bookings** shows it; a Class booking covers every session.
 4. Cancel if it was a test.
@@ -323,7 +343,7 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 
 | Limitation | Workaround |
 |---|---|
-| **Minimum guests is saved but not enforced.** A booking below the minimum is still accepted | State the minimum clearly in the description |
+| **Minimum guests is only enforced on a Class.** On an Event or older activity, a booking below the minimum is still accepted | State the minimum clearly in the description |
 | **Group sessions aren't private.** If a host books 6 of 10 seats, others can book the remaining 4 | Set **Maximum capacity** to the full party size you expect |
 | **A Class has at most 52 sessions** | Publish a second class for the next term (**Duplicate**) |
 | **Equipment is not checked for clashes** (e.g. more seats than wheels) | Set seats to the number of wheels |

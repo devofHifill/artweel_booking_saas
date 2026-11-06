@@ -2,6 +2,8 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
 import { uniqueSlug } from '../../lib/slug';
+import { requireCapacity, type PlanId } from '../billing/plan';
+import { countRunningClasses } from '../activities/class-limit';
 
 /**
  * Service-type administration.
@@ -436,6 +438,19 @@ export async function updateService(
 
   await assertReferencesBelong(organizationId, input, id);
 
+  /*
+    Showing a hidden Class makes it a running one, so it needs a place under
+    the plan's class limit (Solo: 1) — or publishing Hidden and then
+    switching on would be a way round it.
+  */
+  if (existing.kind === 'CLASS' && !existing.isActive && input.isActive === true) {
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { plan: true },
+    });
+    requireCapacity(org.plan as PlanId, 'maxClasses', await countRunningClasses(organizationId));
+  }
+
   /**
    * Capacity may not drop below what is already sold.
    *
@@ -480,7 +495,47 @@ export async function updateService(
     );
   }
 
-  return prisma.serviceType.update({ where: { id }, data });
+  const updated = await prisma.serviceType.update({ where: { id }, data });
+  if (existing.kind === 'CLASS') await syncClassSeries(id, input);
+  return updated;
+}
+
+/**
+ * A Class keeps its prices and booking deadline on its cohort, where checkout
+ * and enrolment read them (CLASS-EVENT-PLAN.md). Editing the Class in the
+ * activity form edits the service, so the same values are carried across —
+ * otherwise a changed price would show in the editor and never be charged.
+ *
+ * Applies to new bookings only: an enrolment keeps the total it was sold at.
+ */
+async function syncClassSeries(serviceTypeId: string, input: Record<string, unknown>) {
+  const series = await prisma.courseSeries.findFirst({
+    where: { serviceTypeId, status: { not: 'CANCELLED' } },
+    select: {
+      id: true,
+      sessions: {
+        where: { status: 'SCHEDULED' },
+        orderBy: { seriesIndex: 'asc' },
+        take: 1,
+        select: { startsAt: true },
+      },
+    },
+  });
+  if (!series) return;
+
+  const data: Prisma.CourseSeriesUpdateInput = {};
+  if (typeof input.priceCents === 'number') data.priceCents = input.priceCents;
+  if (typeof input.childPriceCents === 'number') data.childPriceCents = input.childPriceCents;
+  if (typeof input.minNoticeMinutes === 'number') {
+    const first = series.sessions[0]?.startsAt;
+    data.enrollmentClosesAt =
+      input.minNoticeMinutes > 0 && first
+        ? new Date(first.getTime() - input.minNoticeMinutes * 60_000)
+        : null;
+  }
+  if (Object.keys(data).length) {
+    await prisma.courseSeries.update({ where: { id: series.id }, data });
+  }
 }
 
 /**
@@ -608,7 +663,7 @@ export async function setServiceResources(
  * another organization would otherwise be accepted, since the row itself is
  * created under the right tenant.
  */
-async function assertReferencesBelong(
+export async function assertReferencesBelong(
   organizationId: string,
   input: Record<string, unknown>,
   selfId?: string,
