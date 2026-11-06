@@ -46,6 +46,8 @@ const createLocationSchema = z.object({
   radiusMeters: z.number().int().positive().max(500_000).optional().nullable(),
   travelFeeBands: z.array(travelBandSchema).max(20).optional().nullable(),
   isActive: z.boolean().default(true),
+  /** One room: two things here at once is a clash. See the schema. */
+  oneAtATime: z.boolean().optional(),
 });
 
 const updateLocationSchema = createLocationSchema.partial();

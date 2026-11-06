@@ -72,6 +72,33 @@ export const createClassSchema = z
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 export type CreateClassInput = z.infer<typeof createClassSchema>;
 
+/**
+ * The live clash check (Stage 4): only what decides WHEN, WHERE and WHO. Name,
+ * seats and price play no part, so the steps can ask before they are filled.
+ */
+const previewWhereAndWho = {
+  locationId: z.string().uuid().optional(),
+  staffId: z.string().uuid().optional(),
+};
+
+// The refine sits on the union: a discriminated union takes plain objects only.
+export const previewSchema = z
+  .discriminatedUnion('kind', [
+    z.object({ kind: z.literal('EVENT'), ...times, ...previewWhereAndWho, date: localDate }),
+    z.object({
+      kind: z.literal('CLASS'),
+      ...times,
+      ...previewWhereAndWho,
+      startDate: localDate,
+      weekdays: z.array(z.enum(WEEKDAYS)).min(1).max(7),
+      sessionCount: z.number().int().min(1).max(52),
+      skipDates: z.array(localDate).max(100).optional(),
+    }),
+  ])
+  .refine(endsAfterStarts, endsAfterStartsMessage);
+
+export type PreviewInput = z.infer<typeof previewSchema>;
+
 // --- Drafts -----------------------------------------------------------------
 
 /**

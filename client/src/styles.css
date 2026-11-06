@@ -4655,3 +4655,20 @@ code.path {
 
 /* Live / Past switch beside the catalogue count. */
 .shelf-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; justify-content: flex-end; }
+
+/* Clashes (CLASS-EVENT-PLAN.md, Stage 4): the date, and what is already there. */
+.date-list li.clashing label { color: var(--danger); font-weight: 600; }
+.date-clash { display: block; font-size: var(--text-xs); color: var(--danger); margin: 2px 0 0 24px; white-space: normal; }
+.clash-list { border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line)); border-radius: var(--radius); padding: var(--space-3) var(--space-4); background: color-mix(in srgb, var(--danger) 6%, var(--card)); }
+.clash-list ul { margin: 0 0 var(--space-2); padding-left: var(--space-4); }
+.clash-list li { color: var(--danger); font-size: var(--text-sm); }
+.clash-list li strong { margin-right: var(--space-1); }
+.clash-list .field-error { margin: 0; }
+
+/* A checkbox with its label and explanation beside it, not stretched full width. */
+.check-row { display: flex; align-items: flex-start; gap: var(--space-2); font-weight: 400; }
+.check-row input[type='checkbox'] { width: auto; height: auto; flex: 0 0 auto; margin: 3px 0 0; }
+.check-row > span { display: flex; flex-direction: column; gap: 2px; }
+/* Inside a .fields grid: the whole row, box beside its text, not stacked. */
+.fields .check-row { grid-column: 1 / -1; flex-direction: row; color: var(--ink); font-size: var(--text-sm); }
+.fields .check-row .tiny { max-width: 60ch; }

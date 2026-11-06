@@ -7,7 +7,8 @@ import { insertSession } from '../../scheduling/session.service';
 import { translateSchedulingError } from '../../scheduling/pg-error';
 import { resolveLocal, type ResolutionKind } from '../../scheduling/time/zoned';
 import { planClassDates } from './class-dates';
-import type { CreateClassInput, CreateEventInput } from './activity.schema';
+import { dayLabel, findClashes, type Clash, type PlannedDate } from './clashes';
+import type { CreateClassInput, CreateEventInput, PreviewInput } from './activity.schema';
 
 /**
  * Publishing a Class or an Event (CLASS-EVENT-PLAN.md, Stage 1).
@@ -158,6 +159,37 @@ async function insertActivity(
   return service;
 }
 
+/**
+ * Refuses to publish over a clash, inside the publishing transaction.
+ *
+ * The location row is locked first, so two studios-worth of admins publishing
+ * into the same one-at-a-time room cannot both pass the check and both write.
+ * The instructor needs no lock: the exclusion constraint on staff_time_blocks
+ * catches a race there regardless, and this check only exists to say which
+ * date clashed and with what.
+ */
+async function assertNoClashes(
+  tx: Tx,
+  organizationId: string,
+  timezone: string,
+  dates: PlannedDate[],
+  where: { staffId: string | null; locationId: string | null },
+) {
+  if (where.locationId) {
+    await tx.$queryRaw`SELECT id FROM locations WHERE id = ${where.locationId}::uuid FOR UPDATE`;
+  }
+  const clashes = await findClashes(tx, organizationId, timezone, dates, where);
+  const first = dates.find((d) => clashes.has(d.localDate));
+  if (first) {
+    const total = [...clashes.keys()].length;
+    throw AppError.conflict(
+      `${dayLabel(first.localDate)}: ${clashes.get(first.localDate)![0]!.message}.` +
+        (total > 1 ? ` ${total - 1} more ${total === 2 ? 'date clashes' : 'dates clash'} too.` : ''),
+      'CLASH',
+    );
+  }
+}
+
 async function inTransaction<T>(work: (tx: Tx) => Promise<T>): Promise<T> {
   try {
     return await prisma.$transaction(work, TX_OPTIONS);
@@ -194,6 +226,14 @@ export async function createEvent(organizationId: string, input: CreateEventInpu
   const daysAway = Math.ceil((start.instant.getTime() - Date.now()) / 86_400_000) + 1;
 
   return inTransaction(async (tx) => {
+    await assertNoClashes(
+      tx,
+      organizationId,
+      org.timezone,
+      [{ localDate: input.date, startsAt: start.instant, endsAt: end.instant }],
+      { staffId, locationId: location?.id ?? null },
+    );
+
     const service = await insertActivity(tx, organizationId, input, {
       kind: 'EVENT',
       bookingMode: 'EVENT',
@@ -234,16 +274,15 @@ export type PublishedClassSession = {
   resolution: ResolutionKind;
 };
 
-export async function createClass(organizationId: string, input: CreateClassInput) {
-  const org = await prisma.organization.findUniqueOrThrow({
-    where: { id: organizationId },
-    select: { timezone: true, plan: true },
-  });
-
-  // Every Class is a multi-week course underneath, and courses are a paid-tier
-  // feature. The gate is the existing one, unchanged.
-  requireFeature(org.plan as PlanId, 'courseSeries');
-
+/**
+ * A Class's sessions as instants: the calendar dates from `planClassDates`,
+ * each start and end re-resolved against the studio's zone, so 6pm stays 6pm
+ * across a daylight-saving change. Shared by publishing and the preview.
+ */
+function classSessions(
+  input: Pick<CreateClassInput, 'startDate' | 'weekdays' | 'sessionCount' | 'skipDates' | 'startTime' | 'endTime'>,
+  timezone: string,
+) {
   let plan;
   try {
     plan = planClassDates(input);
@@ -257,8 +296,8 @@ export async function createClass(organizationId: string, input: CreateClassInpu
   const startMinute = minutesOf(input.startTime);
   const endMinute = minutesOf(input.endTime);
   const planned = plan.dates.map((localDate, index) => {
-    const start = resolveLocal(localDate, startMinute, org.timezone);
-    const end = resolveLocal(localDate, endMinute, org.timezone);
+    const start = resolveLocal(localDate, startMinute, timezone);
+    const end = resolveLocal(localDate, endMinute, timezone);
     return {
       seriesIndex: index + 1,
       localDate,
@@ -267,6 +306,23 @@ export async function createClass(organizationId: string, input: CreateClassInpu
       resolution: start.kind,
     };
   });
+
+  return { plan, planned };
+}
+
+export async function createClass(organizationId: string, input: CreateClassInput) {
+  const org = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { timezone: true, plan: true },
+  });
+
+  // Every Class is a multi-week course underneath, and courses are a paid-tier
+  // feature. The gate is the existing one, unchanged.
+  requireFeature(org.plan as PlanId, 'courseSeries');
+
+  const { plan, planned } = classSessions(input, org.timezone);
+  const startMinute = minutesOf(input.startTime);
+  const endMinute = minutesOf(input.endTime);
 
   if (planned[0]!.startsAt.getTime() <= Date.now()) {
     throw AppError.badRequest(
@@ -280,6 +336,11 @@ export async function createClass(organizationId: string, input: CreateClassInpu
   const slug = await slugFor(organizationId, input.name);
 
   return inTransaction(async (tx) => {
+    await assertNoClashes(tx, organizationId, org.timezone, planned, {
+      staffId,
+      locationId: location?.id ?? null,
+    });
+
     const service = await insertActivity(tx, organizationId, input, {
       kind: 'CLASS',
       bookingMode: 'COURSE_SERIES',
@@ -329,6 +390,72 @@ export async function createClass(organizationId: string, input: CreateClassInpu
 
     return { service, series, sessions, skipped: plan.skipped, endDate: plan.endDate };
   });
+}
+
+// --- Preview ----------------------------------------------------------------
+
+export type PreviewDate = {
+  localDate: string;
+  startsAt: Date;
+  endsAt: Date;
+  clashes: Clash[];
+};
+
+/**
+ * The dates a Class or Event would have, and what already happens at each —
+ * for the steps to show while the studio is still choosing. Writes nothing.
+ *
+ * Forgiving where publishing is strict: it is called on every change, often
+ * mid-way through filling a step, so a location the studio has not chosen yet
+ * is simply not checked rather than an error.
+ */
+export async function previewActivity(organizationId: string, input: PreviewInput) {
+  const org = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { timezone: true },
+  });
+
+  let dates: PlannedDate[];
+  let skipped: string[] = [];
+  if (input.kind === 'EVENT') {
+    const start = resolveLocal(input.date, minutesOf(input.startTime), org.timezone);
+    const end = resolveLocal(input.date, minutesOf(input.endTime), org.timezone);
+    dates = [{ localDate: input.date, startsAt: start.instant, endsAt: end.instant }];
+  } else {
+    const { plan, planned } = classSessions(input, org.timezone);
+    dates = planned;
+    skipped = plan.skipped;
+  }
+
+  let locationId: string | null = null;
+  let staffId: string | null = null;
+  try {
+    const resolved = await resolveWhereAndWho(organizationId, input);
+    locationId = resolved.location?.id ?? null;
+    staffId = resolved.staffId;
+  } catch (err) {
+    // LOCATION_REQUIRED: not chosen yet. Anything else is a real error.
+    if (!(err instanceof AppError) || err.code !== 'LOCATION_REQUIRED') throw err;
+    staffId = input.staffId ?? null;
+  }
+
+  const clashes = await findClashes(prisma, organizationId, org.timezone, dates, {
+    staffId,
+    locationId,
+  });
+
+  return {
+    dates: dates.map(
+      (d): PreviewDate => ({
+        localDate: d.localDate,
+        startsAt: d.startsAt,
+        endsAt: d.endsAt,
+        clashes: clashes.get(d.localDate) ?? [],
+      }),
+    ),
+    skipped,
+    clashCount: [...clashes.keys()].length,
+  };
 }
 
 // --- Drafts -----------------------------------------------------------------
