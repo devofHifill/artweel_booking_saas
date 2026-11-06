@@ -193,6 +193,54 @@ export function duplicateOf(
 type Location = { id: string; name: string; locationType?: string };
 type Staff = { id: string; name: string };
 
+/**
+ * A published Class or Event opened for Edit: its current answers, from
+ * `GET /activities/:id/answers`. `datesLocked` says why its dates and times
+ * cannot change (somebody has booked, or it has started), when they cannot.
+ */
+export type EditingActivity = {
+  id: string;
+  kind: ActivityKind;
+  answers: Record<string, unknown>;
+  datesLocked: string | null;
+};
+
+/** The server's answers (cents, numbers) as the form holds them (typed text). */
+function fromServer(a: Record<string, unknown>): Partial<ActivityAnswers> {
+  const cents = (v: unknown) => (typeof v === 'number' ? (v / 100).toFixed(2) : '');
+  const depositType = (['none', 'percent', 'fixed'].includes(String(a.depositType))
+    ? a.depositType
+    : 'none') as ActivityAnswers['depositType'];
+  const { priceCents, childPriceCents, depositValue, maxHorizonDays, ...rest } = a;
+  return {
+    ...(rest as Partial<ActivityAnswers>),
+    price: cents(priceCents),
+    childPrice: typeof childPriceCents === 'number' && childPriceCents > 0 ? cents(childPriceCents) : '',
+    depositType,
+    depositValue:
+      depositType === 'percent'
+        ? String(depositValue ?? '')
+        : depositType === 'fixed'
+          ? cents(depositValue)
+          : '',
+    maxHorizonDays: typeof maxHorizonDays === 'number' ? String(maxHorizonDays) : '',
+  };
+}
+
+/**
+ * Editing an Event shows every detail a Class asks, so an Event made in four
+ * steps can still have its deposit, policy and the rest set later.
+ */
+const EDIT_EVENT_STEPS = [
+  'What',
+  'When and where',
+  'Seats and price',
+  'Look',
+  'Policies',
+  'For customers',
+  'Review',
+];
+
 const STEPS: Record<ActivityKind, string[]> = {
   EVENT: ['What', 'When and where', 'Seats and price', 'Review'],
   CLASS: [
@@ -298,6 +346,7 @@ export function CreateActivity({
   timezone,
   currency,
   resume,
+  editing,
   onCreated,
   onClose,
 }: {
@@ -305,17 +354,26 @@ export function CreateActivity({
   timezone: string;
   currency: string;
   resume?: ResumableDraft;
+  /** Set to edit a published Class or Event instead of creating one. */
+  editing?: EditingActivity;
   onCreated: (message: string) => void;
   onClose: () => void;
 }) {
-  const [kind, setKind] = useState<ActivityKind | null>(resume?.kind ?? null);
-  const [step, setStep] = useState(resume?.data.step ?? 0);
+  const [kind, setKind] = useState<ActivityKind | null>(editing?.kind ?? resume?.kind ?? null);
+  const [step, setStep] = useState(editing ? 0 : (resume?.data.step ?? 0));
   /** The furthest step reached; steps up to it can be clicked in the progress bar. */
-  const [reached, setReached] = useState(resume?.data.reached ?? resume?.data.step ?? 0);
+  const [reached, setReached] = useState(
+    editing ? 99 : (resume?.data.reached ?? resume?.data.step ?? 0),
+  );
   const [answers, setAnswers] = useState<ActivityAnswers>(() => {
+    if (editing) return { ...defaults(timezone), ...fromServer(editing.answers) };
     const { step: _step, reached: _reached, ...saved } = resume?.data ?? {};
     return { ...defaults(timezone), ...saved };
   });
+  /** Every field a Class asks: a Class, or any activity being edited. */
+  const full = kind === 'CLASS' || Boolean(editing);
+  /** Why the dates and times cannot change, when they cannot. */
+  const locked = editing?.datesLocked ?? null;
   const [errors, setErrors] = useState<Errors>({});
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -451,6 +509,7 @@ export function CreateActivity({
       endTime: answers.endTime,
       ...(answers.locationId ? { locationId: answers.locationId } : {}),
       ...(answers.staffId ? { staffId: answers.staffId } : {}),
+      ...(editing ? { activityId: editing.id } : {}),
     };
     const body =
       kind === 'EVENT'
@@ -514,7 +573,7 @@ export function CreateActivity({
     if (clashes.size === 0) setErrors((e) => (e.clashes ? { ...e, clashes: undefined } : e));
   }, [clashes]);
 
-  const steps = kind ? STEPS[kind] : [];
+  const steps = kind ? (editing && kind === 'EVENT' ? EDIT_EVENT_STEPS : STEPS[kind]) : [];
   const stepName = steps[step];
   const locationName = locations.find((l) => l.id === answers.locationId)?.name;
   const staffName = staff.find((s) => s.id === answers.staffId)?.name;
@@ -530,11 +589,12 @@ export function CreateActivity({
       if (answers.endTime <= answers.startTime) e.endTime = 'The end time must be after the start.';
     }
     if (name === 'When and where') {
-      if (!answers.date || answers.date < today) e.date = 'Choose a date that has not passed.';
+      if (!locked && (!answers.date || answers.date < today)) e.date = 'Choose a date that has not passed.';
       if (locations.length > 1 && !answers.locationId) e.locationId = 'Choose where it runs.';
     }
     if (name === 'Schedule') {
-      if (!answers.startDate || answers.startDate < today) e.startDate = 'Choose a start date that has not passed.';
+      if (!locked && (!answers.startDate || answers.startDate < today))
+        e.startDate = 'Choose a start date that has not passed.';
       if (answers.weekdays.length === 0) e.weekdays = 'Choose at least one day.';
       if (!Number.isInteger(answers.sessionCount) || answers.sessionCount < 1 || answers.sessionCount > 52)
         e.sessionCount = 'Between 1 and 52 sessions.';
@@ -547,7 +607,7 @@ export function CreateActivity({
       if (!Number.isInteger(answers.seats) || answers.seats < 1 || answers.seats > 500)
         e.seats = 'Between 1 and 500 seats.';
       if (priceCents(answers.price) === null) e.price = 'Enter a price. Use 0 if it is free.';
-      if (kind === 'CLASS') {
+      if (full) {
         if (optionalCents(answers.childPrice) === null)
           e.childPrice = 'Enter a price, or leave it blank for adults only.';
         if (!Number.isInteger(answers.minGuests) || answers.minGuests < 1)
@@ -591,7 +651,7 @@ export function CreateActivity({
 
   /** Best effort: a draft that fails to save never blocks the next step. */
   async function saveDraft(nextStep: number) {
-    if (!kind) return;
+    if (!kind || editing) return;
     const data = { ...answers, step: nextStep, reached: Math.max(reached, nextStep) };
     try {
       if (draftId.current) {
@@ -619,12 +679,45 @@ export function CreateActivity({
   }
 
   function back() {
+    if (step === 0 && editing) {
+      onClose();
+      return;
+    }
     if (step === 0) {
       // Back from the first step returns to the choice. Nothing is lost.
       setKind(null);
       return;
     }
     setStep(step - 1);
+  }
+
+  /** The answers beyond what, when, where, seats and price. */
+  function details() {
+    const text = (value: string) => (value.trim() ? value.trim() : undefined);
+    return {
+      description: text(answers.description),
+      categoryId: answers.categoryId || undefined,
+      meetingPoint: text(answers.meetingPoint),
+      childPriceCents: optionalCents(answers.childPrice) ?? 0,
+      minGuests: answers.minGuests,
+      depositType: answers.depositType,
+      depositValue:
+        answers.depositType === 'percent'
+          ? Math.round(Number(answers.depositValue))
+          : answers.depositType === 'fixed'
+            ? (priceCents(answers.depositValue) ?? 0)
+            : 0,
+      emoji: answers.emoji || undefined,
+      color: answers.color || undefined,
+      colorAccent: answers.colorAccent || undefined,
+      cancellationPolicyId: answers.cancellationPolicyId || undefined,
+      minNoticeMinutes: answers.minNoticeMinutes,
+      ...(answers.maxHorizonDays.trim() ? { maxHorizonDays: Number(answers.maxHorizonDays) } : {}),
+      highlights: text(answers.highlights),
+      preparationNotes: text(answers.preparationNotes),
+      bookingInstructions: text(answers.bookingInstructions),
+      isActive: answers.isActive,
+    };
   }
 
   async function publish() {
@@ -646,41 +739,43 @@ export function CreateActivity({
       ...(draftId.current ? { draftId: draftId.current } : {}),
     };
 
+    if (editing) {
+      try {
+        await api.put(
+          `${base}/activities/${kind === 'CLASS' ? 'classes' : 'events'}/${editing.id}`,
+          {
+            ...common,
+            ...details(),
+            ...(kind === 'EVENT'
+              ? { date: answers.date }
+              : {
+                  startDate: answers.startDate,
+                  weekdays: answers.weekdays,
+                  sessionCount: answers.sessionCount,
+                  ...(answers.skipDates.length ? { skipDates: answers.skipDates } : {}),
+                }),
+          },
+        );
+        onCreated(`${common.name} is saved.`);
+      } catch (err) {
+        setServerError(err instanceof Error ? err.message : 'Could not save.');
+        setBusy(false);
+      }
+      return;
+    }
+
     try {
       if (kind === 'EVENT') {
         await api.post(`${base}/activities/events`, { ...common, date: answers.date });
         onCreated(`${common.name} is on your booking page for ${shortDate(answers.date)}.`);
       } else {
-        const text = (value: string) => (value.trim() ? value.trim() : undefined);
-        const depositValue =
-          answers.depositType === 'percent'
-            ? Math.round(Number(answers.depositValue))
-            : answers.depositType === 'fixed'
-              ? (priceCents(answers.depositValue) ?? 0)
-              : 0;
         await api.post(`${base}/activities/classes`, {
           ...common,
           startDate: answers.startDate,
           weekdays: answers.weekdays,
           sessionCount: answers.sessionCount,
           ...(answers.skipDates.length ? { skipDates: answers.skipDates } : {}),
-          description: text(answers.description),
-          categoryId: answers.categoryId || undefined,
-          meetingPoint: text(answers.meetingPoint),
-          childPriceCents: optionalCents(answers.childPrice) ?? 0,
-          minGuests: answers.minGuests,
-          depositType: answers.depositType,
-          depositValue,
-          emoji: answers.emoji || undefined,
-          color: answers.color || undefined,
-          colorAccent: answers.colorAccent || undefined,
-          cancellationPolicyId: answers.cancellationPolicyId || undefined,
-          minNoticeMinutes: answers.minNoticeMinutes,
-          ...(answers.maxHorizonDays.trim() ? { maxHorizonDays: Number(answers.maxHorizonDays) } : {}),
-          highlights: text(answers.highlights),
-          preparationNotes: text(answers.preparationNotes),
-          bookingInstructions: text(answers.bookingInstructions),
-          isActive: answers.isActive,
+          ...details(),
         });
         onCreated(
           answers.isActive
@@ -774,7 +869,13 @@ export function CreateActivity({
   // --- The steps -------------------------------------------------------------
 
   const last = step === steps.length - 1;
-  const title = kind === 'CLASS' ? 'New class' : 'New event';
+  const title = editing
+    ? kind === 'CLASS'
+      ? 'Edit class'
+      : 'Edit event'
+    : kind === 'CLASS'
+      ? 'New class'
+      : 'New event';
 
   return (
     <Modal
@@ -815,7 +916,15 @@ export function CreateActivity({
               onClick={() => void publish()}
               disabled={busy || clashes.size > 0}
             >
-              {busy ? 'Publishing…' : answers.isActive || kind !== 'CLASS' ? 'Publish' : 'Save as hidden'}
+              {editing
+                ? busy
+                  ? 'Saving…'
+                  : 'Save changes'
+                : busy
+                  ? 'Publishing…'
+                  : answers.isActive || kind !== 'CLASS'
+                    ? 'Publish'
+                    : 'Save as hidden'}
             </button>
           ) : (
             <button type="button" className="primary" onClick={next}>
@@ -862,7 +971,7 @@ export function CreateActivity({
                 onChange={(e) => set('shortDescription', e.target.value)}
               />
             </Field>
-            {kind === 'CLASS' && (
+            {full && (
               <>
                 <Field
                   label="Full description"
@@ -880,10 +989,14 @@ export function CreateActivity({
                 <div className="form-row">
                   <Field
                     label="Type"
-                    hint="Chosen at the start. To make an Event instead, go back and pick it."
+                    hint={
+                      editing
+                        ? 'Set when it was made. A class cannot become an event, or the other way round.'
+                        : 'Chosen at the start. To make an Event instead, go back and pick it.'
+                    }
                     htmlFor="actType"
                   >
-                    <input id="actType" value="Class" readOnly disabled />
+                    <input id="actType" value={kind === 'CLASS' ? 'Class' : 'Event'} readOnly disabled />
                   </Field>
                   <Field
                     label="Category"
@@ -915,16 +1028,19 @@ export function CreateActivity({
 
         {stepName === 'When and where' && (
           <>
-            <Field label="Date" error={errors.date} htmlFor="actDate">
-              <input
-                id="actDate"
-                type="date"
-                min={todayIn(timezone)}
-                value={answers.date}
-                onChange={(e) => set('date', e.target.value)}
-              />
-            </Field>
-            <TimeFields answers={answers} errors={errors} set={set} />
+            {locked && <p className="step-locked">{locked}</p>}
+            <fieldset className="plain-fieldset" disabled={Boolean(locked)}>
+              <Field label="Date" error={errors.date} htmlFor="actDate">
+                <input
+                  id="actDate"
+                  type="date"
+                  min={locked ? undefined : todayIn(timezone)}
+                  value={answers.date}
+                  onChange={(e) => set('date', e.target.value)}
+                />
+              </Field>
+              <TimeFields answers={answers} errors={errors} set={set} />
+            </fieldset>
             <LocationField
               locations={locations}
               value={answers.locationId}
@@ -936,12 +1052,13 @@ export function CreateActivity({
         )}
 
         {stepName === 'Schedule' && (
-          <>
+          <fieldset className="plain-fieldset" disabled={Boolean(locked)}>
+            {locked && <p className="step-locked">{locked}</p>}
             <Field label="Starts on" error={errors.startDate} htmlFor="actStart">
               <input
                 id="actStart"
                 type="date"
-                min={todayIn(timezone)}
+                min={locked ? undefined : todayIn(timezone)}
                 value={answers.startDate}
                 onChange={(e) => set('startDate', e.target.value)}
               />
@@ -1030,7 +1147,7 @@ export function CreateActivity({
                 )}
               </div>
             )}
-          </>
+          </fieldset>
         )}
 
         {stepName === 'Where and who' && (
@@ -1059,10 +1176,15 @@ export function CreateActivity({
           </>
         )}
 
-        {stepName === 'Seats and price' && kind === 'CLASS' && (
+        {stepName === 'Seats and price' && full && (
           <>
             <div className="form-row">
-              <Field label="Adult price" error={errors.price} hint="For the whole class, every session." htmlFor="actPrice">
+              <Field
+                label="Adult price"
+                error={errors.price}
+                hint={kind === 'CLASS' ? 'For the whole class, every session.' : 'Per seat.'}
+                htmlFor="actPrice"
+              >
                 <input
                   id="actPrice"
                   type="number"
@@ -1077,7 +1199,7 @@ export function CreateActivity({
               <Field
                 label="Child price"
                 error={errors.childPrice}
-                hint="0 = adults only. Also for the whole class."
+                hint={kind === 'CLASS' ? '0 = adults only. Also for the whole class.' : '0 = adults only. Per child seat.'}
                 htmlFor="actChildPrice"
               >
                 <input
@@ -1166,6 +1288,12 @@ export function CreateActivity({
                 </Field>
               )}
             </div>
+            {kind === 'EVENT' && (
+              <>
+                <StaffField staff={staff} value={answers.staffId} onChange={(v) => set('staffId', v)} />
+                <ClashList clashes={clashes} error={errors.clashes} />
+              </>
+            )}
           </>
         )}
 
@@ -1327,7 +1455,7 @@ export function CreateActivity({
           </>
         )}
 
-        {stepName === 'Seats and price' && kind === 'EVENT' && (
+        {stepName === 'Seats and price' && !full && (
           <>
             <div className="form-row">
               <Field label="Seats" error={errors.seats} htmlFor="actSeats">
@@ -1408,7 +1536,7 @@ export function CreateActivity({
                 </dd>
                 <dt>Seats</dt>
                 <dd>{answers.seats}</dd>
-                {kind === 'CLASS' && (
+                {full && (
                   <ClassReviewRows
                     answers={answers}
                     currency={currency}
@@ -1435,7 +1563,7 @@ export function CreateActivity({
                   : undefined
               }
             />
-            {kind === 'CLASS' && (
+            {full && (
               <Field
                 label="Status"
                 hint={

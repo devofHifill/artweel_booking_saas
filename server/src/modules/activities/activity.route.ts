@@ -8,6 +8,7 @@ import {
   createClassSchema,
   createDraftSchema,
   createEventSchema,
+  editEventSchema,
   previewSchema,
   updateDraftSchema,
 } from './activity.schema';
@@ -97,5 +98,44 @@ activityRouter.delete(
   asyncHandler(async (req, res) => {
     await activities.deleteDraft(req.tenant!.organizationId, draftId(req));
     res.status(204).send();
+  }),
+);
+
+// --- Editing a published Class or Event ---------------------------------------
+
+const activityId = (req: { params: Record<string, string | undefined> }) => {
+  const value = req.params.activityId;
+  if (!value || !/^[0-9a-f-]{36}$/i.test(value)) throw AppError.badRequest('Missing activityId.');
+  return value;
+};
+
+/** Its answers, for the steps to open filled in. */
+activityRouter.get(
+  '/:activityId/answers',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    res.json(await activities.getActivityAnswers(req.tenant!.organizationId, activityId(req)));
+  }),
+);
+
+activityRouter.put(
+  '/classes/:activityId',
+  requireAdmin,
+  validateBody(createClassSchema),
+  asyncHandler(async (req, res) => {
+    res.json(
+      await activities.editActivity(req.tenant!.organizationId, activityId(req), 'CLASS', req.body),
+    );
+  }),
+);
+
+activityRouter.put(
+  '/events/:activityId',
+  requireAdmin,
+  validateBody(editEventSchema),
+  asyncHandler(async (req, res) => {
+    res.json(
+      await activities.editActivity(req.tenant!.organizationId, activityId(req), 'EVENT', req.body),
+    );
   }),
 );

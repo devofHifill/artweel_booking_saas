@@ -122,6 +122,37 @@ export const createClassSchema = z
     path: ['highlights'],
   });
 
+/**
+ * Editing an Event: everything its steps ask, plus every detail a Class's
+ * steps ask — an Event created in four steps can still have its deposit,
+ * policy and the rest set when it is edited.
+ */
+export const editEventSchema = z
+  .object({
+    ...common,
+    ...times,
+    ...classDetails,
+    date: localDate,
+  })
+  .refine(endsAfterStarts, endsAfterStartsMessage)
+  .refine((c) => c.minGuests <= c.seats, {
+    message: 'The minimum guests cannot be more than the seats.',
+    path: ['minGuests'],
+  })
+  .refine((c) => c.depositType !== 'percent' || c.depositValue <= 100, {
+    message: 'A percentage deposit cannot exceed 100.',
+    path: ['depositValue'],
+  })
+  .refine((c) => c.depositType === 'none' || c.depositValue > 0, {
+    message: 'A deposit needs a value above zero.',
+    path: ['depositValue'],
+  })
+  .refine((c) => countLines(c.highlights) <= 12, {
+    message: 'Twelve lines is the most a booking page will show.',
+    path: ['highlights'],
+  });
+
+export type EditEventInput = z.infer<typeof editEventSchema>;
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 export type CreateClassInput = z.infer<typeof createClassSchema>;
 
@@ -132,6 +163,8 @@ export type CreateClassInput = z.infer<typeof createClassSchema>;
 const previewWhereAndWho = {
   locationId: z.string().uuid().optional(),
   staffId: z.string().uuid().optional(),
+  /** Editing: that activity's own sessions are not clashes. */
+  activityId: z.string().uuid().optional(),
 };
 
 // The refine sits on the union: a discriminated union takes plain objects only.
