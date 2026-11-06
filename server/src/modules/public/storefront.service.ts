@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
+import { listPublicCourses } from './public.service';
 
 /**
  * Everything the public storefront needs, in one read.
@@ -72,8 +73,12 @@ export async function getStorefront(slug: string) {
         isActive: true,
         /* Same exclusion the booking page makes, and for the same reason: a
            COURSE_SERIES is the container for a cohort, and its priceCents is
-           the per-class rate. Listing it would sell one week of six. */
-        bookingMode: { not: 'COURSE_SERIES' },
+           the per-class rate. Listing it would sell one week of six.
+
+           Except a Class (CLASS-EVENT-PLAN.md): its price IS the whole run,
+           mirrored from its one cohort, so it is listed — with that cohort's
+           dates, below — and booked as the course it is. */
+        OR: [{ bookingMode: { not: 'COURSE_SERIES' } }, { kind: 'CLASS' }],
       },
       select: {
         id: true,
@@ -182,9 +187,23 @@ export async function getStorefront(slug: string) {
       })
     : [];
   const lastEnd = new Map(eventEnds.map((r) => [r.serviceTypeId, r._max.endsAt]));
-  const services = allServices.filter(
-    (s) => s.kind !== 'EVENT' || (lastEnd.get(s.id)?.getTime() ?? 0) > now.getTime(),
+
+  /*
+    A Class's run, exactly as the booking page lists it — the same function, so
+    the two pages agree on its dates, places left and whether it can be booked
+    yet. A Class with no run there (finished, or its course cancelled) is not
+    listed here either.
+  */
+  const runs = new Map(
+    (await listPublicCourses(organization.id))
+      .filter((c) => c.service.kind === 'CLASS')
+      .map((c) => [c.service.id, c]),
   );
+
+  const services = allServices
+    .filter((s) => s.kind !== 'EVENT' || (lastEnd.get(s.id)?.getTime() ?? 0) > now.getTime())
+    .filter((s) => s.kind !== 'CLASS' || runs.has(s.id))
+    .map((s) => ({ ...s, run: runs.get(s.id) ?? null }));
 
   const categories = [
     ...new Map(

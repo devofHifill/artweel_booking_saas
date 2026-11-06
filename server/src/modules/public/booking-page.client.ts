@@ -1030,6 +1030,11 @@ export const clientScript = String.raw`
     });
   }
 
+  /* Numbers each quote asked for. Changing places then children quickly sends
+     two; the answer to the first can arrive last, and must not then replace
+     the second's — the summary would show a total for a party nobody chose. */
+  var quoteSeq = 0;
+
   function paintSummary() {
     var host = document.getElementById('summary');
     if (!host) return;
@@ -1038,9 +1043,11 @@ export const clientScript = String.raw`
        otherwise decide which endpoint submits, and could send somebody to
        Stripe for a class they are no longer booking. */
     quote = null;
+    var mine = ++quoteSeq;
 
     fetchQuote()
       .then(function (q) {
+        if (mine !== quoteSeq) return; // a newer question is out; its answer wins
         quote = q;
         host.innerHTML = renderSummary(q);
         var btn = document.getElementById('confirm');
@@ -1049,6 +1056,7 @@ export const clientScript = String.raw`
         }
       })
       .catch(function () {
+        if (mine !== quoteSeq) return;
         /* A quote that will not load must not block a booking. The price is
            on the service card either way, and checkout recomputes it. */
         host.innerHTML = '';
@@ -1346,7 +1354,20 @@ export const clientScript = String.raw`
        customer to pick the class they just clicked is a wasted step, so go
        straight to it. An unknown id falls through to the list. */
     var wanted = /(?:^|[?&])service=([^&]+)/.exec(location.search);
-    if (wanted) pickService(decodeURIComponent(wanted[1]));
+    if (wanted) {
+      var wantedId = decodeURIComponent(wanted[1]);
+      var isService = DATA.services.some(function (s) { return s.id === wantedId; });
+      if (isService) {
+        pickService(wantedId);
+      } else {
+        /* A Class is listed on the website by its activity, but booked as its
+           course: open the course that activity runs. */
+        var run = (DATA.courses || []).filter(function (c) {
+          return c.service.id === wantedId && c.enrollable;
+        })[0];
+        if (run) pickCourse(run.id);
+      }
+    }
   }
 })();
 `;

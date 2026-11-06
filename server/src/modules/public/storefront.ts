@@ -212,11 +212,27 @@ ${footer(store)}
 
 // --- Cards ------------------------------------------------------------------
 
+/**
+ * A Class's dates and state, in a line: it is booked once for the whole run,
+ * so "Next: Sat 14 Nov, 8 left" would read as one session for sale.
+ */
+function runLine(s: Service, tz: string): string {
+  const run = s.run!;
+  const when = `${run.sessionCount} sessions from ${dateShort(new Date(run.startsAt), tz)}`;
+  const state = run.enrollable
+    ? `<span class="sf-left">${run.seatsRemaining} ${run.seatsRemaining === 1 ? 'place' : 'places'} left</span>`
+    : run.bookingOpensAt
+      ? `<span class="sf-muted">Booking opens ${dateShort(new Date(run.bookingOpensAt), tz)}</span>`
+      : `<span class="sf-muted">${run.seatsRemaining <= 0 ? 'Full' : 'Booking closed'}</span>`;
+  return `<span>${when}</span>${state}`;
+}
+
 function serviceCard(store: Storefront, s: Service): string {
   const base = `/public/${store.organization.slug}`;
   const next = s.sessions[0];
   const tz = store.organization.timezone;
   const currency = store.organization.currency;
+  const run = s.run;
 
   return `<article class="sf-card">
     <a class="sf-card-media" href="${base}/a/${escapeHtml(s.slug)}" style="background:${gradient(s)}">
@@ -237,7 +253,9 @@ function serviceCard(store: Storefront, s: Service): string {
       }
       <div class="sf-meta">
         ${
-          next
+          run
+            ? runLine(s, tz)
+            : next
             ? `<span>Next: ${dateShort(next.startsAt, tz)} ${timeOf(
                 next.startsAt,
                 tz,
@@ -248,9 +266,13 @@ function serviceCard(store: Storefront, s: Service): string {
               '<span class="sf-muted">No dates scheduled yet</span>'
         }
       </div>
-      <a class="sf-btn sf-btn-primary sf-btn-block" href="${base}/book?service=${escapeHtml(
-        s.id,
-      )}">Book now</a>
+      ${
+        run && !run.enrollable
+          ? `<a class="sf-btn sf-btn-block" href="${base}/a/${escapeHtml(s.slug)}">See details</a>`
+          : `<a class="sf-btn sf-btn-primary sf-btn-block" href="${base}/book?service=${escapeHtml(
+              s.id,
+            )}">Book now</a>`
+      }
     </div>
   </article>`;
 }
@@ -524,7 +546,7 @@ export function renderActivity(store: Storefront, s: Service): string {
         <div class="sf-aside-price">
           <div>
             <span class="sf-big">${money(s.priceCents, org.currency)}</span>
-            <span class="sf-muted"> per adult</span>
+            <span class="sf-muted"> per adult${s.run ? `, for all ${s.run.sessionCount} sessions` : ''}</span>
           </div>
           ${
             /* Only when there IS a child rate. Zero means adults only — it is
@@ -537,9 +559,20 @@ export function renderActivity(store: Storefront, s: Service): string {
           }
         </div>
 
-        <div class="sf-aside-title">Next available</div>
+        <div class="sf-aside-title">${s.run ? `${s.run.sessionCount} sessions, booked together` : 'Next available'}</div>
         ${
-          s.sessions.length > 0
+          s.run
+            ? `<ul class="sf-slots">${s.run.dates
+                .map(
+                  (d) =>
+                    `<li><span><b>${dateShort(new Date(d.startsAt), tz)}</b> ${timeOf(
+                      new Date(d.startsAt),
+                      tz,
+                    )}</span></li>`,
+                )
+                .join('')}</ul>
+               <p class="sf-fine">${runLine(s, tz)}</p>`
+            : s.sessions.length > 0
             ? `<ul class="sf-slots">${s.sessions
                 .map((session) => {
                   const left = seatsLeft(session);
@@ -556,9 +589,13 @@ export function renderActivity(store: Storefront, s: Service): string {
                will open one.</p>`
         }
 
-        <a class="sf-btn sf-btn-primary sf-btn-block" href="${base}/book?service=${escapeHtml(
-          s.id,
-        )}">Book this class</a>
+        ${
+          s.run && !s.run.enrollable
+            ? ''
+            : `<a class="sf-btn sf-btn-primary sf-btn-block" href="${base}/book?service=${escapeHtml(
+                s.id,
+              )}">Book this class</a>`
+        }
         ${
           hours !== null
             ? `<p class="sf-fine">Free cancellation up to ${hours} hours before</p>`
