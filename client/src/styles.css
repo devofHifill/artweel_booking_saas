@@ -999,7 +999,11 @@ tr:hover td { background: var(--clay-lt); }
   font-weight: 600;
   box-shadow: 0 10px 24px rgba(110, 52, 24, 0.28);
 }
+/* Restates the gradient: the global `button:hover` (more specific than
+   `.auth-submit`) would otherwise swap it for the pale page background and
+   leave the white label invisible. */
 .auth-submit:hover:not(:disabled) {
+  background: linear-gradient(115deg, var(--clay-dk) 0%, var(--clay) 78%);
   border-color: transparent;
   box-shadow: 0 14px 30px rgba(110, 52, 24, 0.36);
   filter: brightness(1.07);
