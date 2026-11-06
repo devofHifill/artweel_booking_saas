@@ -2,7 +2,8 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
 import { uniqueSlug } from '../../lib/slug';
-import { requireFeature, type PlanId } from '../billing/plan';
+import { requireCapacity, type PlanId } from '../billing/plan';
+import { countRunningClasses } from './class-limit';
 import { insertSession } from '../../scheduling/session.service';
 import { translateSchedulingError } from '../../scheduling/pg-error';
 import { resolveLocal, type ResolutionKind } from '../../scheduling/time/zoned';
@@ -316,9 +317,12 @@ export async function createClass(organizationId: string, input: CreateClassInpu
     select: { timezone: true, plan: true },
   });
 
-  // Every Class is a multi-week course underneath, and courses are a paid-tier
-  // feature. The gate is the existing one, unchanged.
-  requireFeature(org.plan as PlanId, 'courseSeries');
+  /*
+    Classes are on every plan, limited by how many run at once (Solo: 1). The
+    older Courses module stays a Studio/Pro feature; a Class is a course
+    underneath, but it is created here and counted here.
+  */
+  requireCapacity(org.plan as PlanId, 'maxClasses', await countRunningClasses(organizationId));
 
   const { plan, planned } = classSessions(input, org.timezone);
   const startMinute = minutesOf(input.startTime);

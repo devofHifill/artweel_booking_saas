@@ -26,9 +26,24 @@ async function planOf(organizationId: string): Promise<PlanId> {
   return org.plan as PlanId;
 }
 
-/** Every write path goes through here. Courses are a paid-tier feature. */
-async function requireCourses(organizationId: string) {
-  requireFeature(await planOf(organizationId), 'courseSeries');
+/**
+ * Every write path goes through here. Courses are a paid-tier feature.
+ *
+ * Except on the cohort behind a Class (CLASS-EVENT-PLAN.md): Classes are on
+ * every plan, limited by how many run at once, so a Solo studio must be able
+ * to manage the one it has — enrol someone by hand, change its seats, cancel
+ * it. Creating a NEW cohort through Courses stays gated (no `seriesId`).
+ */
+async function requireCourses(organizationId: string, seriesId?: string) {
+  const plan = await planOf(organizationId);
+  if (seriesId) {
+    const series = await prisma.courseSeries.findFirst({
+      where: { id: seriesId, organizationId },
+      select: { serviceType: { select: { kind: true } } },
+    });
+    if (series?.serviceType.kind === 'CLASS') return;
+  }
+  requireFeature(plan, 'courseSeries');
 }
 
 export async function listSeries(
@@ -201,7 +216,7 @@ export async function updateSeries(
   id: string,
   input: Record<string, unknown>,
 ) {
-  await requireCourses(organizationId);
+  await requireCourses(organizationId, id);
 
   const series = await prisma.courseSeries.findFirst({
     where: { id, organizationId },
@@ -262,7 +277,7 @@ export async function generateSessions(
   id: string,
   input: { rrule: string; startLocalDate: string; localStartTime: string },
 ) {
-  await requireCourses(organizationId);
+  await requireCourses(organizationId, id);
 
   return generateSeriesSessions({
     organizationId,
@@ -274,7 +289,7 @@ export async function generateSessions(
 }
 
 export async function cancelCourseSeries(organizationId: string, id: string) {
-  await requireCourses(organizationId);
+  await requireCourses(organizationId, id);
   return cancelSeries(organizationId, id);
 }
 
@@ -387,7 +402,7 @@ export async function enrollCustomer(
   id: string,
   input: { customerId: string; seats?: number; notes?: string },
 ) {
-  await requireCourses(organizationId);
+  await requireCourses(organizationId, id);
 
   const customer = await prisma.customer.findFirst({
     where: { id: input.customerId, organizationId },

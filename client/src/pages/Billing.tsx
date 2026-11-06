@@ -11,6 +11,8 @@ type Plan = {
   priceCentsMonthly: number;
   maxStaff: number | null;
   maxLocations: number | null;
+  /** Classes running at once (Solo: 1). null means unlimited. */
+  maxClasses: number | null;
   mobileBookings: boolean;
   smsReminders: boolean;
   courseSeries: boolean;
@@ -24,8 +26,8 @@ type BillingState = {
   trialDaysLeft: number | null;
   canWrite: boolean;
   notice: { level: 'info' | 'warn' | 'danger'; message: string } | null;
-  usage: { staff: number; locations: number };
-  limits: { maxStaff: number | null; maxLocations: number | null };
+  usage: { staff: number; locations: number; classes: number };
+  limits: { maxStaff: number | null; maxLocations: number | null; maxClasses: number | null };
 };
 
 export default function Billing() {
@@ -187,6 +189,19 @@ export default function Billing() {
             </>
           }
         />
+        {/* Classes running now: one that has ended frees its place. */}
+        <Stat
+          label="Classes running"
+          value={
+            <>
+              {state.usage.classes}
+              <span className="sub" style={{ fontSize: '.9rem', fontWeight: 400 }}>
+                {' '}
+                / {state.limits.maxClasses ?? '∞'}
+              </span>
+            </>
+          }
+        />
       </StatGrid>
 
       {/* The portal endpoint existed with nothing calling it, so a paying
@@ -228,6 +243,12 @@ export default function Billing() {
               <ul className="sub" style={{ paddingLeft: 18, fontSize: '.84rem' }}>
                 <li>{plan.maxStaff ?? 'Unlimited'} instructors</li>
                 <li>{plan.maxLocations ?? 'Unlimited'} locations</li>
+                <li>
+                  {plan.maxClasses === null
+                    ? 'Unlimited classes'
+                    : `${plan.maxClasses} ${plan.maxClasses === 1 ? 'class' : 'classes'} at a time`}
+                </li>
+                <li>Unlimited events</li>
                 {plan.mobileBookings && <li>Mobile and travelling bookings</li>}
                 {plan.smsReminders && <li>Text reminders</li>}
                 {plan.courseSeries && <li>Multi-week courses</li>}

@@ -1,5 +1,5 @@
 import { config } from '../../config';
-import { PLANS } from '../billing/plan';
+import { PLANS, classesLine } from '../billing/plan';
 import { BRAND, COMING_SOON, SHIPPING_FEATURES, type Page } from './content';
 import { GENERAL, VERTICALS, type Vertical } from './verticals';
 import { escapeHtml, structuredData } from './render';
@@ -226,11 +226,12 @@ function planCards(): string {
       const lines = [
         `${plan.maxStaff ?? 'Unlimited'} instructor${plan.maxStaff === 1 ? '' : 's'}`,
         `${plan.maxLocations ?? 'Unlimited'} location${plan.maxLocations === 1 ? '' : 's'}`,
+        classesLine(plan),
+        'Unlimited events',
         plan.mobileBookings ? 'Mobile and travelling bookings' : null,
         plan.smsReminders ? 'Text reminders' : null,
         plan.apiAccess ? 'API access' : null,
         'Deposits &amp; cancellation rules',
-        'Multi-week course enrolment',
         'Payments straight to your Stripe',
       ].filter(Boolean) as string[];
 

@@ -195,9 +195,17 @@ export function CreateActivity({
 
   const [locations, setLocations] = useState<Location[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
-  /** Null until known. False means Class is not on this studio's plan. */
-  const [classesOnPlan, setClassesOnPlan] = useState<boolean | null>(null);
-  const [planNeeded, setPlanNeeded] = useState<string>('Studio');
+  /**
+   * The plan's limit on Classes running at once (Solo: 1), and how many are
+   * running. Null until known; the server enforces it on publish regardless.
+   */
+  const [classLimit, setClassLimit] = useState<{
+    running: number;
+    max: number | null;
+    planName: string;
+    upgradeTo: string | null;
+  } | null>(null);
+  const classesFull = classLimit !== null && classLimit.max !== null && classLimit.running >= classLimit.max;
 
   /* Each picker loads on its own and fails quietly: a list that cannot load
      leaves its field offering "none", and the rest of the flow still works. */
@@ -231,16 +239,22 @@ export function CreateActivity({
     void (async () => {
       try {
         const res = await api.get<{
-          billing: { plan: string };
-          plans: { id: string; name: string; courseSeries: boolean }[];
+          billing: {
+            plan: string;
+            planName: string;
+            usage: { classes?: number };
+            limits: { maxClasses?: number | null };
+          };
+          plans: { id: string; name: string; maxClasses?: number | null }[];
         }>(`${base}/billing`);
-        const current = res.plans.find((p) => p.id === res.billing.plan);
-        setClassesOnPlan(current ? current.courseSeries : true);
-        const first = res.plans.find((p) => p.courseSeries);
-        if (first) setPlanNeeded(first.name);
+        setClassLimit({
+          running: res.billing.usage.classes ?? 0,
+          max: res.billing.limits.maxClasses ?? null,
+          planName: res.billing.planName,
+          upgradeTo: res.plans.find((p) => p.maxClasses === null)?.name ?? null,
+        });
       } catch {
-        // Unknown: offer it, and let the server say so on publish.
-        setClassesOnPlan(true);
+        /* Unknown: offer it, and let the server say so on publish. */
       }
     })();
   }, [base]);
@@ -500,7 +514,7 @@ export function CreateActivity({
           <button
             type="button"
             className="kind-card"
-            disabled={classesOnPlan === false}
+            disabled={classesFull}
             onClick={() => {
               setKind('CLASS');
               setStep(0);
@@ -513,8 +527,16 @@ export function CreateActivity({
             <span className="kind-card-text">
               Runs over several weeks. Customers book once and come to every session.
             </span>
-            {classesOnPlan === false && (
-              <span className="kind-card-note">Included from the {planNeeded} plan.</span>
+            {classLimit && classLimit.max !== null && (
+              <span className="kind-card-note">
+                {classesFull
+                  ? `Your ${classLimit.planName} plan runs ${classLimit.max} ${
+                      classLimit.max === 1 ? 'class' : 'classes'
+                    } at a time. Publish the next when this one ends${
+                      classLimit.upgradeTo ? `, or upgrade to ${classLimit.upgradeTo}` : ''
+                    }.`
+                  : `${classLimit.max} ${classLimit.max === 1 ? 'class' : 'classes'} at a time on ${classLimit.planName}.`}
+              </span>
             )}
           </button>
           <button
