@@ -99,7 +99,7 @@ On the staff member's row, click **Hours**.
 | What it is | Runs over several weeks, e.g. a 6-week beginner course | One date, e.g. a date night, a workshop, a party |
 | How customers book | Once, for **every session** | A seat on that date |
 | Price | For the whole class | Per seat |
-| Plan | Studio and Pro | Every plan |
+| Plan | Every plan. **Solo runs 1 class at a time**; Studio and Pro, unlimited | Every plan, unlimited |
 
 Then a few short steps. **Next** checks each step before moving on, and **Back** never loses what you typed.
 
@@ -344,7 +344,7 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 | No dates in the next day or two | **Minimum notice** hides them | Expected. Lower the minimum notice if needed |
 | Later dates missing | **Bookable up to (days ahead)** is too short | Increase it |
 | **Next** won't move on, dates shown in red | Those dates clash (Step 9.3) | Change the time, instructor or location, or untick the dates |
-| **Class** card is greyed out | Classes are on the Studio and Pro plans | Upgrade in **Billing**, or create an Event |
+| **Class** card is greyed out | On Solo, a class is already running (1 at a time) | Publish the next one when it ends (**Duplicate** it from **Past**), or upgrade in **Billing**. **Billing** shows *Classes running* |
 | A Class or Event disappeared from the booking page | Its last date has passed | It's under **Activities → Past**. **Duplicate** it to run it again |
 | **One to one** shows no times | Instructor not assigned, or no working hours | Steps 7–8 |
 | Instructor not shown | Not assigned, or **Show on the booking page** is off | Steps 6–7 |

@@ -18,6 +18,14 @@ export type PlanDefinition = {
   /** null means unlimited. */
   maxStaff: number | null;
   maxLocations: number | null;
+  /**
+   * Classes running at once (CLASS-EVENT-PLAN.md). A Class counts from
+   * publishing until its last session ends, so a Solo studio runs one term at
+   * a time and duplicates it for the next. null means unlimited.
+   *
+   * A constant, not a `plan_settings` column: refreshPlans() leaves it alone.
+   */
+  maxClasses: number | null;
   mobileBookings: boolean;
   smsReminders: boolean;
   courseSeries: boolean;
@@ -51,6 +59,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     priceCentsMonthly: 3900,
     maxStaff: 1,
     maxLocations: 1,
+    maxClasses: 1,
     mobileBookings: false,
     smsReminders: false,
     courseSeries: false,
@@ -64,6 +73,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     priceCentsMonthly: 8900,
     maxStaff: 5,
     maxLocations: 3,
+    maxClasses: null,
     mobileBookings: true,
     smsReminders: true,
     courseSeries: true,
@@ -78,6 +88,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     priceCentsMonthly: 18900,
     maxStaff: null,
     maxLocations: null,
+    maxClasses: null,
     mobileBookings: true,
     smsReminders: true,
     courseSeries: true,
@@ -153,19 +164,22 @@ export function requireFeature(plan: PlanId, feature: Feature) {
 
 export function requireCapacity(
   plan: PlanId,
-  kind: 'maxStaff' | 'maxLocations',
+  kind: 'maxStaff' | 'maxLocations' | 'maxClasses',
   current: number,
 ) {
   const limit = PLANS[plan][kind];
   if (limit === null || current < limit) return;
 
-  const noun = kind === 'maxStaff' ? 'instructor' : 'location';
-  const label = limit === 1 ? noun : `${noun}s`;
-  const next = kind === 'maxStaff' ? nextPlanWithMoreStaff(plan) : PLANS.PRO;
+  const noun = kind === 'maxStaff' ? 'instructor' : kind === 'maxLocations' ? 'location' : 'class';
+  const label = limit === 1 ? noun : kind === 'maxClasses' ? 'classes' : `${noun}s`;
+  const next = kind === 'maxLocations' ? PLANS.PRO : nextPlanWithMoreStaff(plan);
 
   throw new AppError(
-    `The ${PLANS[plan].name} plan includes ${limit} ${label}. ` +
-      `Upgrade to ${next.name} to add more.`,
+    kind === 'maxClasses'
+      ? `The ${PLANS[plan].name} plan includes ${limit} ${label} at a time. ` +
+          `Upgrade to ${next.name} to run more, or publish the next one when this one ends.`
+      : `The ${PLANS[plan].name} plan includes ${limit} ${label}. ` +
+          `Upgrade to ${next.name} to add more.`,
     402,
     'PLAN_LIMIT_REACHED',
   );
@@ -239,4 +253,13 @@ export async function refreshPlans(): Promise<void> {
     const { logger } = await import('../../lib/logger');
     logger.error({ err }, 'Plan settings not refreshed — serving last known');
   }
+}
+
+/**
+ * The plan card line for Classes, worded the same on the pricing page, the
+ * home page's plans and Billing: "1 class at a time" or "Unlimited classes".
+ */
+export function classesLine(plan: Pick<PlanDefinition, 'maxClasses'>): string {
+  if (plan.maxClasses === null) return 'Unlimited classes';
+  return `${plan.maxClasses} ${plan.maxClasses === 1 ? 'class' : 'classes'} at a time`;
 }

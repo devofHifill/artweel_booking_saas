@@ -67,8 +67,9 @@ export type BillingState = {
   canWrite: boolean;
   /** What the dashboard should say, if anything. */
   notice: { level: 'info' | 'warn' | 'danger'; message: string } | null;
-  usage: { staff: number; locations: number };
-  limits: { maxStaff: number | null; maxLocations: number | null };
+  /** `classes`: Classes running now, against the plan's `maxClasses`. */
+  usage: { staff: number; locations: number; classes: number };
+  limits: { maxStaff: number | null; maxLocations: number | null; maxClasses: number | null };
 };
 
 export async function getBillingState(
@@ -78,9 +79,11 @@ export async function getBillingState(
     where: { id: organizationId },
   });
 
-  const [staff, locations] = await Promise.all([
+  const { countRunningClasses } = await import('../activities/class-limit');
+  const [staff, locations, classes] = await Promise.all([
     prisma.staff.count({ where: { organizationId, isActive: true } }),
     prisma.location.count({ where: { organizationId, isActive: true } }),
+    countRunningClasses(organizationId),
   ]);
 
   const plan = PLANS[org.plan as PlanId];
@@ -102,8 +105,12 @@ export async function getBillingState(
     gracePeriodEndsAt: org.gracePeriodEndsAt,
     canWrite: canWrite(org.subscriptionStatus),
     notice: noticeFor(org.subscriptionStatus, trialDaysLeft, org.gracePeriodEndsAt),
-    usage: { staff, locations },
-    limits: { maxStaff: plan.maxStaff, maxLocations: plan.maxLocations },
+    usage: { staff, locations, classes },
+    limits: {
+      maxStaff: plan.maxStaff,
+      maxLocations: plan.maxLocations,
+      maxClasses: plan.maxClasses,
+    },
   };
 }
 

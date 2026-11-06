@@ -1,6 +1,6 @@
 import { config } from '../../config';
 import { tokensCss } from '../../lib/design-tokens';
-import { PLANS } from '../billing/plan';
+import { PLANS, classesLine } from '../billing/plan';
 import {
   BRAND,
   COMING_SOON,
@@ -283,6 +283,8 @@ function planCards(): string {
       <ul>
         <li>${plan.maxStaff ?? 'Unlimited'} instructor${plan.maxStaff === 1 ? '' : 's'}</li>
         <li>${plan.maxLocations ?? 'Unlimited'} location${plan.maxLocations === 1 ? '' : 's'}</li>
+        <li>${classesLine(plan)}</li>
+        <li>Unlimited events</li>
         ${plan.mobileBookings ? '<li>Mobile and travelling bookings</li>' : ''}
         ${plan.smsReminders ? '<li>Text reminders</li>' : ''}
         ${plan.apiAccess ? '<li>API access</li>' : ''}

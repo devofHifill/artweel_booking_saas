@@ -477,3 +477,14 @@ describe('analytics', () => {
     expect(pricing.views).toBe(2);
   });
 });
+
+describe('classes on the plan cards', () => {
+  it('shows the class limit on the pricing page and the home page', async () => {
+    for (const path of ['/pricing', '/']) {
+      const res = await request(app).get(path);
+      expect(res.text, path).toContain('1 class at a time');
+      expect(res.text, path).toContain('Unlimited classes');
+      expect(res.text, path).toContain('Unlimited events');
+    }
+  });
+});

@@ -22,10 +22,13 @@ Checked 2026-11-05: full server suite 1,311 / 1,313. The two failures: a
 database connection dropped under load (passes alone), and a real, older
 daylight-saving bug in `resolveLocal`, fixed in its own commit.
 
-**Open, needs Suren:** every Class is a course underneath, and courses are
-gated to Studio and Pro (`requireFeature(…, 'courseSeries')`). A Solo studio
-can therefore create Events only. Kept as-is; decide whether Classes should
-be on every plan.
+**Decided 2026-11-06:** Classes are on every plan, limited by how many run
+at once — Solo 1, Studio and Pro unlimited (`PLANS[…].maxClasses`). A Class
+counts from publishing until its last session ends, so finishing a term frees
+the place. The older Courses module stays Studio/Pro, but managing the cohort
+behind a Class (enrol by hand, seats, cancel) works on Solo. Shown on the
+pricing page, the home page's plans, Billing ("Classes running") and the
+Class card.
 
 ---
 

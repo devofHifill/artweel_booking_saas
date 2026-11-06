@@ -226,14 +226,98 @@ describe('publishing a class', () => {
     expect(await prisma.courseSeries.count()).toBe(0);
   });
 
-  it('needs the plan that includes multi-week courses', async () => {
+  it('lets a Solo studio run one class at a time', async () => {
     const solo = await signUpStudio(app, { plan: 'SOLO' });
-    const res = await request(app)
+
+    const first = await request(app)
       .post(`${solo.base}/activities/classes`)
       .set(solo.headers)
       .send(klass());
+    expect(first.status).toBe(201);
 
-    expect(res.status).toBe(402);
+    const second = await request(app)
+      .post(`${solo.base}/activities/classes`)
+      .set(solo.headers)
+      .send(klass({ name: 'Intermediate Wheel', weekdays: ['TH'] }));
+    expect(second.status).toBe(402);
+    expect(second.body.error.code).toBe('PLAN_LIMIT_REACHED');
+    expect(second.body.error.message).toMatch(/1 class at a time/);
+
+    // Billing says the same thing.
+    const billing = await request(app).get(`${solo.base}/billing`).set(solo.headers);
+    expect(billing.body.billing.usage.classes).toBe(1);
+    expect(billing.body.billing.limits.maxClasses).toBe(1);
+
+    // Once the first has ended, its place is free for the next term.
+    const sessions = await prisma.session.findMany({
+      where: { serviceTypeId: first.body.service.id },
+    });
+    for (const s of sessions) {
+      await prisma.session.update({
+        where: { id: s.id },
+        data: {
+          startsAt: new Date(s.startsAt.getTime() - 3 * 365 * 86_400_000),
+          endsAt: new Date(s.endsAt.getTime() - 3 * 365 * 86_400_000),
+        },
+      });
+    }
+    const next = await request(app)
+      .post(`${solo.base}/activities/classes`)
+      .set(solo.headers)
+      .send(klass({ name: 'Intermediate Wheel', weekdays: ['TH'] }));
+    expect(next.status).toBe(201);
+  });
+
+  it('lets a Solo studio manage its class, though not open Courses', async () => {
+    const solo = await signUpStudio(app, { plan: 'SOLO' });
+    const published = await request(app)
+      .post(`${solo.base}/activities/classes`)
+      .set(solo.headers)
+      .send(klass());
+    const seriesId = published.body.series.id;
+
+    const seats = await request(app)
+      .patch(`${solo.base}/courses/${seriesId}`)
+      .set(solo.headers)
+      .send({ capacity: 6 });
+    expect(seats.status).toBe(200);
+    expect(seats.body.series.capacity).toBe(6);
+
+    // A cohort made through the older Courses module is still Studio and Pro.
+    const service = await request(app)
+      .post(`${solo.base}/services`)
+      .set(solo.headers)
+      .send({
+        name: 'Old-style course',
+        bookingMode: 'COURSE_SERIES',
+        durationMinutes: 120,
+        slotGranularityMinutes: 30,
+        capacityMin: 1,
+        capacityMax: 8,
+        priceCents: 30000,
+      });
+    const cohort = await request(app)
+      .post(`${solo.base}/courses`)
+      .set(solo.headers)
+      .send({
+        serviceTypeId: service.body.service.id,
+        name: 'Old-style course',
+        sessionCount: 6,
+        capacity: 8,
+        priceCents: 30000,
+      });
+    expect(cohort.status).toBe(402);
+  });
+
+  it('puts no limit on Studio and Pro', async () => {
+    // `studio` is PRO (signUpStudio's default).
+    for (const name of ['One', 'Two', 'Three']) {
+      const res = await request(app)
+        .post(`${studio.base}/activities/classes`)
+        .set(studio.headers)
+        .send(klass({ name }));
+      expect(res.status).toBe(201);
+    }
   });
 
   it('refuses a class whose first session has passed', async () => {
