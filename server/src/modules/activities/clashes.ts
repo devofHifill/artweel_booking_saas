@@ -66,7 +66,12 @@ export async function findClashes(
   organizationId: string,
   timezone: string,
   dates: PlannedDate[],
-  where: { staffId?: string | null; locationId?: string | null },
+  where: {
+    staffId?: string | null;
+    locationId?: string | null;
+    /** Editing: the activity's own sessions are not a clash with themselves. */
+    exceptServiceTypeId?: string;
+  },
 ): Promise<Map<string, Clash[]>> {
   const result = new Map<string, Clash[]>();
   if (dates.length === 0) return result;
@@ -92,7 +97,12 @@ export async function findClashes(
         startsAt: true,
         endsAt: true,
         session: {
-          select: { startsAt: true, endsAt: true, serviceType: { select: { name: true } } },
+          select: {
+            startsAt: true,
+            endsAt: true,
+            serviceTypeId: true,
+            serviceType: { select: { name: true } },
+          },
         },
         booking: {
           select: { startsAt: true, endsAt: true, serviceType: { select: { name: true } } },
@@ -102,7 +112,11 @@ export async function findClashes(
 
     const who = staff?.name ?? 'The instructor';
     for (const date of dates) {
-      for (const block of blocks.filter((b) => overlaps(b, date))) {
+      for (const block of blocks.filter(
+        (b) =>
+          overlaps(b, date) &&
+          !(where.exceptServiceTypeId && b.session?.serviceTypeId === where.exceptServiceTypeId),
+      )) {
         // The block itself is widened by padding; report the class's own times.
         const what = block.session ?? block.booking;
         add(date.localDate, {
@@ -130,6 +144,9 @@ export async function findClashes(
             status: { not: 'CANCELLED' },
             startsAt: { lt: to },
             endsAt: { gt: from },
+            ...(where.exceptServiceTypeId
+              ? { serviceTypeId: { not: where.exceptServiceTypeId } }
+              : {}),
           },
           select: { startsAt: true, endsAt: true, serviceType: { select: { name: true } } },
         }),

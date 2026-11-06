@@ -47,6 +47,8 @@ What each means for a Class, booked once for the whole run:
 - Editing a Class's prices or notice later carries them to its cohort.
 Events keep their four steps for now; they get the same fields later.
 
+**Decided 2026-11-06 (editing):** Edit on a Class or Event opens the same steps, filled in (`GET /activities/:id/answers`), and saves with `PUT /activities/classes|events/:id` — the activity, its cohort and every session still to run. Name and description reach the cohort (the booking page reads them there); seats reach every future session, never below what is sold; a new instructor or location moves every future session, with its staff time blocks, clash-checked against everything but the activity itself. Dates and times change only while nobody has booked and it has not started: the old sessions are cancelled and new ones made. Type never changes. Editing an Event shows the Look, Policies and For customers steps too. Past sessions are untouched. Tests: `tests/admin/activity-edit.test.ts`.
+
 ---
 
 ## What this is

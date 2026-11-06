@@ -4676,3 +4676,20 @@ code.path {
 /* Inside a .fields grid: the whole row, box beside its text, not stacked. */
 .fields .check-row { grid-column: 1 / -1; flex-direction: row; color: var(--ink); font-size: var(--text-sm); }
 .fields .check-row .tiny { max-width: 60ch; }
+
+/* Edit: a step's date fields, locked once somebody has booked. A fieldset so
+   one `disabled` covers every input inside; its browser frame is removed. */
+.plain-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.step-locked {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-2, #f4f4f5);
+  color: var(--text-2, inherit);
+  font-size: 13px;
+}

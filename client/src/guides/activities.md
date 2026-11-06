@@ -176,19 +176,24 @@ Each card in **Activities** shows **Class** or **Event**, and says whether custo
 On any Class or Event card, live or past, the **Duplicate** button (two sheets) copies everything except the dates and opens at the dates step. Pick new dates and publish. This is how you run "Beginner Wheel" again next term.
 
 ### Step 12: Change it later
-**Edit** (the pencil) opens the full form with the same fields. An Event's steps don't ask these yet, so set them here for an Event:
+**Edit** (the pencil) on a Class or Event opens the same steps you made it with, filled in with what it has now. Change anything, then **Save changes** on Review. Every step can be clicked straight away.
 
-| Field | Notes |
+| What you change | What happens |
 |---|---|
-| Full description, category, icon, colour | How it looks on the booking page |
-| Cancellation policy | e.g. **Standard**: 100% refund 48h+ before, 100% credit 24–48h before, nothing under 24h |
-| Minimum notice | How soon before the start people can still book |
-| Deposit | Percentage or fixed amount. **Only collected when Stripe is connected** |
-| What is included / Before you come / Booking instructions | Shown to customers and sent with the confirmation |
+| Name, descriptions, category, icon, colour, what is included, before you come, booking instructions | Updated everywhere, including the booking page and your website |
+| Adult price, child price, deposit, minimum guests | Applies to bookings made from now on. People already booked keep what they paid |
+| **Maximum capacity** | Every session still to run gets the new number. It can't go below what is already booked |
+| **Instructor** | Every session still to run moves to them, and their time is blocked instead. Refused, naming the date, if they're already busy |
+| **Location** | Every session still to run moves there, clash-checked |
+| Cancellation policy, minimum notice, bookable up to | Applies from now on |
+| **Status** | Active or Hidden. On Solo, switching a hidden Class on needs your one class place free |
+| **Dates and times** | Can change **only while nobody has booked and it hasn't started**. Then the old dates are replaced by the new ones. Once someone has booked, the Schedule (or When) step shows them greyed out with the reason. To call one date off, cancel it from **Scheduled sessions** |
 
-For a Class, a new adult or child price, or a new minimum notice, applies to bookings made from then on. People already booked keep what they paid.
+**Type** can't change: a Class stays a Class and an Event stays an Event. Make a new one (or **Duplicate**) instead.
 
-A Class or Event keeps the dates it was published with. To change a single date, use **Scheduled sessions** at the bottom of **Activities**.
+Editing an Event also shows **Look**, **Policies** and **For customers**, so you can add a deposit, a policy or what's included to an Event after making it.
+
+Sessions that have already run are left as they were.
 
 ### Step 13: When it's over
 Once the last date has ended, a Class or Event moves to the **Past** tab in **Activities** and leaves the booking page. Its bookings, payments and pieces are all kept. Past ones can be **Duplicated** but not edited.
@@ -305,7 +310,7 @@ A course where everyone starts together and builds week on week.
 | Review | Status **Active**, then **Publish** |
 
 ### After publishing
-1. Optional, for an Event: **Edit** to add what's included, preparation notes and a cancellation policy (Step 12). A Class asked for these in its steps.
+1. Optional, for an Event: **Edit** to add what's included, preparation notes, a deposit or a cancellation policy (Step 12). A Class asked for these in its steps.
 2. Optional: connect Stripe (Part D).
 3. Open the booking page and book it end to end. **Bookings** shows it; a Class booking covers every session.
 4. Cancel if it was a test.

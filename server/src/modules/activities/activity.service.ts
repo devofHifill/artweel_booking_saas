@@ -10,7 +10,12 @@ import { translateSchedulingError } from '../../scheduling/pg-error';
 import { resolveLocal, type ResolutionKind } from '../../scheduling/time/zoned';
 import { planClassDates } from './class-dates';
 import { dayLabel, findClashes, type Clash, type PlannedDate } from './clashes';
-import type { CreateClassInput, CreateEventInput, PreviewInput } from './activity.schema';
+import type {
+  CreateClassInput,
+  CreateEventInput,
+  EditEventInput,
+  PreviewInput,
+} from './activity.schema';
 
 /**
  * Publishing a Class or an Event (CLASS-EVENT-PLAN.md, Stage 1).
@@ -40,12 +45,12 @@ function minutesOf(time: string): number {
   return h! * 60 + m!;
 }
 
-async function slugFor(organizationId: string, name: string) {
+async function slugFor(organizationId: string, name: string, selfId?: string) {
   return uniqueSlug(
     name,
     async (candidate) =>
       (await prisma.serviceType.findFirst({
-        where: { organizationId, slug: candidate },
+        where: { organizationId, slug: candidate, ...(selfId ? { id: { not: selfId } } : {}) },
         select: { id: true },
       })) !== null,
     'service',
@@ -178,7 +183,7 @@ async function assertNoClashes(
   organizationId: string,
   timezone: string,
   dates: PlannedDate[],
-  where: { staffId: string | null; locationId: string | null },
+  where: { staffId: string | null; locationId: string | null; exceptServiceTypeId?: string },
 ) {
   if (where.locationId) {
     await tx.$queryRaw`SELECT id FROM locations WHERE id = ${where.locationId}::uuid FOR UPDATE`;
@@ -439,6 +444,399 @@ export async function createClass(organizationId: string, input: CreateClassInpu
   });
 }
 
+// --- Editing a Class or an Event ---------------------------------------------
+//
+// The same answers the steps collect, applied to what was published: the
+// activity, its cohort (a Class), and every session that has not started.
+// Started and past sessions are history and are left as they ran.
+//
+// Dates and times change only while nobody has booked and nothing has
+// started: moving a date under somebody who paid for it is a conversation
+// with them, not a field edit. Everything else can change at any time, and
+// reaches the sessions — seats (never below what is sold), the instructor
+// (their time moves with it, clash-checked) and where it runs.
+
+/** The detail answers both edit bodies carry. */
+type Details = {
+  description?: string;
+  categoryId?: string;
+  meetingPoint?: string;
+  childPriceCents: number;
+  minGuests: number;
+  depositType: 'none' | 'percent' | 'fixed';
+  depositValue: number;
+  emoji?: string;
+  color?: string;
+  colorAccent?: string;
+  cancellationPolicyId?: string;
+  minNoticeMinutes: number;
+  maxHorizonDays?: number;
+  highlights?: string;
+  preparationNotes?: string;
+  bookingInstructions?: string;
+  isActive: boolean;
+};
+
+/** An instant as the studio's wall clock: its date, time and weekday. */
+function localParts(at: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    weekday: 'short',
+  }).formatToParts(at);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return {
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+    time: `${get('hour')}:${get('minute')}`,
+    weekday: get('weekday').slice(0, 2).toUpperCase(),
+  };
+}
+
+const WEEK_ORDER = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+
+/** What editing needs to know about a published Class or Event. */
+async function loadActivity(organizationId: string, id: string) {
+  const service = await prisma.serviceType.findFirst({
+    where: { id, organizationId, kind: { in: ['CLASS', 'EVENT'] } },
+    include: {
+      courseSeries: { where: { status: { not: 'CANCELLED' } }, take: 1 },
+      serviceLocations: { select: { locationId: true }, take: 1 },
+      staffServices: { select: { staffId: true }, take: 1 },
+      sessions: {
+        where: { status: { not: 'CANCELLED' } },
+        orderBy: { startsAt: 'asc' },
+        select: {
+          id: true,
+          startsAt: true,
+          endsAt: true,
+          seatsTaken: true,
+          staffId: true,
+          locationId: true,
+        },
+      },
+    },
+  });
+  if (!service) throw AppError.notFound('Class or event not found.');
+
+  const now = new Date();
+  const series = service.courseSeries[0] ?? null;
+  const booked =
+    service.sessions.some((x) => x.seatsTaken > 0) ||
+    (series
+      ? (await prisma.enrollment.count({
+          where: { courseSeriesId: series.id, status: 'ACTIVE' },
+        })) > 0
+      : false);
+  const started = service.sessions.some((x) => x.startsAt <= now);
+  return { service, series, booked, started };
+}
+
+/**
+ * The answers the Class or Event steps need to show a published activity, for
+ * Edit. `datesLocked` says why its dates cannot change, when they cannot.
+ */
+export async function getActivityAnswers(organizationId: string, id: string) {
+  const { service, series, booked, started } = await loadActivity(organizationId, id);
+  const org = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { timezone: true },
+  });
+  const tz = org.timezone;
+  const first = service.sessions[0];
+  const last = service.sessions[service.sessions.length - 1];
+  const start = first ? localParts(first.startsAt, tz) : null;
+  const end = first ? localParts(first.endsAt, tz) : null;
+
+  const schedule: Record<string, unknown> = {};
+  if (service.kind === 'EVENT') {
+    if (start) schedule.date = start.date;
+  } else if (start && last) {
+    const days = service.sessions.map((x) => localParts(x.startsAt, tz));
+    const weekdays = WEEK_ORDER.filter((d) => days.some((x) => x.weekday === d));
+    /* Skipped dates: the ones the weekly pattern passes through between the
+       first and last session with no session on them — a holiday the studio
+       unticked, or one it later cancelled. */
+    const held = new Set(days.map((x) => x.date));
+    const lastDate = localParts(last.startsAt, tz).date;
+    const skipDates: string[] = [];
+    for (
+      let d = new Date(`${start.date}T00:00:00Z`);
+      d.toISOString().slice(0, 10) <= lastDate;
+      d.setUTCDate(d.getUTCDate() + 1)
+    ) {
+      const iso = d.toISOString().slice(0, 10);
+      const wd = WEEK_ORDER[(d.getUTCDay() + 6) % 7]!;
+      if (weekdays.includes(wd) && !held.has(iso)) skipDates.push(iso);
+    }
+    Object.assign(schedule, {
+      startDate: start.date,
+      weekdays,
+      sessionCount: service.sessions.length,
+      skipDates,
+    });
+  }
+
+  return {
+    id: service.id,
+    kind: service.kind as 'CLASS' | 'EVENT',
+    answers: {
+      name: service.name,
+      shortDescription: service.shortDescription ?? '',
+      description: service.description ?? '',
+      categoryId: service.categoryId ?? '',
+      ...schedule,
+      startTime: start?.time ?? '18:00',
+      endTime: end?.time ?? '20:00',
+      locationId:
+        series?.locationId ?? first?.locationId ?? service.serviceLocations[0]?.locationId ?? '',
+      staffId: series?.staffId ?? first?.staffId ?? service.staffServices[0]?.staffId ?? '',
+      meetingPoint: service.meetingPoint ?? '',
+      seats: series?.capacity ?? service.capacityMax,
+      priceCents: series?.priceCents ?? service.priceCents,
+      childPriceCents: series?.childPriceCents ?? service.childPriceCents,
+      minGuests: service.capacityMin,
+      depositType: service.depositType,
+      depositValue: service.depositValue,
+      emoji: service.emoji ?? '',
+      color: service.color ?? '',
+      colorAccent: service.colorAccent ?? '',
+      cancellationPolicyId: service.cancellationPolicyId ?? '',
+      minNoticeMinutes: service.minNoticeMinutes,
+      maxHorizonDays: service.maxHorizonDays,
+      highlights: service.highlights ?? '',
+      preparationNotes: service.preparationNotes ?? '',
+      bookingInstructions: service.bookingInstructions ?? '',
+      isActive: service.isActive,
+    },
+    datesLocked: booked
+      ? 'People have booked, so the dates and times stay as they are. To call one date off, cancel it from Scheduled sessions.'
+      : started
+        ? 'It has started, so the dates and times stay as they are.'
+        : null,
+  };
+}
+
+/** Same instants, in the same order? Then the dates did not change. */
+function sameDates(
+  a: { startsAt: Date; endsAt: Date }[],
+  b: { startsAt: Date; endsAt: Date }[],
+) {
+  return (
+    a.length === b.length &&
+    a.every(
+      (x, i) =>
+        x.startsAt.getTime() === b[i]!.startsAt.getTime() &&
+        x.endsAt.getTime() === b[i]!.endsAt.getTime(),
+    )
+  );
+}
+
+/**
+ * Applies the Class or Event steps' answers to a published activity. `input`
+ * is the whole set of answers: the steps always send everything.
+ */
+export async function editActivity(
+  organizationId: string,
+  id: string,
+  kind: 'CLASS' | 'EVENT',
+  input: (CreateClassInput | EditEventInput) & Partial<Details>,
+) {
+  const { service, series, booked, started } = await loadActivity(organizationId, id);
+  if (service.kind !== kind) {
+    throw AppError.badRequest(kind === 'CLASS' ? 'This is not a class.' : 'This is not an event.');
+  }
+  const org = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { timezone: true, plan: true },
+  });
+  const tz = org.timezone;
+  const now = new Date();
+
+  // Switching a hidden Class on takes a place under the plan's class limit.
+  if (kind === 'CLASS' && !service.isActive && input.isActive !== false) {
+    requireCapacity(org.plan as PlanId, 'maxClasses', await countRunningClasses(organizationId));
+  }
+
+  // --- The dates wanted, and whether they moved ---------------------------
+  let planned: { localDate: string; startsAt: Date; endsAt: Date; seriesIndex: number }[];
+  if (kind === 'EVENT') {
+    const e = input as EditEventInput;
+    const start = resolveLocal(e.date, minutesOf(e.startTime), tz);
+    const end = resolveLocal(e.date, minutesOf(e.endTime), tz);
+    planned = [{ localDate: e.date, startsAt: start.instant, endsAt: end.instant, seriesIndex: 1 }];
+  } else {
+    planned = classSessions(input as CreateClassInput, tz).planned;
+  }
+  const datesChanged = !sameDates(planned, service.sessions);
+  if (datesChanged) {
+    if (booked || started) {
+      throw AppError.conflict(
+        booked
+          ? 'People have booked, so the dates and times cannot change. To call one date off, cancel it from Scheduled sessions.'
+          : 'It has started, so the dates and times cannot change.',
+        'DATES_LOCKED',
+      );
+    }
+    if (planned[0]!.startsAt <= now) {
+      throw AppError.badRequest(
+        'The first date has already passed. Choose a later one.',
+        'DATE_IN_PAST',
+      );
+    }
+  }
+
+  // --- Seats: never below what is sold on any session still to run --------
+  const upcoming = service.sessions.filter((x) => x.startsAt > now);
+  const sold = Math.max(0, ...upcoming.map((x) => x.seatsTaken));
+  if (input.seats < sold) {
+    throw AppError.conflict(
+      `${sold} ${sold === 1 ? 'place is' : 'places are'} already booked, so seats cannot go below that.`,
+      'CAPACITY_BELOW_BOOKED',
+    );
+  }
+
+  const { location, staffId } = await resolveWhereAndWho(organizationId, input);
+  await assertReferencesBelong(organizationId, input as Record<string, unknown>);
+  const locationId = location?.id ?? null;
+  const slug =
+    input.name !== service.name ? await slugFor(organizationId, input.name, id) : service.slug;
+
+  const whoOrWhereChanged = upcoming.some(
+    (x) => x.staffId !== staffId || x.locationId !== locationId,
+  );
+  const firstStart =
+    (datesChanged ? planned[0]!.startsAt : service.sessions[0]?.startsAt) ?? null;
+  const notice = input.minNoticeMinutes ?? 0;
+
+  return inTransaction(async (tx) => {
+    // Clashes on the dates it will run, ignoring its own sessions.
+    if (datesChanged || whoOrWhereChanged) {
+      const dates = datesChanged
+        ? planned
+        : upcoming.map((x) => ({
+            localDate: localParts(x.startsAt, tz).date,
+            startsAt: x.startsAt,
+            endsAt: x.endsAt,
+          }));
+      await assertNoClashes(tx, organizationId, tz, dates, {
+        staffId,
+        locationId,
+        exceptServiceTypeId: id,
+      });
+    }
+
+    // The activity itself.
+    await tx.serviceType.update({
+      where: { id },
+      data: {
+        name: input.name,
+        slug,
+        shortDescription: input.shortDescription || null,
+        description: input.description || null,
+        categoryId: input.categoryId || null,
+        meetingPoint: input.meetingPoint || null,
+        durationMinutes: minutesOf(input.endTime) - minutesOf(input.startTime),
+        capacityMax: input.seats,
+        capacityMin: input.minGuests ?? 1,
+        priceCents: input.priceCents,
+        childPriceCents: input.childPriceCents ?? 0,
+        depositType: input.depositType ?? 'none',
+        depositValue: (input.depositType ?? 'none') === 'none' ? 0 : (input.depositValue ?? 0),
+        emoji: input.emoji || null,
+        ...(input.color ? { color: input.color, colorAccent: input.colorAccent || null } : {}),
+        cancellationPolicyId: input.cancellationPolicyId || null,
+        minNoticeMinutes: notice,
+        maxHorizonDays:
+          input.maxHorizonDays ??
+          (firstStart
+            ? Math.max(120, Math.ceil((firstStart.getTime() - now.getTime()) / 86_400_000) + 1)
+            : service.maxHorizonDays),
+        highlights: input.highlights || null,
+        preparationNotes: input.preparationNotes || null,
+        bookingInstructions: input.bookingInstructions || null,
+        isActive: input.isActive ?? true,
+      },
+    });
+    await tx.serviceLocation.deleteMany({ where: { serviceTypeId: id } });
+    if (locationId) await tx.serviceLocation.create({ data: { serviceTypeId: id, locationId } });
+    await tx.staffService.deleteMany({ where: { serviceTypeId: id } });
+    if (staffId) await tx.staffService.create({ data: { serviceTypeId: id, staffId } });
+
+    // Its cohort (a Class): what the booking page and checkout read.
+    if (series) {
+      await tx.courseSeries.update({
+        where: { id: series.id },
+        data: {
+          name: input.name,
+          description: input.description || null,
+          priceCents: input.priceCents,
+          childPriceCents: input.childPriceCents ?? 0,
+          capacity: input.seats,
+          staffId,
+          locationId,
+          sessionCount: datesChanged ? planned.length : series.sessionCount,
+          enrollmentClosesAt:
+            notice > 0 && firstStart ? new Date(firstStart.getTime() - notice * 60_000) : null,
+        },
+      });
+    }
+
+    if (datesChanged) {
+      // Nobody has booked: the old dates go, the new ones are made.
+      const old = service.sessions.map((x) => x.id);
+      await tx.staffTimeBlock.deleteMany({ where: { sessionId: { in: old } } });
+      await tx.resourceAllocation.deleteMany({ where: { sessionId: { in: old } } });
+      await tx.session.updateMany({ where: { id: { in: old } }, data: { status: 'CANCELLED' } });
+      for (const date of planned) {
+        await insertSession(tx, {
+          organizationId,
+          serviceTypeId: id,
+          ...(series ? { courseSeriesId: series.id, seriesIndex: date.seriesIndex } : {}),
+          startsAt: date.startsAt,
+          endsAt: date.endsAt,
+          timezone: tz,
+          localStartTime: input.startTime,
+          capacity: input.seats,
+          staffId,
+          locationId,
+          lat: location?.lat ?? null,
+          lng: location?.lng ?? null,
+        });
+      }
+    } else {
+      // Same dates: seats, instructor and place reach every session to come.
+      const ids = upcoming.map((x) => x.id);
+      await tx.session.updateMany({
+        where: { id: { in: ids } },
+        data: { capacity: input.seats, staffId, locationId },
+      });
+      if (whoOrWhereChanged) {
+        await tx.staffTimeBlock.deleteMany({ where: { sessionId: { in: ids } } });
+        if (staffId) {
+          for (const x of upcoming) {
+            await tx.$executeRaw`
+              INSERT INTO staff_time_blocks
+                (id, organization_id, staff_id, session_id, starts_at, ends_at,
+                 lat, lng, source, created_at)
+              VALUES
+                (gen_random_uuid(), ${organizationId}::uuid, ${staffId}::uuid,
+                 ${x.id}::uuid, ${x.startsAt}, ${x.endsAt},
+                 ${location?.lat ?? null}, ${location?.lng ?? null}, 'session', now())
+            `;
+          }
+        }
+      }
+    }
+
+    return { id, datesChanged };
+  });
+}
+
 // --- Preview ----------------------------------------------------------------
 
 export type PreviewDate = {
@@ -489,6 +887,7 @@ export async function previewActivity(organizationId: string, input: PreviewInpu
   const clashes = await findClashes(prisma, organizationId, org.timezone, dates, {
     staffId,
     locationId,
+    ...(input.activityId ? { exceptServiceTypeId: input.activityId } : {}),
   });
 
   return {

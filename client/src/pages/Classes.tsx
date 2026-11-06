@@ -18,6 +18,7 @@ import { ServiceForm, type ServiceDraft } from '../components/ServiceForm';
 import {
   CreateActivity,
   duplicateOf,
+  type EditingActivity,
   type ResumableDraft,
 } from '../components/CreateActivity';
 import { shortDate } from '../lib/class-dates';
@@ -194,6 +195,22 @@ export default function Classes() {
    * copies drift, and only one of them gets fixed.
    */
   function edit(svc: ServiceOption) {
+    /* A Class or Event is edited in the same steps it was made in, filled in
+       with what it has now — the one form below cannot reach its dates, and
+       its changes would not reach its sessions. */
+    if (svc.kind === 'CLASS' || svc.kind === 'EVENT') {
+      void (async () => {
+        try {
+          const res = await api.get<EditingActivity>(`${base}/activities/${svc.id}/answers`);
+          setEditingActivity(res);
+          setNotice(null);
+          setCreating(true);
+        } catch (err) {
+          setNotice(err instanceof Error ? err.message : 'Could not open it.');
+        }
+      })();
+      return;
+    }
     setEditing({
       id: svc.id,
       name: svc.name,
@@ -339,6 +356,8 @@ export default function Classes() {
    */
   const [creating, setCreating] = useState(false);
   const [resume, setResume] = useState<ResumableDraft | undefined>(undefined);
+  /** A published Class or Event open in the steps for Edit. */
+  const [editingActivity, setEditingActivity] = useState<EditingActivity | undefined>(undefined);
   const [drafts, setDrafts] = useState<(ResumableDraft & { updatedAt: string })[]>([]);
 
   const loadDrafts = useCallback(async () => {
@@ -863,9 +882,11 @@ export default function Classes() {
           timezone={timezone}
           currency={currency}
           resume={resume}
+          editing={editingActivity}
           onCreated={(message) => {
             setCreating(false);
             setResume(undefined);
+            setEditingActivity(undefined);
             setNotice(message);
             void loadServices();
             void load();
@@ -874,6 +895,7 @@ export default function Classes() {
           onClose={() => {
             setCreating(false);
             setResume(undefined);
+            setEditingActivity(undefined);
             // Closing keeps the draft; show it so it can be found again.
             void loadDrafts();
           }}

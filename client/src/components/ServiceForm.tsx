@@ -576,21 +576,29 @@ export function ServiceForm({
 
         <div className="setting setting-stack">
           <label htmlFor="svcMode">Type</label>
-          <select
-            id="svcMode"
-            value={bookingMode}
-            onChange={(e) =>
-              setBookingMode(e.target.value as ServiceDraft['bookingMode'])
-            }
-          >
-            {MODES.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+          {/* A course's type is not a choice: switching it to a single class
+              would strand its cohort and its enrolments. Shown, not offered. */}
+          {bookingMode === 'COURSE_SERIES' ? (
+            <input id="svcMode" value="Course" readOnly disabled />
+          ) : (
+            <select
+              id="svcMode"
+              value={bookingMode}
+              onChange={(e) =>
+                setBookingMode(e.target.value as ServiceDraft['bookingMode'])
+              }
+            >
+              {MODES.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          )}
           <p className="tiny muted">
-            {MODES.find((m) => m.value === bookingMode)?.help}
+            {bookingMode === 'COURSE_SERIES'
+              ? 'Booked once for every week. Set when it was made.'
+              : MODES.find((m) => m.value === bookingMode)?.help}
           </p>
         </div>
 
