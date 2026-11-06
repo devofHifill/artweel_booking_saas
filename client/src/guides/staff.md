@@ -107,8 +107,8 @@ Pick **What**, the **Date**, and the **From / Until** times where needed, then a
 
 ## Part C: Put them on classes
 
-### Step 9: Group classes: assign them to sessions
-Set the **Instructor** when you schedule the session (**Activities → Schedule a class → Instructor**).
+### Step 9: Classes, Events and group classes: who teaches them
+A Class or Event gets its instructor when you create it (**Where and who**, or **Seats and price** for an Event). For an older group class, set the **Instructor** when you add the session (**Activities → Add a session → Instructor**).
 
 An existing session's instructor can't be changed yet. Cancel it and schedule it again with the right person.
 

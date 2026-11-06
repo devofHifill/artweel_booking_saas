@@ -218,7 +218,7 @@ Two guides cover these step by step:
 - [Creating an activity](/help/guides/activities): what customers book, its dates, prices and policies.
 - [Managing staff](/help/guides/staff): instructors, their hours, and where they work.
 
-The short version: create an activity, choose **who teaches it**, and give it **dates** (group class) or make sure its instructor has **working hours** (One to one). Each activity's card in **Activities** tells you if customers can't book it yet, and why.
+The short version: **Activities → Create activity**, choose **Class** (several weeks, booked once) or **Event** (one date), and follow the steps: dates, where and who, seats and price, then **Publish**. Each card in **Activities** tells you if customers can't book it yet, and why.
 
 ---
 

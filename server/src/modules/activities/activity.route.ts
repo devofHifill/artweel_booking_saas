@@ -8,6 +8,7 @@ import {
   createClassSchema,
   createDraftSchema,
   createEventSchema,
+  previewSchema,
   updateDraftSchema,
 } from './activity.schema';
 
@@ -41,6 +42,16 @@ activityRouter.post(
   validateBody(createClassSchema),
   asyncHandler(async (req, res) => {
     res.status(201).json(await activities.createClass(req.tenant!.organizationId, req.body));
+  }),
+);
+
+/** The dates and their clashes, while the studio is still choosing. Writes nothing. */
+activityRouter.post(
+  '/preview',
+  requireAdmin,
+  validateBody(previewSchema),
+  asyncHandler(async (req, res) => {
+    res.json(await activities.previewActivity(req.tenant!.organizationId, req.body));
   }),
 );
 

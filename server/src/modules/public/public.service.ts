@@ -130,6 +130,7 @@ export async function getStudioPage(slug: string) {
         description: true,
         shortDescription: true,
         bookingMode: true,
+        kind: true,
         durationMinutes: true,
         capacityMax: true,
         capacityMin: true,
@@ -187,13 +188,35 @@ export async function getStudioPage(slug: string) {
 
   const defaultPolicy = policies.find((p) => p.isDefault) ?? null;
 
+  /*
+    An Event is one date, and the page leads with it (CLASS-EVENT-PLAN.md,
+    Stage 6). Once that date has passed the event is over: it leaves the page
+    rather than sitting there with nothing to book.
+  */
+  const eventIds = services.filter((s) => s.kind === 'EVENT').map((s) => s.id);
+  const eventDates = eventIds.length
+    ? await prisma.session.groupBy({
+        by: ['serviceTypeId'],
+        where: {
+          organizationId: organization.id,
+          serviceTypeId: { in: eventIds },
+          status: 'SCHEDULED',
+          startsAt: { gt: new Date() },
+        },
+        _min: { startsAt: true },
+      })
+    : [];
+  const eventStarts = new Map(eventDates.map((r) => [r.serviceTypeId, r._min.startsAt]));
+
   return {
     organization,
     /** The page renders read-only when false, rather than 404ing. */
     acceptingBookings: canAcceptBookings(organization.subscriptionStatus),
     acceptsPayment,
     courses,
-    services: services.map((s) => {
+    services: services
+      .filter((s) => s.kind !== 'EVENT' || eventStarts.get(s.id))
+      .map((s) => {
       const policy =
         policies.find((p) => p.id === s.cancellationPolicyId) ?? defaultPolicy;
 
@@ -205,6 +228,8 @@ export async function getStudioPage(slug: string) {
         ...rest,
         /** The ladder, so the page can say the terms BEFORE money moves. */
         cancellationTiers: (policy?.tiers as PolicyTier[] | null) ?? null,
+        /** An Event's date, for the card to lead with. Null for anything else. */
+        eventStartsAt: eventStarts.get(s.id) ?? null,
       };
     }),
     // Coordinates are published only for fixed venues, where the address is
@@ -1023,7 +1048,8 @@ export async function listPublicCourses(organizationId: string) {
       enrollmentClosesAt: true,
       allowLateEnrollment: true,
       serviceType: {
-        select: { id: true, name: true, durationMinutes: true, skillLevel: true },
+        // `kind`: the page files a Class under "Classes", older cohorts under "Courses".
+        select: { id: true, name: true, durationMinutes: true, skillLevel: true, kind: true },
       },
       staff: { select: { id: true, name: true } },
       location: { select: { id: true, name: true, locationType: true, address: true } },
@@ -1045,6 +1071,16 @@ export async function listPublicCourses(organizationId: string) {
 
   return series
       .filter((s) => s.sessions.length > 0)
+      /*
+        A Class that has finished is Past (CLASS-EVENT-PLAN.md): off the page.
+        Older cohorts keep showing as Closed, as they always have — a student
+        weighing up the next term sees that this one ran.
+      */
+      .filter(
+        (s) =>
+          s.serviceType.kind !== 'CLASS' ||
+          s.sessions[s.sessions.length - 1]!.endsAt > now,
+      )
       .map((s) => {
         const seatsRemaining = Math.min(
           ...s.sessions.map((session) => session.capacity - session.seatsTaken),

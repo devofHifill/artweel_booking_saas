@@ -25,6 +25,8 @@ type Location = {
   address: string | null;
   timezone: string;
   isActive: boolean;
+  /** One room: a Class or Event overlapping something here is a clash. */
+  oneAtATime?: boolean;
 };
 
 const TYPE_LABEL: Record<Location['locationType'], string | null> = {
@@ -33,7 +35,7 @@ const TYPE_LABEL: Record<Location['locationType'], string | null> = {
   CUSTOMER_SUPPLIED: "Customer's own place",
 };
 
-type Draft = { name: string; address: string; timezone: string };
+type Draft = { name: string; address: string; timezone: string; oneAtATime?: boolean };
 
 /**
  * The zone picker: the shortlist, plus the studio's own zone and the stored
@@ -148,6 +150,7 @@ export function LocationsSection() {
       name: location.name,
       address: location.address ?? '',
       timezone: location.timezone,
+      oneAtATime: location.oneAtATime ?? false,
     });
   }
 
@@ -160,6 +163,7 @@ export function LocationsSection() {
           name,
           address: editing.address.trim() || null,
           timezone: editing.timezone,
+          oneAtATime: editing.oneAtATime ?? false,
         }),
       `${name} saved.`,
     );
@@ -246,6 +250,24 @@ export function LocationsSection() {
                       </span>
                     )}
                   </label>
+                  {/* Only a building can be one room. A service area is
+                      wherever the van goes, so it never clashes with itself. */}
+                  {location.locationType === 'FIXED' && (
+                    <label className="check-row">
+                      <input
+                        type="checkbox"
+                        checked={editing.oneAtATime ?? false}
+                        onChange={(e) => setEditing({ ...editing, oneAtATime: e.target.checked })}
+                      />
+                      <span>
+                        One thing at a time
+                        <span className="tiny muted">
+                          A single room. New classes and events that overlap something here are
+                          flagged as a clash. Leave off for a studio that runs things side by side.
+                        </span>
+                      </span>
+                    </label>
+                  )}
                   <div className="toolbar">
                     <button
                       className="primary"
@@ -266,6 +288,7 @@ export function LocationsSection() {
                     {TYPE_LABEL[location.locationType] && (
                       <span className="tag">{TYPE_LABEL[location.locationType]}</span>
                     )}
+                    {location.oneAtATime && <span className="tag">One at a time</span>}
                     <div className="tiny muted">
                       {location.address || 'No address yet'} ·{' '}
                       {location.timezone.replace('_', ' ')}

@@ -77,6 +77,29 @@ function dateRange(from: Date, to: Date, timezone: string): string {
   return `${fmt.format(from)} – ${fmt.format(to)}`;
 }
 
+/**
+ * "Thu 12 Nov, 6:30pm", in the STUDIO's zone, for an Event's card. One date is
+ * the whole point of an event, so it leads, ahead of duration and places.
+ */
+function eventWhen(at: Date, timezone: string): string {
+  const day = new Intl.DateTimeFormat('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: timezone,
+  }).format(at);
+  const time = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: timezone,
+  })
+    .format(at)
+    .replace(':00', '')
+    .replace(' ', '')
+    .toLowerCase();
+  return `${day}, ${time}`;
+}
+
 type PageData = {
   organization: {
     id: string;
@@ -108,6 +131,10 @@ type PageData = {
     slug: string;
     description: string | null;
     bookingMode: string;
+    /** CLASS, EVENT or OLDER (CLASS-EVENT-PLAN.md). Optional: older callers omit it. */
+    kind?: string;
+    /** An Event's one date. */
+    eventStartsAt?: Date | null;
     durationMinutes: number;
     capacityMax: number;
     /** Smallest party the studio takes. Optional: older callers omit it. */
@@ -147,7 +174,7 @@ type PageData = {
     name: string;
     cohortLabel: string | null;
     description: string | null;
-    service: { id: string; name: string };
+    service: { id: string; name: string; kind?: string };
     sessionCount: number;
     priceCents: number;
     startsAt: Date;
@@ -496,6 +523,7 @@ export function renderBookingPage(
   ): string => {
     const minGuests = s.capacityMin ?? 1;
     const facts = [
+      s.eventStartsAt ? escapeHtml(eventWhen(s.eventStartsAt, organization.timezone)) : '',
       duration(s.durationMinutes),
       s.bookingMode !== 'APPOINTMENT'
         ? `up to ${s.capacityMax} ${s.capacityMax === 1 ? 'place' : 'places'}`
@@ -536,6 +564,20 @@ export function renderBookingPage(
     .join('');
 
   /*
+    Classes and Events are what a studio creates now (CLASS-EVENT-PLAN.md,
+    Stage 6), and a customer reads them differently: a class is a run of
+    weeks booked once, an event is one evening. Each gets its own section,
+    events soonest first. Everything made before the two existed keeps the
+    original list, headed as more to book once the new sections are above it.
+  */
+  const events = services
+    .filter((s) => s.kind === 'EVENT' && s.eventStartsAt)
+    .sort((a, b) => a.eventStartsAt!.getTime() - b.eventStartsAt!.getTime());
+  const others = services.filter((s) => !(s.kind === 'EVENT' && s.eventStartsAt));
+  const eventCards = events.map((s) => serviceCard(s, data.acceptingBookings)).join('');
+  const otherCards = others.map((s) => serviceCard(s, data.acceptingBookings)).join('');
+
+  /*
     Cohorts, in the same first response as the classes.
 
     A course is not a class with more dates: it is one purchase covering every
@@ -544,8 +586,7 @@ export function renderBookingPage(
     still rendered — a student deciding whether to wait for the next one needs
     to see that this one ran — but it is not clickable.
   */
-  const courseCards = courses
-    .map((c) => {
+  const courseCard = (c: NonNullable<PageData['courses']>[number]): string => {
       const window = `${dateRange(c.startsAt, c.endsAt, organization.timezone)}`;
       const places = c.enrollable
         ? `${c.seatsRemaining} ${c.seatsRemaining === 1 ? 'place' : 'places'} left`
@@ -566,16 +607,36 @@ export function renderBookingPage(
         </span>
         <span class="price">${money(c.priceCents, organization.currency)}</span>
       </button>`;
-    })
+  };
+  const courseCards = courses.map(courseCard).join('');
+  const classCards = courses.filter((c) => c.service.kind === 'CLASS').map(courseCard).join('');
+  const olderCourseCards = courses
+    .filter((c) => c.service.kind !== 'CLASS')
+    .map(courseCard)
     .join('');
 
-  const courseSection = courseCards
+  const classSection = classCards
+    ? `<section id="step-classes">
+      <h2>Classes</h2>
+      <p class="hint">Booked once, covering every session. Missed sessions are not made up.</p>
+      ${classCards}
+    </section>`
+    : '';
+  const eventSection = eventCards
+    ? `<section id="step-events">
+      <h2>Events</h2>
+      <p class="hint">One date. Book a seat.</p>
+      <div class="svc-grid">${eventCards}</div>
+    </section>`
+    : '';
+  const courseSection = olderCourseCards
     ? `<section id="step-course">
       <h2>Courses</h2>
       <p class="hint">Booked once, covering every week.</p>
-      ${courseCards}
+      ${olderCourseCards}
     </section>`
     : '';
+  const newSections = classSection + eventSection;
 
   return `<!doctype html>
 <html lang="en">
@@ -602,13 +663,15 @@ ${chrome ? chrome.header : ''}
   <div id="app">
     ${
       data.acceptingBookings
-        ? `<section id="step-service">
-      <h2>What would you like to book?</h2>
+        ? `${newSections}<section id="step-service">
       ${
-        (serviceCards && `<div class="svc-grid">${serviceCards}</div>`) ||
-        (courseCards
-          ? ''
-          : '<p class="empty">No classes are open for booking right now.</p>')
+        otherCards
+          ? `<h2>${newSections ? 'More to book' : 'What would you like to book?'}</h2>
+      <div class="svc-grid">${otherCards}</div>`
+          : newSections || courseCards
+            ? ''
+            : `<h2>What would you like to book?</h2>
+      <p class="empty">No classes are open for booking right now.</p>`
       }
     </section>
     ${courseSection}`

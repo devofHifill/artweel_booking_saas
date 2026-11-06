@@ -1096,6 +1096,12 @@ model Location {
 
   isActive Boolean @default(true) @map("is_active")
 
+  /// One room: only one class or lesson here at a time, so creating a Class
+  /// or Event that overlaps something already here is a clash. Off for a
+  /// whole studio that runs several things at once (CLASS-EVENT-PLAN.md,
+  /// Stage 4).
+  oneAtATime Boolean @default(false) @map("one_at_a_time")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

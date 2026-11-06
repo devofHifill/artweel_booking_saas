@@ -455,3 +455,112 @@ describe('past', () => {
     expect(lesson.lifecycle).toBe('LIVE');
   });
 });
+
+describe('clashes (Stage 4)', () => {
+  it('names the date that clashes, and what is there, before publishing', async () => {
+    const staffId = await addStaff();
+    await request(app)
+      .post(`${studio.base}/activities/events`)
+      .set(studio.headers)
+      .send(event({ name: 'Glaze Night', date: '2027-03-09', startTime: '17:00', endTime: '19:00', staffId }))
+      .expect(201);
+
+    const res = await request(app)
+      .post(`${studio.base}/activities/preview`)
+      .set(studio.headers)
+      .send({ kind: 'CLASS', ...pick(klass(), 'startDate', 'weekdays', 'sessionCount', 'startTime', 'endTime'), staffId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.clashCount).toBe(1);
+    const byDate = Object.fromEntries(
+      res.body.dates.map((d: { localDate: string; clashes: { message: string }[] }) => [d.localDate, d.clashes]),
+    );
+    expect(byDate['2027-03-02']).toEqual([]);
+    expect(byDate['2027-03-09']).toEqual([
+      { kind: 'STAFF', message: 'Rowan Pike is teaching Glaze Night 5–7pm' },
+    ]);
+
+    // The preview wrote nothing.
+    expect(await prisma.serviceType.count({ where: { kind: 'CLASS' } })).toBe(0);
+  });
+
+  it('refuses to publish over a clash, saying which date', async () => {
+    const staffId = await addStaff();
+    await request(app)
+      .post(`${studio.base}/activities/events`)
+      .set(studio.headers)
+      .send(event({ name: 'Glaze Night', date: '2027-03-09', startTime: '17:00', endTime: '19:00', staffId }))
+      .expect(201);
+
+    const res = await request(app)
+      .post(`${studio.base}/activities/classes`)
+      .set(studio.headers)
+      .send(klass({ staffId }));
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CLASH');
+    expect(res.body.error.message).toBe('Tue 9 Mar: Rowan Pike is teaching Glaze Night 5–7pm.');
+  });
+
+  it('treats a one-at-a-time location as taken, and a whole studio as not', async () => {
+    const room = await addLocation('Glaze room');
+    const first = event({ name: 'Glaze Night', date: '2027-03-09', locationId: room });
+    await request(app).post(`${studio.base}/activities/events`).set(studio.headers).send(first).expect(201);
+
+    // Off (the default): two things side by side is normal in a studio.
+    const sideBySide = await request(app)
+      .post(`${studio.base}/activities/events`)
+      .set(studio.headers)
+      .send(event({ name: 'Kids Clay', date: '2027-03-09', locationId: room }));
+    expect(sideBySide.status).toBe(201);
+
+    // On: the room runs one thing at a time.
+    await request(app)
+      .patch(`${studio.base}/locations/${room}`)
+      .set(studio.headers)
+      .send({ oneAtATime: true })
+      .expect(200);
+
+    const preview = await request(app)
+      .post(`${studio.base}/activities/preview`)
+      .set(studio.headers)
+      .send({ kind: 'EVENT', date: '2027-03-09', startTime: '19:00', endTime: '20:00', locationId: room });
+    expect(preview.body.dates[0].clashes.map((c: { kind: string }) => c.kind)).toEqual([
+      'LOCATION',
+      'LOCATION',
+    ]);
+    expect(preview.body.dates[0].clashes[0].message).toBe('Glaze room has Glaze Night 6:30–9pm');
+
+    const refused = await request(app)
+      .post(`${studio.base}/activities/events`)
+      .set(studio.headers)
+      .send(event({ name: 'Late Throw', date: '2027-03-09', startTime: '19:00', endTime: '20:00', locationId: room }));
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('CLASH');
+
+    // Back to back is not a clash: 9pm to 10pm starts as the last one ends.
+    const after = await request(app)
+      .post(`${studio.base}/activities/events`)
+      .set(studio.headers)
+      .send(event({ name: 'Late Throw', date: '2027-03-09', startTime: '21:00', endTime: '22:00', locationId: room }));
+    expect(after.status).toBe(201);
+  });
+
+  it('does not ask for a location the studio has not chosen yet', async () => {
+    await addLocation('Main studio');
+    await addLocation('Annex');
+
+    const res = await request(app)
+      .post(`${studio.base}/activities/preview`)
+      .set(studio.headers)
+      .send({ kind: 'EVENT', date: '2027-03-09', startTime: '18:00', endTime: '20:00' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.dates).toHaveLength(1);
+    expect(res.body.clashCount).toBe(0);
+  });
+});
+
+function pick<T extends Record<string, unknown>>(from: T, ...keys: string[]) {
+  return Object.fromEntries(keys.map((k) => [k, from[k]]));
+}

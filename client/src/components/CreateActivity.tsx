@@ -152,7 +152,17 @@ function priceCents(price: string): number | null {
   return Math.round(value * 100);
 }
 
-type Errors = Partial<Record<keyof ActivityAnswers, string>>;
+type Errors = Partial<Record<keyof ActivityAnswers | 'clashes', string>>;
+
+/** What already happens at a date, from the server's preview (Stage 4). */
+type Clash = { kind: 'STAFF' | 'LOCATION'; message: string };
+
+/**
+ * The steps where a clash can be SEEN and fixed, so Next waits there. A Class
+ * learns its instructor a step after its dates, so its clashes can surface on
+ * either; the list says which dates and what to change.
+ */
+const CLASH_STEPS = ['When and where', 'Seats and price', 'Schedule', 'Where and who'];
 
 export function CreateActivity({
   base,
@@ -253,6 +263,86 @@ export function CreateActivity({
     [kind, answers.startDate, answers.weekdays, answers.sessionCount, answers.skipDates],
   );
 
+  /*
+    The live clash check (CLASS-EVENT-PLAN.md, Stage 4). Asked again a moment
+    after anything that decides when, where or who changes; an answer that
+    arrives after a newer question is dropped. A failed check shows nothing:
+    publishing checks again on the server, so it can never let a clash through.
+  */
+  const [clashes, setClashes] = useState<Map<string, Clash[]>>(new Map());
+  useEffect(() => {
+    if (!kind || answers.endTime <= answers.startTime) {
+      setClashes(new Map());
+      return;
+    }
+    const where = {
+      startTime: answers.startTime,
+      endTime: answers.endTime,
+      ...(answers.locationId ? { locationId: answers.locationId } : {}),
+      ...(answers.staffId ? { staffId: answers.staffId } : {}),
+    };
+    const body =
+      kind === 'EVENT'
+        ? answers.date
+          ? { kind, date: answers.date, ...where }
+          : null
+        : schedule
+          ? {
+              kind,
+              startDate: answers.startDate,
+              weekdays: answers.weekdays,
+              sessionCount: answers.sessionCount,
+              ...(answers.skipDates.length ? { skipDates: answers.skipDates } : {}),
+              ...where,
+            }
+          : null;
+    if (!body) {
+      setClashes(new Map());
+      return;
+    }
+
+    let stale = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await api.post<{ dates: { localDate: string; clashes: Clash[] }[] }>(
+            `${base}/activities/preview`,
+            body,
+          );
+          if (!stale) {
+            setClashes(
+              new Map(res.dates.filter((d) => d.clashes.length).map((d) => [d.localDate, d.clashes])),
+            );
+          }
+        } catch {
+          /* Left as it was; publishing re-checks. */
+        }
+      })();
+    }, 350);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [
+    base,
+    kind,
+    schedule,
+    answers.date,
+    answers.startDate,
+    answers.weekdays,
+    answers.sessionCount,
+    answers.skipDates,
+    answers.startTime,
+    answers.endTime,
+    answers.locationId,
+    answers.staffId,
+  ]);
+
+  // Clashes that no longer apply clear the message that pointed at them.
+  useEffect(() => {
+    if (clashes.size === 0) setErrors((e) => (e.clashes ? { ...e, clashes: undefined } : e));
+  }, [clashes]);
+
   const steps = kind ? STEPS[kind] : [];
   const stepName = steps[step];
   const locationName = locations.find((l) => l.id === answers.locationId)?.name;
@@ -286,6 +376,16 @@ export function CreateActivity({
       if (!Number.isInteger(answers.seats) || answers.seats < 1 || answers.seats > 500)
         e.seats = 'Between 1 and 500 seats.';
       if (priceCents(answers.price) === null) e.price = 'Enter a price. Use 0 if it is free.';
+    }
+    if (name && CLASH_STEPS.includes(name) && clashes.size > 0) {
+      e.clashes =
+        clashes.size === 1
+          ? 'That date clashes. Change the time, the instructor or where it runs'
+          : `${clashes.size} dates clash. Change the time, the instructor or where it runs`;
+      if (kind === 'CLASS') {
+        e.clashes += name === 'Schedule' ? ', or untick those dates' : ', or untick those dates on Schedule';
+      }
+      e.clashes += '.';
     }
     return e;
   }
@@ -476,7 +576,12 @@ export function CreateActivity({
             Back
           </button>
           {last ? (
-            <button type="button" className="primary" onClick={() => void publish()} disabled={busy}>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => void publish()}
+              disabled={busy || clashes.size > 0}
+            >
               {busy ? 'Publishing…' : 'Publish'}
             </button>
           ) : (
@@ -545,6 +650,7 @@ export function CreateActivity({
               error={errors.locationId}
               onChange={(v) => set('locationId', v)}
             />
+            <ClashList clashes={clashes} error={errors.clashes} />
           </>
         )}
 
@@ -597,8 +703,12 @@ export function CreateActivity({
                 <ul>
                   {[...schedule.dates, ...schedule.skipped].sort().map((date) => {
                     const skipped = schedule.skipped.includes(date);
+                    const here = skipped ? [] : (clashes.get(date) ?? []);
                     return (
-                      <li key={date} className={skipped ? 'skipped' : undefined}>
+                      <li
+                        key={date}
+                        className={skipped ? 'skipped' : here.length ? 'clashing' : undefined}
+                      >
                         <label>
                           <input
                             type="checkbox"
@@ -607,6 +717,11 @@ export function CreateActivity({
                           />
                           {shortDate(date)}
                         </label>
+                        {here.map((c) => (
+                          <span key={c.message} className="date-clash">
+                            {c.message}
+                          </span>
+                        ))}
                       </li>
                     );
                   })}
@@ -615,6 +730,11 @@ export function CreateActivity({
                   Untick a date to skip it, for a holiday. Another is added at the end, so it
                   stays {answers.sessionCount} sessions.
                 </p>
+                {errors.clashes && (
+                  <p className="field-error" role="alert">
+                    {errors.clashes}
+                  </p>
+                )}
               </div>
             )}
           </>
@@ -629,6 +749,7 @@ export function CreateActivity({
               onChange={(v) => set('locationId', v)}
             />
             <StaffField staff={staff} value={answers.staffId} onChange={(v) => set('staffId', v)} />
+            <ClashList clashes={clashes} error={errors.clashes} />
           </>
         )}
 
@@ -663,7 +784,10 @@ export function CreateActivity({
               </Field>
             </div>
             {kind === 'EVENT' && (
-              <StaffField staff={staff} value={answers.staffId} onChange={(v) => set('staffId', v)} />
+              <>
+                <StaffField staff={staff} value={answers.staffId} onChange={(v) => set('staffId', v)} />
+                <ClashList clashes={clashes} error={errors.clashes} />
+              </>
             )}
           </>
         )}
@@ -714,6 +838,14 @@ export function CreateActivity({
                 </p>
               )}
             </div>
+            <ClashList
+              clashes={clashes}
+              error={
+                clashes.size
+                  ? 'Fix these before publishing: go back to the step that sets the time, the instructor or where it runs.'
+                  : undefined
+              }
+            />
             {serverError && <div className="err">{serverError}</div>}
           </>
         )}
@@ -723,6 +855,27 @@ export function CreateActivity({
 }
 
 // --- Fields ------------------------------------------------------------------
+
+/** Which dates clash and with what, in date order. Nothing when none do. */
+function ClashList({ clashes, error }: { clashes: Map<string, Clash[]>; error?: string }) {
+  if (clashes.size === 0) return null;
+  return (
+    <div className="clash-list" role="alert">
+      <ul>
+        {[...clashes.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([date, list]) =>
+            list.map((c) => (
+              <li key={`${date}-${c.message}`}>
+                <strong>{shortDate(date)}</strong> {c.message}
+              </li>
+            )),
+          )}
+      </ul>
+      {error && <p className="field-error">{error}</p>}
+    </div>
+  );
+}
 
 function Field({
   label,
