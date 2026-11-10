@@ -8,6 +8,7 @@ import {
   zonedToInstant,
 } from '../lib/api';
 import { useActiveOrg } from '../lib/auth';
+import { Link } from 'react-router-dom';
 
 /**
  * A booking taken over the phone or at the counter.
@@ -169,6 +170,16 @@ export function CounterBookingForm({
   onCancel: () => void;
 }) {
   const [services, setServices] = useState<ServiceOption[]>([]);
+  /*
+    FB-30. What the Activity list leaves out, so the form can say so. It was
+    silently empty for a studio whose only live activity is a Class, and
+    nothing pointed at where a Class IS booked.
+  */
+  const [hiddenCount, setHiddenCount] = useState(0);
+  const [courseCohorts, setCourseCohorts] = useState<
+    { id: string; name: string; seatsRemaining: number }[]
+  >([]);
+  const [loaded, setLoaded] = useState(false);
   const [sessions, setSessions] = useState<SessionOption[]>([]);
   const [staff, setStaff] = useState<{ id: string; name: string }[]>([]);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
@@ -245,7 +256,7 @@ export function CounterBookingForm({
     void (async () => {
       try {
         const [svc, st, cust] = await Promise.all([
-          api.get<{ services: ServiceOption[] }>(`${base}/services`),
+          api.get<{ services: ServiceOption[] }>(`${base}/services?includeInactive=true`),
           api.get<{ staff: { id: string; name: string }[] }>(`${base}/staff`),
           api.get<{ customers: CustomerOption[] }>(`${base}/customers?limit=200`),
         ]);
@@ -260,10 +271,28 @@ export function CounterBookingForm({
             (s) => s.isActive !== false && s.bookingMode !== 'COURSE_SERIES',
           ),
         );
+        setHiddenCount(
+          svc.services.filter(
+            (s) => s.isActive === false && s.bookingMode !== 'COURSE_SERIES',
+          ).length,
+        );
         setStaff(st.staff);
         setCustomers(cust.customers ?? []);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not load your activities.');
+      } finally {
+        setLoaded(true);
+      }
+
+      /* Classes on sale, to point at where they are enrolled. Optional: if
+         this fails the form simply says less. */
+      try {
+        const res = await api.get<{
+          series: { id: string; name: string; seatsRemaining: number }[];
+        }>(`${base}/courses?status=PUBLISHED`);
+        setCourseCohorts(res.series ?? []);
+      } catch {
+        setCourseCohorts([]);
       }
 
       /* Only for a new session, so a failure here must not break the form:
@@ -712,7 +741,11 @@ export function CounterBookingForm({
             value={serviceTypeId}
             onChange={(e) => setServiceTypeId(e.target.value)}
           >
-            <option value="">Choose a class…</option>
+            <option value="">
+              {loaded && services.length === 0
+                ? 'Nothing to book here yet'
+                : 'Choose an activity…'}
+            </option>
             {services.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -720,6 +753,31 @@ export function CounterBookingForm({
               </option>
             ))}
           </select>
+
+          {/* FB-30: say why something is missing, and where it is booked. */}
+          {loaded && services.length === 0 && (
+            <p className="tiny muted" role="status">
+              {hiddenCount > 0
+                ? `${hiddenCount === 1 ? 'Your one activity is' : `All ${hiddenCount} of your activities are`} hidden or in draft. `
+                : 'You have no activities that can be booked by date yet. '}
+              <Link to="/classes">Go to Activities</Link> to{' '}
+              {hiddenCount > 0 ? 'make one Active' : 'add one'}.
+            </p>
+          )}
+          {loaded && courseCohorts.length > 0 && (
+            <p className="tiny muted">
+              Classes that run over several weeks are booked as a whole
+              course, not here — enrol a customer from the class's page:{' '}
+              {courseCohorts.slice(0, 3).map((c, i) => (
+                <span key={c.id}>
+                  {i > 0 ? ', ' : ''}
+                  <Link to={`/courses/${c.id}`}>{c.name}</Link>
+                  {c.seatsRemaining === 0 ? ' (full)' : ''}
+                </span>
+              ))}
+              {courseCohorts.length > 3 ? ` and ${courseCohorts.length - 3} more` : ''}.
+            </p>
+          )}
         </div>
 
         <div className="setting setting-stack">
