@@ -1715,10 +1715,31 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
   background: var(--clay-lt);
   color: var(--clay-text);
   font-weight: 600;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   border-left: 2px solid var(--clay);
+  line-height: 1.25;
+  /* The cell is a <button>, whose nowrap would keep the name on one line. */
+  white-space: normal;
+}
+/* FB-06: time on one line, the name below it on up to two. */
+.cal-ev .t { display: block; white-space: nowrap; font-weight: 700; }
+.cal-ev .t-short { display: none; }
+.cal-ev .n {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+/* A phone-width cell is ~50px: the short time only ("11a"); the day opens
+   in Week, which has room for the rest. */
+@media (max-width: 620px) {
+  .cal-cell { min-height: 84px; padding: 4px 2px; }
+  .cal-ev { padding: 1px 3px; font-size: 10px; text-align: center; }
+  .cal-ev .t, .cal-ev .n { display: none; }
+  .cal-ev .t-short { display: block; white-space: nowrap; }
+  .cal-more { padding-left: 2px; font-size: 10px; }
 }
 /* Tone by how full it is — the same quiet → busy → full scale the dashboard's
    capacity bars use, so a colour means one thing across the product. */
@@ -1924,6 +1945,12 @@ table, .stat .value, .figure, .detail-list dd, .counts, .queue-counts {
 }
 /* The date is the first thing to go: it is orientation, not a control. */
 @media (max-width: 1100px) { .topbar-date { display: none; } }
+/* On a phone the booking-page link is its icon: with the words, the bar was
+   411px wide on a 375px screen and every page scrolled sideways (FB-06). */
+@media (max-width: 520px) {
+  .topbar-cta-label { display: none; }
+  .topbar-right { gap: var(--space-1); }
+}
 
 .icon-btn {
   display: inline-flex;

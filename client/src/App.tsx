@@ -218,9 +218,11 @@ export default function App() {
                 href={`/public/${org.organization.slug}`}
                 target="_blank"
                 rel="noopener noreferrer"
+                aria-label="View booking page"
+                title="View booking page"
               >
                 <Icon name="external" size={16} />
-                View booking page
+                <span className="topbar-cta-label">View booking page</span>
               </a>
             )}
 
