@@ -93,6 +93,17 @@ function addMinutes(time: string, minutes: number): string | null {
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
+/**
+ * A guest-count box's text, cleaned on every keystroke: digits only, no
+ * leading zeros ("01" → "1", "007" → "7"), at most three digits. Empty stays
+ * empty so the operator can clear the box and type; blur turns it back to 0.
+ */
+function cleanCount(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 3);
+  if (digits === '') return '';
+  return String(Number(digits));
+}
+
 /** The studio's own date and 24-hour time right now, for refusing the past. */
 function nowIn(timezone: string): { date: string; time: string } {
   const parts = Object.fromEntries(
@@ -200,8 +211,19 @@ export function CounterBookingForm({
     server and the database only ever see the total plus how many of it are
     children — the same rule the public page follows.
   */
-  const [adults, setAdults] = useState(1);
-  const [children, setChildren] = useState(0);
+  /*
+    FB-03. Held as the TEXT in each box, not as numbers. As numbers, clearing
+    the box snapped it straight back to 1 (so typing 2 gave "12"), and React
+    leaves a number input's text alone when it parses to the same value (so
+    "01" stayed on screen). As text, the box can be empty while the operator
+    types, and the cleaned-up text is written back on every keystroke.
+    Both start at zero: the operator says how many, rather than correcting a
+    guess.
+  */
+  const [adultsText, setAdultsText] = useState('0');
+  const [childrenText, setChildrenText] = useState('0');
+  const adults = Number(adultsText) || 0;
+  const children = Number(childrenText) || 0;
   const seats = adults + children;
 
   // --- Payment -------------------------------------------------------------
@@ -409,6 +431,9 @@ export function CounterBookingForm({
     : chosen
       ? Math.max(0, chosen.capacity - chosen.seatsTaken)
       : 0;
+  /** Only meaningful once a session is chosen; before that nothing is "left". */
+  const hasSession = Boolean(chosen && !creating);
+  const overCapacity = hasSession && seats > seatsLeft;
 
   /**
    * The list price, which the Total field starts at and may be overridden.
@@ -495,7 +520,10 @@ export function CounterBookingForm({
       blockers.push('Choose a session time.');
     }
   }
-  if (service && !isAppointment && seats > seatsLeft && chosen && !creating) {
+  if (service && !isAppointment && seats === 0) {
+    blockers.push('Add at least one guest — Adults or Children.');
+  }
+  if (service && !isAppointment && overCapacity) {
     blockers.push(
       `That is ${seats} ${seats === 1 ? 'guest' : 'guests'} and only ${seatsLeft} ${
         seatsLeft === 1 ? 'place is' : 'places are'
@@ -943,15 +971,19 @@ export function CounterBookingForm({
           <div className="form-row">
             <div className="setting setting-stack">
               <label htmlFor="cbAdults">Adults</label>
+              {/* Selected on focus, so typing replaces the value instead of
+                  appending to it. The arrows still step within the places
+                  left; typing past them is allowed but flagged below. */}
               <input
                 id="cbAdults"
                 type="number"
-                min={1}
-                max={Math.max(1, seatsLeft)}
-                value={adults}
-                onChange={(e) =>
-                  setAdults(Math.max(1, Number(e.target.value) || 1))
-                }
+                inputMode="numeric"
+                min={0}
+                max={hasSession ? Math.max(0, seatsLeft - children) : undefined}
+                value={adultsText}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setAdultsText(cleanCount(e.target.value))}
+                onBlur={() => adultsText === '' && setAdultsText('0')}
               />
             </div>
 
@@ -960,12 +992,13 @@ export function CounterBookingForm({
               <input
                 id="cbChildren"
                 type="number"
+                inputMode="numeric"
                 min={0}
-                max={Math.max(0, seatsLeft - adults)}
-                value={children}
-                onChange={(e) =>
-                  setChildren(Math.max(0, Number(e.target.value) || 0))
-                }
+                max={hasSession ? Math.max(0, seatsLeft - adults) : undefined}
+                value={childrenText}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setChildrenText(cleanCount(e.target.value))}
+                onBlur={() => childrenText === '' && setChildrenText('0')}
               />
               {/* Said out loud only when it changes the price. On a service
                   with no child rate the seat costs the same, and a line
@@ -978,6 +1011,22 @@ export function CounterBookingForm({
               </p>
             </div>
           </div>
+
+          {/* The party and its price, right under the boxes that change
+              them — the same `seats` and `totalCents` the footer and the
+              request use, so the three can never disagree. */}
+          {seats > 0 && overCapacity ? (
+            <div className="err" role="status">
+              {seats} {seats === 1 ? 'guest' : 'guests'}, but only {seatsLeft}{' '}
+              {seatsLeft === 1 ? 'place is' : 'places are'} free in this session.
+            </div>
+          ) : (
+            <p className="tiny muted" role="status">
+              {seats === 0
+                ? 'Add at least one guest.'
+                : `${seats} ${seats === 1 ? 'guest' : 'guests'} · ${money(totalCents, currency)}`}
+            </p>
+          )}
         </>
       )}
 
