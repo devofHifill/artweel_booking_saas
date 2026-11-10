@@ -286,29 +286,12 @@ export const clientScript = String.raw`
     var seatsInput = document.getElementById('seats');
     var childrenInput = document.getElementById('children');
 
-    // Same clamping as the single-class form: never more children than places.
-    function syncParty() {
-      state.seats = seatsInput ? parseInt(seatsInput.value, 10) || minSeats : 1;
-      if (seatsInput && state.seats < minSeats) {
-        state.seats = minSeats; seatsInput.value = String(minSeats);
-      }
-      if (seatsInput && state.seats > maxSeats) {
-        state.seats = maxSeats; seatsInput.value = String(maxSeats);
-      }
-      if (childrenInput) {
-        childrenInput.max = String(state.seats);
-        var kids = parseInt(childrenInput.value, 10) || 0;
-        if (kids > state.seats) { kids = state.seats; childrenInput.value = String(kids); }
-        state.children = kids;
-      }
-      paintSummary();
-    }
-
-    if (seatsInput) seatsInput.addEventListener('change', syncParty);
-    if (childrenInput) childrenInput.addEventListener('change', syncParty);
+    // Same party handling as the single-class form (FB-04).
+    wireParty(seatsInput, childrenInput, minSeats, maxSeats);
 
     document.getElementById('confirm').addEventListener('click', function () {
-      submitCourse(this);
+      var btn = this;
+      confirmWhenQuoted(btn, function () { submitCourse(btn); });
     });
   }
 
@@ -1035,6 +1018,107 @@ export const clientScript = String.raw`
      the second's — the summary would show a total for a party nobody chose. */
   var quoteSeq = 0;
 
+  /*
+    FB-04. True while the quote for the party on screen has not come back.
+    Confirm reads quote.willCharge to choose between checkout and the free
+    path, so a click in that window used to see "quote = null" and post a
+    paid booking to /bookings, which the server refuses (PAYMENT_REQUIRED).
+    Clicks made meanwhile wait here and run once the answer lands.
+  */
+  var quoting = false;
+  var quoteWaiters = [];
+
+  function whenQuoted(fn) {
+    if (!quoting) { fn(); return; }
+    quoteWaiters.push(fn);
+  }
+
+  function quoteSettled(mine) {
+    if (mine !== quoteSeq) return; // a newer quote is out; wait for that one
+    quoting = false;
+    var waiting = quoteWaiters;
+    quoteWaiters = [];
+    waiting.forEach(function (fn) { fn(); });
+  }
+
+  /*
+    The party inputs of whichever form is on screen. Typing re-quotes after a
+    short pause (arrows used to re-quote at once and typing only on blur, so
+    the two gave different totals until the box lost focus). The box itself
+    is only corrected — min, max, children <= places — when it loses focus:
+    rewriting it per keystroke would turn "1" into the minimum before "12"
+    could be typed.
+  */
+  var flushParty = function () {};
+
+  function wireParty(seatsInput, childrenInput, minSeats, maxSeats) {
+    var timer = null;
+    var lastKey = state.seats + '/' + (state.children || 0);
+
+    function read(fix) {
+      var seats = seatsInput ? parseInt(seatsInput.value, 10) || minSeats : 1;
+      if (seats < minSeats) seats = minSeats;
+      if (seats > maxSeats) seats = maxSeats;
+      if (fix && seatsInput) seatsInput.value = String(seats);
+      state.seats = seats;
+
+      if (childrenInput) {
+        childrenInput.max = String(seats);
+        var kids = parseInt(childrenInput.value, 10) || 0;
+        if (kids < 0) kids = 0;
+        if (kids > seats) kids = seats;
+        if (fix) childrenInput.value = String(kids);
+        state.children = kids;
+      }
+    }
+
+    function requote() {
+      clearTimeout(timer);
+      timer = null;
+      var key = state.seats + '/' + (state.children || 0);
+      if (key === lastKey) return; // already quoted (or being quoted)
+      lastKey = key;
+      paintSummary();
+    }
+
+    function typed() {
+      read(false);
+      clearTimeout(timer);
+      timer = setTimeout(requote, 250);
+    }
+
+    function settled() {
+      read(true);
+      requote();
+    }
+
+    [seatsInput, childrenInput].forEach(function (el) {
+      if (!el) return;
+      el.addEventListener('input', typed);
+      el.addEventListener('change', settled);
+    });
+
+    flushParty = function () {
+      if (timer) { read(false); requote(); }
+    };
+  }
+
+  /*
+    Run a Confirm click only against the quote for the party on screen. A
+    click that arrives first is parked, the button disabled so a second click
+    cannot queue a second booking, and replayed when the quote lands.
+  */
+  function confirmWhenQuoted(btn, run) {
+    flushParty();
+    if (!quoting) { run(); return; }
+    btn.disabled = true;
+    btn.textContent = 'Checking price...';
+    whenQuoted(function () {
+      btn.disabled = false;
+      run();
+    });
+  }
+
   function paintSummary() {
     var host = document.getElementById('summary');
     if (!host) return;
@@ -1044,6 +1128,7 @@ export const clientScript = String.raw`
        Stripe for a class they are no longer booking. */
     quote = null;
     var mine = ++quoteSeq;
+    quoting = true;
 
     fetchQuote()
       .then(function (q) {
@@ -1054,12 +1139,14 @@ export const clientScript = String.raw`
         if (btn) {
           btn.textContent = q.willCharge ? 'Continue to payment' : 'Confirm booking';
         }
+        quoteSettled(mine);
       })
       .catch(function () {
         if (mine !== quoteSeq) return;
         /* A quote that will not load must not block a booking. The price is
            on the service card either way, and checkout recomputes it. */
         host.innerHTML = '';
+        quoteSettled(mine);
       });
   }
 
@@ -1121,36 +1208,20 @@ export const clientScript = String.raw`
     var childrenInput = document.getElementById('children');
 
     /*
-      Both inputs run through one handler, and children are clamped to the
-      party every time either moves. Dropping from four places to two with
-      three children chosen would otherwise send children > seats: the server
-      clamps it and the CHECK constraint refuses it, which is correct and
-      reads to the customer as the booking simply not working.
+      Children are clamped to the party every time either box moves. Dropping
+      from four places to two with three children chosen would otherwise send
+      children > seats: the server clamps it and the CHECK constraint refuses
+      it, which is correct and reads to the customer as the booking simply
+      not working. See wireParty for when each box is re-quoted.
     */
-    function syncParty() {
-      state.seats = seatsInput ? parseInt(seatsInput.value, 10) || minSeats : 1;
-      if (seatsInput && state.seats < minSeats) {
-        state.seats = minSeats; seatsInput.value = String(minSeats);
-      }
-      if (seatsInput && state.seats > maxSeats) {
-        state.seats = maxSeats; seatsInput.value = String(maxSeats);
-      }
-
-      if (childrenInput) {
-        childrenInput.max = String(state.seats);
-        var kids = parseInt(childrenInput.value, 10) || 0;
-        if (kids > state.seats) { kids = state.seats; childrenInput.value = String(kids); }
-        state.children = kids;
-      }
-
-      paintSummary();
-    }
-
-    if (seatsInput) seatsInput.addEventListener('change', syncParty);
-    if (childrenInput) childrenInput.addEventListener('change', syncParty);
+    wireParty(seatsInput, childrenInput, minSeats, maxSeats);
 
     document.getElementById('confirm').addEventListener('click', function () {
       var btn = this;
+      confirmWhenQuoted(btn, function () { submitDetails(btn); });
+    });
+
+    function submitDetails(btn) {
       var name = document.getElementById('name').value.trim();
       var email = document.getElementById('email').value.trim();
       var seatsEl = document.getElementById('seats');
@@ -1226,7 +1297,7 @@ export const clientScript = String.raw`
       })
         .then(showConfirmed)
         .catch(failed);
-    });
+    }
   }
 
   // --- Done ---------------------------------------------------------------
