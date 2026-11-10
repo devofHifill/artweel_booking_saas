@@ -23,13 +23,19 @@ import { PageHead } from '../components/layout';
  * its capacity. A month of bookings could say how many people are coming and
  * never how many seats there were.
  *
- * The prototype also has a day view and a side panel for the selected day.
- * Neither is built: day view is week view with one column, and the side panel
- * duplicates what the Daily Manifest already does better. Recorded as a gap in
- * TOURFLOW-PARITY-PLAN.md rather than half-built here.
+ * DAY is the week grid with one column — added for FB-07, which asked for
+ * Day → Week → Month. All three views share one date, so switching between
+ * them never jumps. The prototype's side panel for the selected day is still
+ * not built: it duplicates what the Daily Manifest already does better.
  */
 
-type Mode = 'month' | 'week';
+type Mode = 'day' | 'week' | 'month';
+
+const MODES: [Mode, string][] = [
+  ['day', 'Day'],
+  ['week', 'Week'],
+  ['month', 'Month'],
+];
 
 type MonthSession = {
   id: string;
@@ -138,6 +144,13 @@ function addDays(ymd: string, n: number): string {
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
+/** The same day of the month, n months on — clamped, so Jan 31 + 1 is Feb 28. */
+function addMonths(ymd: string, n: number): string {
+  const [y, m, d] = ymd.split('-').map(Number) as [number, number, number];
+  const lastDay = new Date(Date.UTC(y, m - 1 + n + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m - 1 + n, Math.min(d, lastDay))).toISOString().slice(0, 10);
+}
+
 function sundayOf(ymd: string): string {
   return addDays(ymd, -new Date(`${ymd}T00:00:00Z`).getUTCDay());
 }
@@ -240,9 +253,19 @@ export default function CalendarPage() {
   const todayInStudio = partsIn(new Date().toISOString(), timezone).date;
 
   const [mode, setMode] = useState<Mode>('month');
-  const [monthAnchor, setMonthAnchor] = useState(() => new Date());
+  /*
+    FB-07. ONE date for every view, as a studio-local YYYY-MM-DD. Month and
+    Week used to keep their own, so moving Month to January and switching to
+    Week landed back on this week. Each view now shows the day, week or month
+    that contains this date.
+  */
+  const [anchor, setAnchor] = useState(todayInStudio);
   const [monthSessions, setMonthSessions] = useState<MonthSession[]>([]);
-  const [weekStart, setWeekStart] = useState(() => sundayOf(todayInStudio));
+  const weekStart = sundayOf(anchor);
+  const monthAnchor = useMemo(() => {
+    const [y, m] = anchor.split('-').map(Number) as [number, number];
+    return new Date(y, m - 1, 1);
+  }, [anchor]);
   const [weekSessions, setWeekSessions] = useState<WeekSession[]>([]);
   const [bookings, setBookings] = useState<BookingListItem[]>([]);
   const [dragging, setDragging] = useState<BookingListItem | null>(null);
@@ -250,9 +273,13 @@ export default function CalendarPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /** The columns of the time grid: one day in Day view, seven in Week. */
   const days = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
-    [weekStart],
+    () =>
+      mode === 'day'
+        ? [anchor]
+        : Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
+    [mode, anchor, weekStart],
   );
 
   /*
@@ -260,9 +287,12 @@ export default function CalendarPage() {
     them. It used to read bookings only, so a class nobody had booked yet —
     most of a new studio's calendar — showed in Month and not in Week.
   */
+  const firstDay = days[0]!;
+  const lastDay = days[days.length - 1]!;
+
   const load = useCallback(async () => {
-    const from = instantFor(weekStart, 0, 0, timezone);
-    const to = instantFor(addDays(weekStart, 7), 0, 0, timezone);
+    const from = instantFor(firstDay, 0, 0, timezone);
+    const to = instantFor(addDays(lastDay, 1), 0, 0, timezone);
 
     try {
       const [bookingRes, sessionRes] = await Promise.all([
@@ -271,7 +301,7 @@ export default function CalendarPage() {
         ),
         // Studio-local dates, both ends inclusive (the server's windowFor).
         api.get<{ sessions: WeekSession[] }>(
-          `${base}/sessions?from=${weekStart}&to=${addDays(weekStart, 6)}`,
+          `${base}/sessions?from=${firstDay}&to=${lastDay}`,
         ),
       ]);
       setBookings(bookingRes.bookings);
@@ -280,10 +310,10 @@ export default function CalendarPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load.');
     }
-  }, [base, weekStart, timezone]);
+  }, [base, firstDay, lastDay, timezone]);
 
   useEffect(() => {
-    if (mode === 'week') void load();
+    if (mode !== 'month') void load();
   }, [load, mode]);
 
   /**
@@ -430,27 +460,24 @@ export default function CalendarPage() {
 
   const title =
     mode === 'month'
-      ? monthAnchor.toLocaleDateString(undefined, {
-          month: 'long',
-          year: 'numeric',
-        })
-      : `${dateLabel(weekStart, { month: 'short', day: 'numeric' })} – ${dateLabel(addDays(weekStart, 6), { month: 'short', day: 'numeric' })}`;
+      ? dateLabel(anchor, { month: 'long', year: 'numeric' })
+      : mode === 'day'
+        ? dateLabel(anchor, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+        : `${dateLabel(weekStart, { month: 'short', day: 'numeric' })} – ${dateLabel(addDays(weekStart, 6), { month: 'short', day: 'numeric' })}`;
 
   /** One step back or forward, in whatever unit the current view uses. */
   function step(direction: -1 | 1) {
-    if (mode === 'month') {
-      setMonthAnchor(
-        (current) =>
-          new Date(current.getFullYear(), current.getMonth() + direction, 1),
-      );
-      return;
-    }
-    setWeekStart((current) => addDays(current, direction * 7));
+    setAnchor((current) =>
+      mode === 'day'
+        ? addDays(current, direction)
+        : mode === 'week'
+          ? addDays(current, direction * 7)
+          : addMonths(current, direction),
+    );
   }
 
   function goToday() {
-    setMonthAnchor(new Date());
-    setWeekStart(sundayOf(todayInStudio));
+    setAnchor(todayInStudio);
   }
 
   return (
@@ -458,7 +485,7 @@ export default function CalendarPage() {
       <PageHead
         title="Calendar"
         lede={
-          mode === 'week'
+          mode !== 'month'
             ? `Drag an appointment to move it. Times shown in ${timezone.replace('_', ' ')}.`
             : 'Classes, capacity and who is running what.'
         }
@@ -473,18 +500,18 @@ export default function CalendarPage() {
         here for a reason that has nothing to do with matching it.
       */}
       <div className="card" style={{ padding: 0 }}>
-        <div className="panel-head">
+        <div className="panel-head cal-head">
           <div className="cal-nav">
             <button
               className="sm"
-              aria-label={mode === 'month' ? 'Previous month' : 'Previous week'}
+              aria-label={`Previous ${mode}`}
               onClick={() => step(-1)}
             >
               ←
             </button>
             <button
               className="sm"
-              aria-label={mode === 'month' ? 'Next month' : 'Next week'}
+              aria-label={`Next ${mode}`}
               onClick={() => step(1)}
             >
               →
@@ -496,21 +523,18 @@ export default function CalendarPage() {
             <button className="sm" onClick={goToday}>
               Today
             </button>
+            {/* Day, Week, Month — smallest first (FB-07). Today stays apart. */}
             <div className="seg" role="group" aria-label="Calendar view">
-              <button
-                className={mode === 'month' ? 'on' : ''}
-                aria-pressed={mode === 'month'}
-                onClick={() => setMode('month')}
-              >
-                Month
-              </button>
-              <button
-                className={mode === 'week' ? 'on' : ''}
-                aria-pressed={mode === 'week'}
-                onClick={() => setMode('week')}
-              >
-                Week
-              </button>
+              {MODES.map(([value, label]) => (
+                <button
+                  key={value}
+                  className={mode === value ? 'on' : ''}
+                  aria-pressed={mode === value}
+                  onClick={() => setMode(value)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
@@ -535,10 +559,10 @@ export default function CalendarPage() {
                   key={key}
                   className={`cal-cell ${outside ? 'out' : ''} ${isToday ? 'today' : ''}`.trim()}
                   onClick={() => {
-                    // Jump to the week containing this day, which is where
-                    // anything can actually be changed.
-                    setWeekStart(sundayOf(key));
-                    setMode('week');
+                    // Open that day, where it can all be read and anything
+                    // can actually be changed.
+                    setAnchor(key);
+                    setMode('day');
                   }}
                 >
                   <span className="dn">{day.getDate()}</span>
@@ -578,11 +602,12 @@ ${session.seatsTaken} of ${session.capacity} places booked`}
         )}
       </div>
 
-      {mode === 'week' && (
+      {mode !== 'month' && (
         <div
           className="week"
           style={{
             opacity: busy ? 0.6 : 1,
+            gridTemplateColumns: `56px repeat(${days.length}, minmax(0, 1fr))`,
             gridTemplateRows: `auto repeat(${slots.length}, ${SLOT_PX}px)`,
           }}
         >
