@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, dateIn, money, plusDays, timeIn, todayIn } from '../lib/api';
+import { api, dateIn, mediaUrl, money, plusDays, timeIn, todayIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import {
   DataTable,
@@ -63,6 +63,9 @@ type ServiceOption = {
   childPriceCents?: number;
   colorAccent?: string | null;
   emoji?: string | null;
+  /** Uploaded photo (FB-11). */
+  imageKey?: string | null;
+  imageAlt?: string | null;
   meetingPoint?: string | null;
   bookingInstructions?: string | null;
   capacityMin?: number;
@@ -233,6 +236,8 @@ export default function Classes() {
       childPriceCents: svc.childPriceCents ?? 0,
       colorAccent: svc.colorAccent,
       emoji: svc.emoji,
+      imageKey: svc.imageKey ?? null,
+      imageAlt: svc.imageAlt ?? null,
       meetingPoint: svc.meetingPoint,
       bookingInstructions: svc.bookingInstructions,
       capacityMin: svc.capacityMin ?? 1,
@@ -1148,9 +1153,18 @@ export default function Classes() {
                         background: `linear-gradient(135deg, ${colour}, ${accent})`,
                       }}
                     >
-                      <span className="cat-initials" aria-hidden="true">
-                        {svc.emoji || initials(svc.name)}
-                      </span>
+                      {svc.imageKey ? (
+                        <img
+                          className="cat-photo"
+                          src={mediaUrl(svc.imageKey) ?? ''}
+                          alt={svc.imageAlt ?? ''}
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="cat-initials" aria-hidden="true">
+                          {svc.emoji || initials(svc.name)}
+                        </span>
+                      )}
                       <span className="cat-pins">
                         {past ? (
                           <span className="cat-tag">Ended</span>

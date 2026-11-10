@@ -95,6 +95,8 @@ export async function getStorefront(slug: string) {
         color: true,
         colorAccent: true,
         emoji: true,
+        imageKey: true,
+        imageAlt: true,
         meetingPoint: true,
         highlights: true,
         preparationNotes: true,
@@ -132,7 +134,7 @@ export async function getStorefront(slug: string) {
       where: { organizationId: organization.id, isActive: true, isPublic: true },
       orderBy: { name: 'asc' },
       take: 6,
-      select: { id: true, name: true, role: true, bio: true, color: true },
+      select: { id: true, name: true, role: true, bio: true, color: true, photoKey: true, photoAlt: true },
     }),
 
     /*

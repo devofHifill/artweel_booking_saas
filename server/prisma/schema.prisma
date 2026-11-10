@@ -858,8 +858,14 @@ model ServiceType {
   /// booking. Same medium, opposite moment.
   bookingInstructions String? @map("booking_instructions") @db.Text
 
-  /// A picked glyph, not an upload. There is no asset pipeline here.
+  /// A picked glyph. The fallback when there is no photo.
   emoji String?
+
+  /// Uploaded photo (FB-11): a media key, `org/<orgId>/<imageId>`, never a
+  /// URL — the storage turns it into addresses per size.
+  imageKey String? @map("image_key")
+  /// Required by the editor whenever `imageKey` is set.
+  imageAlt String? @map("image_alt")
 
   color String @default("#A6522C")
   /// Second stop of the card gradient. Null falls back to a shade of `color`.
@@ -958,6 +964,10 @@ model Staff {
 
   bio            String?
   photoUrl       String? @map("photo_url")
+  /// Uploaded portrait (FB-11), a media key like ServiceType.imageKey.
+  /// Replaces `photoUrl`, which no screen ever set.
+  photoKey       String? @map("photo_key")
+  photoAlt       String? @map("photo_alt")
   /// Authoritative for this person's working hours. Actually consulted by the
   /// availability engine — the plugin stored a timezone and never used it.
   timezone       String  @default("America/New_York")

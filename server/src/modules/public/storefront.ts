@@ -1,3 +1,4 @@
+import { imageUrls } from '../media/media.service';
 import { brandCss, resolveBrand } from '../../lib/brand';
 import { escapeHtml } from './booking-page';
 import type { Storefront } from './storefront.service';
@@ -31,6 +32,23 @@ import type { Storefront } from './storefront.service';
  */
 
 type Service = Storefront['services'][number];
+
+/*
+  An uploaded photo (FB-11), or '' when there is none — every caller keeps
+  its gradient and emoji as the fallback. Both stored widths go in srcset so a
+  phone fetches the 400px file and a wide screen the 1200px one.
+*/
+function photoTag(
+  key: string | null | undefined,
+  alt: string | null | undefined,
+  className: string,
+  sizes: string,
+  eager = false,
+): string {
+  const urls = imageUrls(key);
+  if (!urls) return '';
+  return `<img class="${className}" src="${urls.small}" srcset="${urls.small} 400w, ${urls.large} 1200w" sizes="${sizes}" alt="${escapeHtml(alt ?? '')}"${eager ? '' : ' loading="lazy"'} decoding="async">`;
+}
 
 const money = (cents: number, currency: string) =>
   new Intl.NumberFormat('en-US', {
@@ -259,7 +277,8 @@ function serviceCard(store: Storefront, s: Service): string {
 
   return `<article class="sf-card">
     <a class="sf-card-media" href="${base}/a/${escapeHtml(s.slug)}" style="background:${gradient(s)}">
-      ${s.emoji ? `<span class="sf-emoji">${escapeHtml(s.emoji)}</span>` : ''}
+      ${photoTag(s.imageKey, s.imageAlt, 'sf-photo', '(max-width: 700px) 100vw, 360px') ||
+        (s.emoji ? `<span class="sf-emoji">${escapeHtml(s.emoji)}</span>` : '')}
       ${s.category ? `<span class="sf-chip">${escapeHtml(s.category.name)}</span>` : ''}
       <span class="sf-price">${money(s.priceCents, currency)}</span>
     </a>
@@ -492,7 +511,8 @@ export function renderActivity(store: Storefront, s: Service): string {
     <div class="sf-detail">
       <div>
         <div class="sf-detail-hero" style="background:${gradient(s)}">
-          ${s.emoji ? escapeHtml(s.emoji) : ''}
+          ${photoTag(s.imageKey, s.imageAlt, 'sf-photo', '(max-width: 900px) 100vw, 640px', true) ||
+            (s.emoji ? escapeHtml(s.emoji) : '')}
         </div>
         ${s.category ? `<div class="sf-eyebrow">${escapeHtml(s.category.name)}</div>` : ''}
         <h1>${escapeHtml(s.name)}</h1>
@@ -642,9 +662,10 @@ export function renderAbout(store: Storefront): string {
              ${store.staff
                .map(
                  (m) => `<div class="sf-person">
-                   <span class="sf-avatar" style="background:${escapeHtml(m.color)}">${escapeHtml(
-                     initials(m.name),
-                   )}</span>
+                   <span class="sf-avatar" style="background:${escapeHtml(m.color)}">${
+                     photoTag(m.photoKey, m.photoAlt, 'sf-photo', '96px') ||
+                     escapeHtml(initials(m.name))
+                   }</span>
                    <b>${escapeHtml(m.name)}</b>
                    ${m.role ? `<span class="sf-muted">${escapeHtml(m.role)}</span>` : ''}
                    ${m.bio ? `<p class="sf-fine">${escapeHtml(m.bio)}</p>` : ''}
@@ -811,7 +832,9 @@ h1,h2,h3{letter-spacing:-.02em;line-height:1.2}
 .sf-detail{display:grid;grid-template-columns:1fr 330px;gap:44px;margin-top:18px;align-items:start}
 .sf-detail h1{font-size:34px;margin:6px 0 0}
 .sf-detail h3{font-size:18px;margin:26px 0 8px}
-.sf-detail-hero{height:220px;border-radius:18px;display:grid;place-items:center;font-size:64px}
+.sf-detail-hero{height:220px;border-radius:18px;display:grid;place-items:center;font-size:64px;position:relative;overflow:hidden}
+.sf-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.sf-card-media .sf-chip,.sf-card-media .sf-price{z-index:1}
 .sf-prose{line-height:1.75;font-size:15px;margin:16px 0 0;white-space:pre-line}
 .sf-highlights{margin:8px 0 0;padding-left:20px;line-height:1.8;font-size:15px}
 
@@ -831,7 +854,7 @@ h1,h2,h3{letter-spacing:-.02em;line-height:1.2}
 .sf-person{border:1px solid #e8eaef;border-radius:14px;padding:18px;text-align:center;
   display:flex;flex-direction:column;gap:4px;align-items:center}
 .sf-avatar{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;
-  color:#fff;font-weight:700;margin-bottom:6px}
+  color:#fff;font-weight:700;margin-bottom:6px;position:relative;overflow:hidden}
 .sf-person .sf-fine{text-align:center}
 
 .sf-contact{list-style:none;padding:0;margin:22px 0 0}

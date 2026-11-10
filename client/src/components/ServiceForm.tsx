@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, mediaUrl, money } from '../lib/api';
 import { Modal } from './layout';
+import { ImagePicker, type ImageValue } from './ImagePicker';
 
 /**
  * Creating and editing what a studio offers.
@@ -54,6 +55,9 @@ export type ServiceDraft = {
   color: string;
   colorAccent?: string | null;
   emoji?: string | null;
+  /** Uploaded photo (FB-11): a media key, and its description. */
+  imageKey?: string | null;
+  imageAlt?: string | null;
   isActive?: boolean;
   minNoticeMinutes?: number;
   maxHorizonDays?: number;
@@ -177,6 +181,10 @@ export function ServiceForm({
     existing?.colorAccent ?? DEFAULT_ACCENT,
   );
   const [emoji, setEmoji] = useState(existing?.emoji ?? '🏺');
+  const [image, setImage] = useState<ImageValue>({
+    key: existing?.imageKey ?? null,
+    alt: existing?.imageAlt ?? '',
+  });
 
   const [notice, setNotice] = useState(existing?.minNoticeMinutes ?? 0);
   const [horizon, setHorizon] = useState(existing?.maxHorizonDays ?? 120);
@@ -409,8 +417,13 @@ export function ServiceForm({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setBusy(true);
     setError(null);
+
+    if (image.key && !image.alt.trim()) {
+      setError('Describe the photo before saving — it is read aloud to people who cannot see it.');
+      return;
+    }
+    setBusy(true);
 
     const body = {
       name: name.trim(),
@@ -439,6 +452,8 @@ export function ServiceForm({
       color,
       colorAccent,
       emoji: emoji || null,
+      imageKey: image.key,
+      imageAlt: image.key ? image.alt.trim() : null,
       minNoticeMinutes: notice,
       maxHorizonDays: horizon,
       depositType,
@@ -933,11 +948,43 @@ export function ServiceForm({
 
         <h3 className="form-section">Presentation</h3>
 
+        <ImagePicker
+          base={base}
+          id="svcPhoto"
+          label="Photo"
+          value={image}
+          onChange={setImage}
+          hint="Shown on your booking page. A landscape photo works best. JPEG, PNG or WebP, up to 8 MB."
+        />
+
+        {/* How the card reads on a phone, with this photo (or the icon and
+            colour when there is none). The client asked to see it before it
+            goes live. */}
+        <div className="setting setting-stack">
+          <label>On a phone</label>
+          <div className="card-preview" aria-hidden="true">
+            <div
+              className="card-preview-media"
+              style={{ background: `linear-gradient(135deg, ${color}, ${colorAccent ?? color})` }}
+            >
+              {image.key ? <img src={mediaUrl(image.key, 'small') ?? ''} alt="" /> : emoji}
+            </div>
+            <div className="card-preview-body">
+              <b>{name.trim() || 'Your activity'}</b>
+              <span>
+                {adultCents > 0 ? `${money(adultCents, currency)} per person` : 'Free'}
+              </span>
+              <div className="card-preview-btn" style={{ background: color }}>
+                Choose a date
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="setting setting-stack">
           <label>Icon</label>
-          {/* A picked glyph rather than an upload: there is no asset pipeline
-              in this product, and a booking page half-rendering broken images
-              is worse than one with no pictures at all. */}
+          {/* Shown when there is no photo — and on the calendar, where a
+              photo would not fit. */}
           <div className="chip-group">
             {EMOJI.map((e) => (
               <button

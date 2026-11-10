@@ -10,6 +10,7 @@ import { orgScopedRouter } from './routes/org-scoped';
 import { platformRouter } from './modules/platform/platform.route';
 import { publicRouter } from './modules/public/public.route';
 import { allowEmbedding, embedRouter } from './modules/public/embed';
+import { mediaPublic } from './modules/media/media.route';
 import { webhookRouter } from './modules/payments/webhook.route';
 import { marketingRouter } from './modules/marketing/marketing.route';
 import { inboundRouter } from './modules/notifications/inbound.route';
@@ -99,6 +100,9 @@ export function createApp() {
    * refusal — see the comment on `allowEmbedding` for why that separation is
    * load-bearing rather than tidiness.
    */
+  // Uploaded photos (FB-11). Before the booking pages, whose `/:slug` would
+  // otherwise claim `_media`; no slug can start with `_`, so they never meet.
+  app.use('/public/_media', mediaPublic);
   app.use('/public', allowEmbedding, publicRouter);
 
   // The widget loader. Served from the root because a studio pastes an

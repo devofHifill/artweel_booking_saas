@@ -4,6 +4,7 @@ import { AppError } from '../../lib/app-error';
 import { uniqueSlug } from '../../lib/slug';
 import { requireCapacity, type PlanId } from '../billing/plan';
 import { countRunningClasses } from '../activities/class-limit';
+import { assertAltText, assertOwnImage, releaseImageIfUnused } from '../media/media.service';
 
 /**
  * Service-type administration.
@@ -402,6 +403,7 @@ export async function createService(
   input: Record<string, unknown>,
 ) {
   await assertReferencesBelong(organizationId, input);
+  assertAltText(input.imageKey, input.imageAlt);
 
   const { rest, locationIds } = peelLocationId(input);
 
@@ -437,6 +439,10 @@ export async function updateService(
   if (!existing) throw AppError.notFound('Service not found.');
 
   await assertReferencesBelong(organizationId, input, id);
+  assertAltText(
+    input.imageKey === undefined ? existing.imageKey : input.imageKey,
+    input.imageAlt === undefined ? existing.imageAlt : input.imageAlt,
+  );
 
   /*
     Showing a hidden Class makes it a running one, so it needs a place under
@@ -497,6 +503,10 @@ export async function updateService(
 
   const updated = await prisma.serviceType.update({ where: { id }, data });
   if (existing.kind === 'CLASS') await syncClassSeries(id, input);
+  // A replaced or removed photo's files go once nothing points at them.
+  if (existing.imageKey && existing.imageKey !== updated.imageKey) {
+    await releaseImageIfUnused(organizationId, existing.imageKey);
+  }
   return updated;
 }
 
@@ -563,6 +573,7 @@ export async function deleteService(organizationId: string, id: string) {
   }
 
   await prisma.serviceType.delete({ where: { id } });
+  await releaseImageIfUnused(organizationId, service.imageKey);
   return { deleted: true };
 }
 
@@ -668,6 +679,10 @@ export async function assertReferencesBelong(
   input: Record<string, unknown>,
   selfId?: string,
 ) {
+  if (input.imageKey) {
+    await assertOwnImage(organizationId, String(input.imageKey));
+  }
+
   if (input.categoryId) {
     const category = await prisma.serviceCategory.findFirst({
       where: { id: String(input.categoryId), organizationId },

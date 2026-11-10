@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ApiError, api } from '../lib/api';
+import { ApiError, api, mediaUrl } from '../lib/api';
+import { ImagePicker } from '../components/ImagePicker';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import {
   DataTable,
@@ -44,6 +45,9 @@ type StaffRow = {
   phone: string | null;
   /** Job title, shown under the name. Free text, often empty. */
   role: string | null;
+  /** Uploaded portrait (FB-11): a media key, and its description. */
+  photoKey: string | null;
+  photoAlt: string | null;
   color: string;
   isPublic: boolean;
   isActive: boolean;
@@ -107,6 +111,8 @@ const BLANK = {
   email: '',
   phone: '',
   role: '',
+  photoKey: null as string | null,
+  photoAlt: '',
   color: '#a6522c',
   isPublic: true,
   maxBookingsPerDay: 0,
@@ -213,6 +219,8 @@ export default function Staff() {
       email: row.email,
       phone: row.phone ?? '',
       role: row.role ?? '',
+      photoKey: row.photoKey ?? null,
+      photoAlt: row.photoAlt ?? '',
       color: row.color,
       isPublic: row.isPublic,
       maxBookingsPerDay: row.maxBookingsPerDay,
@@ -233,8 +241,12 @@ export default function Staff() {
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
-    setBusy(true);
     setError(null);
+    if (form.photoKey && !form.photoAlt.trim()) {
+      setError('Describe the photo before saving — it is read aloud to people who cannot see it.');
+      return;
+    }
+    setBusy(true);
 
     const body = {
       name: form.name.trim(),
@@ -243,6 +255,8 @@ export default function Staff() {
       // renders as a blank phone number on the public page.
       phone: form.phone.trim() || null,
       role: form.role.trim() || null,
+      photoKey: form.photoKey,
+      photoAlt: form.photoKey ? form.photoAlt.trim() : null,
       color: form.color,
       isPublic: form.isPublic,
       maxBookingsPerDay: Number(form.maxBookingsPerDay) || 0,
@@ -601,6 +615,16 @@ export default function Staff() {
             </label>
           </div>
 
+          <ImagePicker
+            base={base}
+            id="staffPhoto"
+            label="Photo"
+            shape="square"
+            value={{ key: form.photoKey, alt: form.photoAlt }}
+            onChange={(v) => setForm({ ...form, photoKey: v.key, photoAlt: v.alt })}
+            hint="Shown on your booking page and team section. A head-and-shoulders photo works best."
+          />
+
           <div className="toolbar">
             <button className="primary" disabled={busy}>
               {editing === 'new' ? 'Add' : 'Save'}
@@ -872,7 +896,11 @@ function StaffCard({
         {/* The calendar colour, which is how this person is recognised on the
             schedule. Carrying it here means the card and the calendar agree. */}
         <span className="avatar lg" style={{ background: row.color }} aria-hidden="true">
-          {initials(row.name)}
+          {row.photoKey ? (
+            <img className="avatar-img" src={mediaUrl(row.photoKey) ?? ''} alt="" />
+          ) : (
+            initials(row.name)
+          )}
         </span>
         <div className="staff-card-id">
           <b>{row.name}</b>

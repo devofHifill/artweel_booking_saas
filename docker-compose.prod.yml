@@ -55,6 +55,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Uploaded photos (FB-11). One volume per box, so staging and live never
+    # share files; deploy.sh tars it next to the database dump.
+    volumes:
+      - artweel_media:/data/media
     networks:
       - artweel-internal
       - n8n_default
@@ -149,3 +153,4 @@ networks:
 
 volumes:
   artweel_pgdata:
+  artweel_media:

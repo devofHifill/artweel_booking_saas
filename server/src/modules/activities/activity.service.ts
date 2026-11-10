@@ -5,6 +5,7 @@ import { uniqueSlug } from '../../lib/slug';
 import { requireCapacity, type PlanId } from '../billing/plan';
 import { countRunningClasses } from './class-limit';
 import { assertReferencesBelong } from '../services/service.service';
+import { assertAltText, assertOwnImage, releaseImageIfUnused } from '../media/media.service';
 import { insertSession } from '../../scheduling/session.service';
 import { translateSchedulingError } from '../../scheduling/pg-error';
 import { resolveLocal, type ResolutionKind } from '../../scheduling/time/zoned';
@@ -132,6 +133,9 @@ async function insertActivity(
     details?: Partial<Prisma.ServiceTypeUncheckedCreateInput>;
   },
 ) {
+  if (input.imageKey) await assertOwnImage(organizationId, input.imageKey);
+  assertAltText(input.imageKey, input.imageAlt);
+
   const service = await tx.serviceType.create({
     data: {
       organizationId,
@@ -142,6 +146,8 @@ async function insertActivity(
       shortDescription: input.shortDescription,
       description: input.description,
       emoji: input.emoji,
+      imageKey: input.imageKey || null,
+      imageAlt: input.imageKey ? input.imageAlt?.trim() || null : null,
       durationMinutes: fields.durationMinutes,
       capacityMin: 1,
       capacityMax: input.seats,
@@ -603,6 +609,8 @@ export async function getActivityAnswers(organizationId: string, id: string) {
       depositType: service.depositType,
       depositValue: service.depositValue,
       emoji: service.emoji ?? '',
+      imageKey: service.imageKey ?? '',
+      imageAlt: service.imageAlt ?? '',
       color: service.color ?? '',
       colorAccent: service.colorAccent ?? '',
       cancellationPolicyId: service.cancellationPolicyId ?? '',
@@ -702,6 +710,7 @@ export async function editActivity(
 
   const { location, staffId } = await resolveWhereAndWho(organizationId, input);
   await assertReferencesBelong(organizationId, input as Record<string, unknown>);
+  assertAltText(input.imageKey, input.imageAlt);
   const locationId = location?.id ?? null;
   const slug =
     input.name !== service.name ? await slugFor(organizationId, input.name, id) : service.slug;
@@ -713,7 +722,7 @@ export async function editActivity(
     (datesChanged ? planned[0]!.startsAt : service.sessions[0]?.startsAt) ?? null;
   const notice = input.minNoticeMinutes ?? 0;
 
-  return inTransaction(async (tx) => {
+  const result = await inTransaction(async (tx) => {
     // Clashes on the dates it will run, ignoring its own sessions.
     if (datesChanged || whoOrWhereChanged) {
       const dates = datesChanged
@@ -748,6 +757,8 @@ export async function editActivity(
         depositType: input.depositType ?? 'none',
         depositValue: (input.depositType ?? 'none') === 'none' ? 0 : (input.depositValue ?? 0),
         emoji: input.emoji || null,
+        imageKey: input.imageKey || null,
+        imageAlt: input.imageKey ? input.imageAlt?.trim() || null : null,
         ...(input.color ? { color: input.color, colorAccent: input.colorAccent || null } : {}),
         cancellationPolicyId: input.cancellationPolicyId || null,
         minNoticeMinutes: notice,
@@ -835,6 +846,12 @@ export async function editActivity(
 
     return { id, datesChanged };
   });
+
+  // A replaced or removed photo's files go once nothing points at them.
+  if (service.imageKey && service.imageKey !== (input.imageKey || null)) {
+    await releaseImageIfUnused(organizationId, service.imageKey);
+  }
+  return result;
 }
 
 // --- Preview ----------------------------------------------------------------

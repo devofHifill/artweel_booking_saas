@@ -49,6 +49,18 @@ $COMPOSE exec -T postgres sh -c \
   | gzip > "$BACKUP_DIR/db-$STAMP.sql.gz"
 echo "wrote $BACKUP_DIR/db-$STAMP.sql.gz ($(du -h "$BACKUP_DIR/db-$STAMP.sql.gz" | cut -f1))"
 
+# Uploaded photos (FB-11) live in the artweel_media volume, not the database,
+# so the dump above does not cover them. Read through the running API, which
+# mounts the volume. Skipped while no API has the folder yet (the first deploy
+# that adds it) rather than failing the whole deploy.
+say "Backing up photos"
+if $COMPOSE exec -T api test -d /data/media 2>/dev/null; then
+  $COMPOSE exec -T api tar -czf - -C /data/media . > "$BACKUP_DIR/media-$STAMP.tar.gz"
+  echo "wrote $BACKUP_DIR/media-$STAMP.tar.gz ($(du -h "$BACKUP_DIR/media-$STAMP.tar.gz" | cut -f1))"
+else
+  echo "no photo folder on the running API yet — skipped"
+fi
+
 # --- 2. Pull ----------------------------------------------------------------
 say "Pulling"
 git pull --ff-only

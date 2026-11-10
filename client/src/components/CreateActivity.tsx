@@ -11,6 +11,7 @@ import {
 import { Modal } from './layout';
 import { Icon } from './Icon';
 import { EMOJI, GRADS } from './ServiceForm';
+import { ImagePicker } from './ImagePicker';
 
 /**
  * Create activity: one choice, Class or Event, then a few short steps
@@ -59,6 +60,9 @@ export type ActivityAnswers = {
   /** A percent, or an amount as typed, by depositType. */
   depositValue: string;
   emoji: string;
+  /** Uploaded photo (FB-11): a media key, '' for none, and its description. */
+  imageKey: string;
+  imageAlt: string;
   /** Blank: the studio's default colour. */
   color: string;
   colorAccent: string;
@@ -126,6 +130,8 @@ export function duplicateOf(
     depositType?: string;
     depositValue?: number;
     emoji?: string | null;
+    imageKey?: string | null;
+    imageAlt?: string | null;
     color?: string | null;
     colorAccent?: string | null;
     cancellationPolicyId?: string | null;
@@ -173,6 +179,8 @@ export function duplicateOf(
                   ? ((activity.depositValue ?? 0) / 100).toFixed(2)
                   : '',
             emoji: activity.emoji ?? '',
+            imageKey: activity.imageKey ?? '',
+            imageAlt: activity.imageAlt ?? '',
             color: activity.color ?? '',
             colorAccent: activity.colorAccent ?? '',
             cancellationPolicyId: activity.cancellationPolicyId ?? '',
@@ -310,6 +318,8 @@ function defaults(timezone: string): ActivityAnswers {
     depositType: 'none',
     depositValue: '',
     emoji: '',
+    imageKey: '',
+    imageAlt: '',
     color: '',
     colorAccent: '',
     cancellationPolicyId: '',
@@ -623,6 +633,9 @@ export function CreateActivity({
         }
       }
     }
+    if (name === 'Look' && answers.imageKey && !answers.imageAlt.trim()) {
+      e.imageAlt = 'Describe the photo — it is read aloud to people who cannot see it.';
+    }
     if (name === 'Policies') {
       if (!Number.isInteger(answers.minNoticeMinutes) || answers.minNoticeMinutes < 0 || answers.minNoticeMinutes > 525_600)
         e.minNoticeMinutes = 'Between 0 and 525,600 minutes (a year).';
@@ -734,6 +747,8 @@ export function CreateActivity({
       ...(answers.staffId ? { staffId: answers.staffId } : {}),
       seats: answers.seats,
       priceCents: priceCents(answers.price) ?? 0,
+      imageKey: answers.imageKey || null,
+      imageAlt: answers.imageKey ? answers.imageAlt.trim() : null,
       startTime: answers.startTime,
       endTime: answers.endTime,
       ...(draftId.current ? { draftId: draftId.current } : {}),
@@ -1299,7 +1314,19 @@ export function CreateActivity({
 
         {stepName === 'Look' && (
           <>
-            <Field label="Icon" hint="Shown on its card. Optional.">
+            <ImagePicker
+              base={base}
+              id="actPhoto"
+              label="Photo"
+              value={{ key: answers.imageKey || null, alt: answers.imageAlt }}
+              onChange={(v) => {
+                set('imageKey', v.key ?? '');
+                set('imageAlt', v.alt);
+              }}
+              hint="Shown on its card and page instead of the icon. A landscape photo works best. JPEG, PNG or WebP, up to 8 MB."
+            />
+            {errors.imageAlt && <p className="tiny danger-text" role="alert">{errors.imageAlt}</p>}
+            <Field label="Icon" hint="Shown when there is no photo, and on your calendar. Optional.">
               <div className="chip-group" role="group" aria-label="Icon">
                 <button
                   type="button"

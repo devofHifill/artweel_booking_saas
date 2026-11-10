@@ -190,7 +190,9 @@ async function request<T>(
 ): Promise<T> {
   const headers = new Headers(init.headers);
 
-  if (!headers.has('Content-Type') && init.body) {
+  // A FormData body (a photo upload) must carry the browser's own multipart
+  // header with its boundary, so it is never labelled JSON.
+  if (!headers.has('Content-Type') && init.body && !(init.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -295,6 +297,28 @@ export const api = {
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  /** Multipart upload (a photo). The browser sets the Content-Type. */
+  upload: <T>(path: string, form: FormData) =>
+    request<T>(path, { method: 'POST', body: form }),
+};
+
+/**
+ * The address of an uploaded photo (FB-11) from its stored key.
+ *
+ * Mirrors the server's `imageUrls` (modules/media/media.service.ts): files
+ * live at /public/_media/<key>-<width>.webp in the two widths it stores.
+ */
+export function mediaUrl(key: string | null | undefined, size: 'small' | 'large' = 'small') {
+  if (!key) return null;
+  return `/public/_media/${key}-${size === 'small' ? 400 : 1200}.webp`;
+}
+
+export type UploadedImage = {
+  id: string;
+  key: string;
+  width: number;
+  height: number;
+  urls: { small: string; large: string };
 };
 
 // --- Shared shapes ---------------------------------------------------------
