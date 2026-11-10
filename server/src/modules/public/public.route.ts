@@ -95,7 +95,7 @@ publicRouter.get(
     }
 
     const store = await getStorefront(param(req, 'slug'));
-    res.type('html').send(renderHome(store, readFilters(req)));
+    res.type('html').send(renderHome(store));
   }),
 );
 
