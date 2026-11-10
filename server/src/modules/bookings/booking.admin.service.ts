@@ -202,6 +202,8 @@ function toListItem(booking: {
   reference: string | null;
   /** web | embed | admin — where the booking came from. */
   source: string;
+  /** The class session it sits in; null for a one-to-one appointment slot. */
+  sessionId: string | null;
   startsAt: Date;
   endsAt: Date;
   timezone: string;
@@ -229,6 +231,7 @@ function toListItem(booking: {
     id: booking.id,
     reference: booking.reference,
     source: booking.source,
+    sessionId: booking.sessionId,
     startsAt: booking.startsAt,
     endsAt: booking.endsAt,
     timezone: booking.timezone,

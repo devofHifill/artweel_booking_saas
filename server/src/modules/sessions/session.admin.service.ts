@@ -62,7 +62,7 @@ export async function listSessions(
       ...(opts.includeCancelled ? {} : { status: { not: 'CANCELLED' } }),
     },
     include: {
-      serviceType: { select: { id: true, name: true } },
+      serviceType: { select: { id: true, name: true, color: true } },
       staff: { select: { id: true, name: true } },
       location: { select: { id: true, name: true } },
       courseSeries: { select: { id: true, name: true, cohortLabel: true } },

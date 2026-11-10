@@ -550,6 +550,25 @@ tr:hover td { background: var(--clay-lt); }
 }
 .event:active { cursor: grabbing; }
 .event .who { font-weight: 600; }
+/* FB-05: a day's blocks sit in a layer over its cells, sized to their length. */
+.week .head.today { color: var(--clay); }
+.week-layer { position: relative; pointer-events: none; }
+.week-layer .event { pointer-events: auto; inset: auto; }
+.event.session {
+  color: var(--ink);
+  border-left: 3px solid var(--clay);
+  cursor: default;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.event.session .fill { color: var(--muted); font-size: .68rem; }
+.event.session .fill.full { color: var(--warn); font-weight: 600; }
+.event.session .guest {
+  font-size: .68rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.event.session .guest[draggable="true"] { cursor: grab; }
 
 /* --- Login --------------------------------------------------------------- */
 /* Still used by the "No studio yet" dead end, which is a message and not a
