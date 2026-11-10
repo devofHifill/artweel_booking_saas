@@ -3289,6 +3289,14 @@ td.strong { font-weight: 600; }
 /* Prev/next and the period title, left of the view switcher in the card head. */
 .cal-nav { display: flex; align-items: center; gap: var(--space-2); }
 .cal-nav h2 { margin-left: var(--space-1); }
+.cal-head .right { display: flex; align-items: center; gap: var(--space-2); }
+/* FB-07: three view buttons plus Today no longer fit beside the date on a
+   phone, so the controls take a row of their own under it. */
+@media (max-width: 620px) {
+  .cal-head { flex-wrap: wrap; padding: 12px; }
+  .cal-head .right { width: 100%; justify-content: space-between; }
+  .cal-head .seg button { padding: 5px 10px; }
+}
 
 /* --- Activity catalogue (D4) ---------------------------------------------- */
 /*
