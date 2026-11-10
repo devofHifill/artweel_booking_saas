@@ -7,6 +7,7 @@ import {
   todayIn,
   zonedToInstant,
 } from '../lib/api';
+import { useActiveOrg } from '../lib/auth';
 
 /**
  * A booking taken over the phone or at the counter.
@@ -49,6 +50,8 @@ type ServiceOption = {
   name: string;
   bookingMode: 'APPOINTMENT' | 'EVENT' | 'COURSE_SERIES';
   durationMinutes: number;
+  /** The most a session of it may seat; the default for a new session. */
+  capacityMax?: number;
   priceCents?: number;
   /** Zero means ADULTS ONLY, not "children go free". See priceBooking. */
   childPriceCents?: number;
@@ -66,6 +69,61 @@ type SessionOption = {
 };
 
 type CustomerOption = { id: string; name: string; email: string };
+
+type LocationOption = { id: string; name: string };
+
+type Clash = { kind: 'STAFF' | 'LOCATION'; message: string };
+
+/**
+ * FB-01. The desk could only book into a session that already existed, so a
+ * caller asking for a day with nothing scheduled was a dead end: an empty time
+ * list and a browser bubble. Now the operator either picks an existing session
+ * or creates one right here, without losing the guest details they have
+ * already typed.
+ */
+type SessionMode = 'existing' | 'new';
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** "18:00" plus minutes, or null when it would run past midnight. */
+function addMinutes(time: string, minutes: number): string | null {
+  const [h, m] = time.split(':').map(Number);
+  const total = (h ?? 0) * 60 + (m ?? 0) + minutes;
+  if (total >= 24 * 60) return null;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** The studio's own date and 24-hour time right now, for refusing the past. */
+function nowIn(timezone: string): { date: string; time: string } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(new Date())
+      .map((p) => [p.type, p.value]),
+  );
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${parts.hour}:${parts.minute}`,
+  };
+}
+
+/** "Sat 14 Nov" for a `YYYY-MM-DD`, read as a calendar date (no zone shift). */
+function dayLabel(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y!, m! - 1, d!)).toLocaleDateString('en-US', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
 
 /** How far ahead the date picker looks. Matches the default booking horizon. */
 const HORIZON_DAYS = 120;
@@ -103,6 +161,12 @@ export function CounterBookingForm({
   const [sessions, setSessions] = useState<SessionOption[]>([]);
   const [staff, setStaff] = useState<{ id: string; name: string }[]>([]);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [locations, setLocations] = useState<LocationOption[]>([]);
+
+  /* Creating a session is scheduling, which the server keeps to owners and
+     admins. Instructors still get the existing-session path. */
+  const org = useActiveOrg();
+  const canSchedule = org?.role === 'OWNER' || org?.role === 'ADMIN';
 
   // --- Guest ---------------------------------------------------------------
   const [customerId, setCustomerId] = useState(presetCustomerId ?? '');
@@ -116,6 +180,20 @@ export function CounterBookingForm({
   const [sessionId, setSessionId] = useState('');
   const [localTime, setLocalTime] = useState('18:00');
   const [staffId, setStaffId] = useState('');
+
+  // --- A new session, when none on the day fits ----------------------------
+  const [sessionMode, setSessionMode] = useState<SessionMode>('existing');
+  const [newTime, setNewTime] = useState('10:00');
+  const [newCapacity, setNewCapacity] = useState('');
+  const [newLocationId, setNewLocationId] = useState('');
+  const [clashes, setClashes] = useState<Clash[]>([]);
+  const [checking, setChecking] = useState(false);
+  /** Set once Create booking is pressed, so blockers show only when asked. */
+  const [tried, setTried] = useState(false);
+  /** Same, for the Create session button. */
+  const [triedSession, setTriedSession] = useState(false);
+  /** "Session created … now create the booking", after step one. */
+  const [createdNote, setCreatedNote] = useState<string | null>(null);
   /*
     Adults and children are held SEPARATELY here and added into one `seats`
     before the request, because that is how somebody says it at the desk. The
@@ -165,6 +243,16 @@ export function CounterBookingForm({
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not load your activities.');
       }
+
+      /* Only for a new session, so a failure here must not break the form:
+         without it the new session simply goes to the studio's default. */
+      try {
+        const loc = await api.get<{ locations: LocationOption[] }>(`${base}/locations`);
+        setLocations(loc.locations ?? []);
+        if (loc.locations?.length === 1) setNewLocationId(loc.locations[0]!.id);
+      } catch {
+        setLocations([]);
+      }
     })();
   }, [base]);
 
@@ -189,8 +277,16 @@ export function CounterBookingForm({
 
   useEffect(() => {
     setSessionId('');
+    setSessionMode('existing');
     void loadSessions();
   }, [loadSessions]);
+
+  /* A new session starts at the activity's full size; the operator can lower
+     it. Reset when the activity changes so one class's size never carries
+     into another's. */
+  useEffect(() => {
+    setNewCapacity(service?.capacityMax ? String(service.capacityMax) : '');
+  }, [service?.id, service?.capacityMax]);
 
   /**
    * The departures on the chosen day.
@@ -221,8 +317,98 @@ export function CounterBookingForm({
     else if (!departures.some((d) => d.id === sessionId)) setSessionId('');
   }, [departures, sessionId]);
 
+  /** Local `YYYY-MM-DD` of a session, in the studio's zone. */
+  const localDateOf = useCallback(
+    (iso: string) =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date(iso)),
+    [timezone],
+  );
+
+  /**
+   * The next few days that DO have a session with room, so an empty day is
+   * never a dead end: one click moves the date there and keeps everything
+   * else the operator has typed.
+   */
+  const nextDates = useMemo(() => {
+    const today = todayIn(timezone);
+    const seen = new Set<string>();
+    for (const s of sessions) {
+      if (s.capacity - s.seatsTaken <= 0) continue;
+      const day = localDateOf(s.startsAt);
+      if (day === onDate || day < today) continue;
+      seen.add(day);
+    }
+    return [...seen].sort().slice(0, 4);
+  }, [sessions, onDate, timezone, localDateOf]);
+
+  const creating = sessionMode === 'new' && !isAppointment;
+
+  /* A studio with one instructor (every Solo studio) has only one answer, so
+     it is filled in rather than asked. */
+  useEffect(() => {
+    if (creating && !staffId && staff.length === 1) setStaffId(staff[0]!.id);
+  }, [creating, staffId, staff]);
+
+  /* The "session created" note belongs to that date and activity only. */
+  useEffect(() => {
+    setCreatedNote(null);
+  }, [onDate, serviceTypeId]);
+  const newCapacityNum = Math.floor(Number(newCapacity) || 0);
+  const newEndTime = service ? addMinutes(newTime, service.durationMinutes) : null;
+
+  /*
+    Clashes for the new session, asked while the operator is still choosing —
+    the same preview Create activity uses. Writes nothing. Debounced so typing
+    a time does not fire a request per keystroke.
+  */
+  useEffect(() => {
+    if (!creating || !service || !newEndTime || !canSchedule) {
+      setClashes([]);
+      return;
+    }
+    let cancelled = false;
+    setChecking(true);
+    const timer = setTimeout(() => {
+      api
+        .post<{ dates: { localDate: string; clashes: Clash[] }[] }>(
+          `${base}/activities/preview`,
+          {
+            kind: 'EVENT',
+            date: onDate,
+            startTime: newTime,
+            endTime: newEndTime,
+            ...(staffId ? { staffId } : {}),
+            ...(newLocationId ? { locationId: newLocationId } : {}),
+          },
+        )
+        .then((res) => {
+          if (!cancelled) setClashes(res.dates.flatMap((d) => d.clashes));
+        })
+        .catch(() => {
+          // The server checks again on create; a failed preview is not a clash.
+          if (!cancelled) setClashes([]);
+        })
+        .finally(() => {
+          if (!cancelled) setChecking(false);
+        });
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [creating, service, newEndTime, canSchedule, base, onDate, newTime, staffId, newLocationId]);
+
   const chosen = departures.find((s) => s.id === sessionId);
-  const seatsLeft = chosen ? Math.max(0, chosen.capacity - chosen.seatsTaken) : 0;
+  const seatsLeft = creating
+    ? newCapacityNum
+    : chosen
+      ? Math.max(0, chosen.capacity - chosen.seatsTaken)
+      : 0;
 
   /**
    * The list price, which the Total field starts at and may be overridden.
@@ -248,8 +434,122 @@ export function CounterBookingForm({
         ? Math.round(Number(partAmount || 0) * 100)
         : 0;
 
+  /**
+   * Everything standing between the operator and a booking, in words.
+   *
+   * Replaces the browser's own "Please select an item in the list" bubble,
+   * which pointed at an empty dropdown and said nothing about why it was
+   * empty or what to do instead.
+   */
+  /**
+   * What stops the NEW session being created. Checked by its own button, so
+   * the operator can fix the session without being told about guest fields
+   * they have not reached yet.
+   */
+  const sessionBlockers: string[] = [];
+  if (creating && service) {
+    const now = nowIn(timezone);
+    if (onDate < now.date || (onDate === now.date && newTime <= now.time))
+      sessionBlockers.push(
+        `${dayLabel(onDate)} at ${newTime} has already passed. Choose a later date or time.`,
+      );
+    if (!newEndTime)
+      sessionBlockers.push('The session would run past midnight. Choose an earlier start time.');
+    if (newCapacityNum < 1) sessionBlockers.push('Set how many places the new session has.');
+    else if (service.capacityMax && newCapacityNum > service.capacityMax)
+      sessionBlockers.push(`${service.name} seats at most ${service.capacityMax}.`);
+    if (!staffId) sessionBlockers.push('Choose the instructor who teaches the new session.');
+    if (locations.length > 1 && !newLocationId)
+      sessionBlockers.push('Choose where the new session runs.');
+    if (clashes.length > 0)
+      sessionBlockers.push('The new session clashes — see the note under Session time.');
+  }
+
+  /**
+   * Everything standing between the operator and a booking, in words.
+   *
+   * Replaces the browser's own "Please select an item in the list" bubble,
+   * which pointed at an empty dropdown and said nothing about why it was
+   * empty or what to do instead.
+   */
+  const blockers: string[] = [];
+  if (!customerId) {
+    if (!name.trim()) blockers.push('Add the guest’s name.');
+    if (!EMAIL.test(email.trim())) blockers.push('Add a valid email for the guest.');
+  }
+  if (!service) blockers.push('Choose an activity.');
+  if (service && isAppointment) {
+    if (!staffId) blockers.push('Choose an instructor.');
+  }
+  if (service && !isAppointment && creating) {
+    blockers.push('Press “Create session” first, then create the booking.');
+  }
+  if (service && !isAppointment && !creating) {
+    if (departures.length === 0) {
+      blockers.push(
+        canSchedule
+          ? `Nothing is scheduled for ${service.name} on ${dayLabel(onDate)}. Pick another date, or choose “Create a new session”.`
+          : `Nothing is scheduled for ${service.name} on ${dayLabel(onDate)}. Pick another date, or ask an owner or admin to add a session.`,
+      );
+    } else if (!chosen) {
+      blockers.push('Choose a session time.');
+    }
+  }
+  if (service && !isAppointment && seats > seatsLeft && chosen && !creating) {
+    blockers.push(
+      `That is ${seats} ${seats === 1 ? 'guest' : 'guests'} and only ${seatsLeft} ${
+        seatsLeft === 1 ? 'place is' : 'places are'
+      } free.`,
+    );
+  }
+
+  /**
+   * Step one of two: put the session on the calendar, then come back to the
+   * form with it selected — the client's requested flow. The booking is a
+   * separate, deliberate press of Create booking, so the operator sees the
+   * session exist before any money is recorded against it.
+   */
+  async function createSession() {
+    setTriedSession(true);
+    if (!service || sessionBlockers.length > 0) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.post<{ created: { id: string }[] }>(`${base}/sessions`, {
+        serviceTypeId,
+        startLocalDate: onDate,
+        localStartTime: newTime,
+        timezone,
+        capacity: newCapacityNum,
+        staffId,
+        ...(newLocationId ? { locationId: newLocationId } : {}),
+      });
+      const id = res.created[0]!.id;
+      await loadSessions();
+      // Batched with the reload above, so the list already holds it.
+      setSessionMode('existing');
+      setSessionId(id);
+      setTriedSession(false);
+      setCreatedNote(
+        `Session created: ${dayLabel(onDate)} at ${newTime}, ${newCapacityNum} places. It is selected below — now create the booking.`,
+      );
+    } catch (err) {
+      setError(
+        `Could not create the session: ${
+          err instanceof Error ? err.message : 'something went wrong.'
+        }`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    setTried(true);
+    if (blockers.length > 0) return;
+
     setBusy(true);
     setError(null);
 
@@ -305,7 +605,9 @@ export function CounterBookingForm({
   }
 
   return (
-    <form onSubmit={submit}>
+    /* noValidate: the blockers list below says what is missing in words,
+       instead of the browser pointing a bubble at one field at a time. */
+    <form onSubmit={submit} noValidate>
       {error && <div className="err">{error}</div>}
 
       <h3 className="form-section">Guest</h3>
@@ -407,35 +709,235 @@ export function CounterBookingForm({
       {service && !isAppointment && (
         <>
           <div className="setting setting-stack">
-            <label htmlFor="cbSession">Departure</label>
-            <select
-              id="cbSession"
-              required
-              value={sessionId}
-              onChange={(e) => setSessionId(e.target.value)}
-            >
-              <option value="">Choose a time…</option>
-              {departures.map((s) => {
-                const left = s.capacity - s.seatsTaken;
-                return (
-                  <option key={s.id} value={s.id} disabled={left <= 0}>
-                    {timeIn(s.startsAt, timezone)}
-                    {' — '}
-                    {left > 0 ? `${left} of ${s.capacity} places left` : 'full'}
-                    {service.priceCents
-                      ? ` · ${money(service.priceCents, currency)} each`
-                      : ''}
+            <label htmlFor={creating ? 'cbNewTime' : 'cbSession'}>Session time</label>
+
+            {canSchedule && (
+              <div
+                className="seg"
+                role="group"
+                aria-label="Session"
+                style={{ marginBottom: 8, alignSelf: 'flex-start' }}
+              >
+                <button
+                  type="button"
+                  className={!creating ? 'on' : ''}
+                  aria-pressed={!creating}
+                  onClick={() => setSessionMode('existing')}
+                >
+                  Choose an existing session
+                </button>
+                <button
+                  type="button"
+                  className={creating ? 'on' : ''}
+                  aria-pressed={creating}
+                  onClick={() => setSessionMode('new')}
+                >
+                  Create a new session
+                </button>
+              </div>
+            )}
+
+            {!creating && (
+              <>
+                <select
+                  id="cbSession"
+                  value={sessionId}
+                  disabled={departures.length === 0}
+                  onChange={(e) => setSessionId(e.target.value)}
+                >
+                  <option value="">
+                    {departures.length === 0 ? 'No sessions on this date' : 'Choose a time…'}
                   </option>
-                );
-              })}
-            </select>
-            <p className="tiny muted">
-              {departures.length === 0
-                ? 'Nothing scheduled that day.'
-                : `${departures.length} ${
-                    departures.length === 1 ? 'departure' : 'departures'
-                  } that day.`}
-            </p>
+                  {departures.map((s) => {
+                    const left = s.capacity - s.seatsTaken;
+                    return (
+                      <option key={s.id} value={s.id} disabled={left <= 0}>
+                        {timeIn(s.startsAt, timezone)}
+                        {' — '}
+                        {left > 0 ? `${left} of ${s.capacity} places left` : 'full'}
+                        {s.staff ? ` · ${s.staff.name}` : ''}
+                        {service.priceCents
+                          ? ` · ${money(service.priceCents, currency)} each`
+                          : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+
+                {departures.length === 0 ? (
+                  <div className="tiny muted" style={{ marginTop: 6 }}>
+                    <p style={{ margin: 0 }}>
+                      Nothing scheduled on {dayLabel(onDate)}.
+                      {nextDates.length > 0 ? ' Next dates with places:' : ' No upcoming dates with places.'}
+                    </p>
+                    {nextDates.length > 0 && (
+                      <div className="chips" style={{ marginTop: 6 }}>
+                        {nextDates.map((d) => (
+                          <button
+                            type="button"
+                            key={d}
+                            className="chip"
+                            onClick={() => setOnDate(d)}
+                          >
+                            {dayLabel(d)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {canSchedule && (
+                      <p style={{ margin: '6px 0 0' }}>
+                        Or{' '}
+                        <button
+                          type="button"
+                          className="link"
+                          onClick={() => setSessionMode('new')}
+                        >
+                          create a new session on {dayLabel(onDate)}
+                        </button>
+                        .
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="tiny muted">
+                    {departures.length} {departures.length === 1 ? 'session' : 'sessions'} that day.
+                  </p>
+                )}
+
+                {createdNote && (
+                  <div
+                    className="tiny"
+                    role="status"
+                    style={{
+                      marginTop: 6,
+                      padding: '6px 8px',
+                      borderRadius: 6,
+                      color: 'var(--ok)',
+                      background: 'color-mix(in srgb, var(--ok) 12%, var(--card))',
+                    }}
+                  >
+                    {createdNote}
+                  </div>
+                )}
+              </>
+            )}
+
+            {creating && (
+              <>
+                <div className="form-row">
+                  <div className="setting setting-stack">
+                    <label htmlFor="cbNewTime" className="tiny">
+                      Starts
+                    </label>
+                    <input
+                      id="cbNewTime"
+                      type="time"
+                      value={newTime}
+                      onChange={(e) => setNewTime(e.target.value)}
+                    />
+                  </div>
+                  <div className="setting setting-stack">
+                    <label htmlFor="cbNewCap" className="tiny">
+                      Places
+                    </label>
+                    <input
+                      id="cbNewCap"
+                      type="number"
+                      min={1}
+                      max={service.capacityMax || undefined}
+                      value={newCapacity}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => setNewCapacity(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="setting setting-stack">
+                  <label htmlFor="cbNewStaff" className="tiny">
+                    Instructor
+                  </label>
+                  <select
+                    id="cbNewStaff"
+                    value={staffId}
+                    onChange={(e) => setStaffId(e.target.value)}
+                  >
+                    <option value="">Choose an instructor…</option>
+                    {staff.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {locations.length > 1 && (
+                  <div className="setting setting-stack">
+                    <label htmlFor="cbNewLoc" className="tiny">
+                      Where
+                    </label>
+                    <select
+                      id="cbNewLoc"
+                      value={newLocationId}
+                      onChange={(e) => setNewLocationId(e.target.value)}
+                    >
+                      <option value="">Choose a location…</option>
+                      {locations.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <p className="tiny muted">
+                  {dayLabel(onDate)}, {newTime}
+                  {newEndTime ? `–${newEndTime}` : ''} ({service.durationMinutes} min)
+                  {locations.length === 1 ? ` · ${locations[0]!.name}` : ''}. It goes on the
+                  calendar and booking page like any session.
+                </p>
+                {checking ? (
+                  <p className="tiny muted">Checking for clashes…</p>
+                ) : clashes.length > 0 ? (
+                  <div className="err" style={{ marginTop: 6 }}>
+                    {clashes.map((c, i) => (
+                      <div key={i}>{c.message}</div>
+                    ))}
+                  </div>
+                ) : newEndTime ? (
+                  <p className="tiny muted">No clashes.</p>
+                ) : null}
+
+                {triedSession && sessionBlockers.length > 0 && (
+                  <div className="err" role="alert" style={{ marginTop: 6 }}>
+                    <b>Before the session can be created:</b>
+                    <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                      {sessionBlockers.map((b) => (
+                        <li key={b}>{b}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={busy}
+                    onClick={() => void createSession()}
+                  >
+                    {busy ? 'Creating session…' : 'Create session'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setSessionMode('existing')}
+                  >
+                    Back to existing sessions
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="form-row">
@@ -495,6 +997,9 @@ export function CounterBookingForm({
         </div>
       )}
 
+      {/* Hidden while creating a session: the session panel asks for its
+          instructor itself, and two boxes for one answer read as two answers. */}
+      {!creating && (
       <div className="setting setting-stack">
         <label htmlFor="cbStaff">Instructor</label>
         <select
@@ -513,6 +1018,7 @@ export function CounterBookingForm({
           ))}
         </select>
       </div>
+      )}
 
       <h3 className="form-section">Payment</h3>
 
@@ -636,12 +1142,23 @@ export function CounterBookingForm({
       {/* The footer summary, as the prototype has it: the three numbers that
           decide whether the operator has understood the booking they are about
           to take. */}
+      {tried && blockers.length > 0 && (
+        <div className="err" role="alert">
+          <b>Before this booking can be created:</b>
+          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+            {blockers.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="counter-foot">
         <span className="tiny muted">
           {seats} {seats === 1 ? 'place' : 'places'} ·{' '}
           {money(totalCents, currency)}
           {paidCents > 0 ? ` · ${money(paidCents, currency)} taken` : ''}
-          {chosen ? ` · ${seatsLeft} still free` : ''}
+          {chosen && !creating ? ` · ${seatsLeft} still free` : ''}
         </span>
 
         <div className="counter-actions">
