@@ -34,6 +34,7 @@ type Mode = 'month' | 'week';
 type MonthSession = {
   id: string;
   startsAt: string;
+  endsAt: string;
   capacity: number;
   seatsTaken: number;
   serviceType: { name: string; color: string };
@@ -55,6 +56,13 @@ function monthGrid(anchor: Date): Date[] {
 const START_HOUR = 8;
 const END_HOUR = 21;
 const SLOT_MINUTES = 30;
+
+/** "11a", "2:30p" — the time a phone-width month cell has room for (FB-06). */
+function shortTime(iso: string, timezone: string): string {
+  const { hour, minute } = partsIn(iso, timezone);
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}${minute ? `:${String(minute).padStart(2, '0')}` : ''}${hour < 12 ? 'a' : 'p'}`;
+}
 
 /** Default grid hours; the week stretches them to fit what is on (FB-05). */
 type Slot = { hour: number; minute: number };
@@ -540,9 +548,23 @@ export default function CalendarPage() {
                         ? (session.seatsTaken / session.capacity) * 100
                         : 0;
                     const tone = pct >= 100 ? 'full' : pct < 60 ? 'quiet' : '';
+                    /*
+                      FB-06. Time and name on their own lines, the name
+                      allowed two: as one 11px line every label was cut off
+                      ("11:00 AM Pottery Wh…") at every width. The full
+                      detail is in the hover title, and a phone-width cell
+                      shows the short time only.
+                    */
                     return (
-                      <div className={`cal-ev ${tone}`.trim()} key={session.id}>
-                        {timeIn(session.startsAt, timezone)} {session.serviceType.name}
+                      <div
+                        className={`cal-ev ${tone}`.trim()}
+                        key={session.id}
+                        title={`${timeIn(session.startsAt, timezone)}–${timeIn(session.endsAt, timezone)} ${session.serviceType.name}
+${session.seatsTaken} of ${session.capacity} places booked`}
+                      >
+                        <span className="t">{timeIn(session.startsAt, timezone)}</span>
+                        <span className="t-short">{shortTime(session.startsAt, timezone)}</span>
+                        <span className="n">{session.serviceType.name}</span>
                       </div>
                     );
                   })}
