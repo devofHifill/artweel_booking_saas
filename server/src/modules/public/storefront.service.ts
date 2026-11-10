@@ -88,6 +88,7 @@ export async function getStorefront(slug: string) {
         shortDescription: true,
         kind: true,
         durationMinutes: true,
+        capacityMin: true,
         capacityMax: true,
         priceCents: true,
         childPriceCents: true,

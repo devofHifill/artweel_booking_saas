@@ -81,6 +81,29 @@ const seatsLeft = (session: { capacity: number; seatsTaken: number }) =>
 /** "1 guest", "8 guests". A private lesson has a capacity of one. */
 const guests = (n: number) => `${n} guest${n === 1 ? '' : 's'}`;
 
+/** "up to 10 guests", or "6–10 guests" when the studio sets a minimum party. */
+const guestRange = (s: { capacityMin?: number | null; capacityMax: number }) =>
+  s.capacityMin && s.capacityMin > 1 && s.capacityMin < s.capacityMax
+    ? `${s.capacityMin}–${guests(s.capacityMax)}`
+    : `up to ${guests(s.capacityMax)}`;
+
+/*
+  FB-10. The price, in the card's text and said in full. It was only a 12px
+  tag on the picture ("$65"), with no "per person", and gone once the picture
+  scrolled away on a phone. Same wording as the activity page's aside: "per
+  adult" when there is a child rate, "for all N sessions" for a Class.
+*/
+function priceLine(s: Service, currency: string): string {
+  if (s.priceCents <= 0) return '<div class="sf-card-price"><b>Free</b></div>';
+  const unit = s.childPriceCents > 0 ? 'per adult' : 'per person';
+  const run = s.run ? `, for all ${s.run.sessionCount} sessions` : '';
+  const child =
+    s.childPriceCents > 0
+      ? `<span class="sf-card-child">Children ${money(s.childPriceCents, currency)}</span>`
+      : '';
+  return `<div class="sf-card-price"><b>${money(s.priceCents, currency)}</b> <span>${unit}${run}</span>${child}</div>`;
+}
+
 // --- Chrome -----------------------------------------------------------------
 
 function header(store: Storefront, active: string): string {
@@ -242,8 +265,9 @@ function serviceCard(store: Storefront, s: Service): string {
     </a>
     <div class="sf-card-body">
       <h3><a href="${base}/a/${escapeHtml(s.slug)}">${escapeHtml(s.name)}</a></h3>
+      ${priceLine(s, currency)}
       <div class="sf-meta"><span>${duration(s.durationMinutes)}</span>
-        <span>up to ${guests(s.capacityMax)}</span></div>
+        <span>${guestRange(s)}</span></div>
       ${
         s.shortDescription || s.description
           ? `<p class="sf-desc">${escapeHtml(
@@ -269,55 +293,28 @@ function serviceCard(store: Storefront, s: Service): string {
       ${
         run && !run.enrollable
           ? `<a class="sf-btn sf-btn-block" href="${base}/a/${escapeHtml(s.slug)}">See details</a>`
-          : `<a class="sf-btn sf-btn-primary sf-btn-block" href="${base}/book?service=${escapeHtml(
+          : /* "Choose a date" (FB-10): it opens the date picker, and says
+               what happens next rather than promising a booking. */
+            `<a class="sf-btn sf-btn-primary sf-btn-block" href="${base}/book?service=${escapeHtml(
               s.id,
-            )}">Book now</a>`
+            )}">Choose a date</a>`
       }
     </div>
   </article>`;
 }
 
-function searchPanel(
-  store: Storefront,
-  filters: { q?: string; category?: string; date?: string },
-  action: string,
-  label: string,
-): string {
-  return `<form class="sf-search" method="get" action="${escapeHtml(action)}">
-    <div class="sf-field">
-      <label for="sfq">What</label>
-      <input id="sfq" name="q" placeholder="Wheel, handbuilding, glazing…" value="${escapeHtml(
-        filters.q ?? '',
-      )}">
-    </div>
-    <div class="sf-field">
-      <label for="sfcat">Category</label>
-      <select id="sfcat" name="category">
-        <option value="">Anything</option>
-        ${store.categories
-          .map(
-            (c) =>
-              `<option value="${escapeHtml(c)}"${
-                filters.category === c ? ' selected' : ''
-              }>${escapeHtml(c)}</option>`,
-          )
-          .join('')}
-      </select>
-    </div>
-    <div class="sf-field">
-      <label for="sfdate">When</label>
-      <input id="sfdate" type="date" name="date" value="${escapeHtml(filters.date ?? '')}">
-    </div>
-    <button class="sf-btn sf-btn-primary" type="submit">${escapeHtml(label)}</button>
-  </form>`;
-}
+/*
+  FB-09. There was a What / Category / When search bar here, in the Home hero
+  and above the Activities cards. It sent visitors to dead ends — any weekday
+  date hid every activity ("Nothing matches that") — and on a phone it pushed
+  the first activity below the screen. Studios sell a handful of activities;
+  the cards come first, and the date is chosen on the activity's own page.
+  /activities still honours ?q / ?category / ?date from old links.
+*/
 
 // --- Pages ------------------------------------------------------------------
 
-export function renderHome(
-  store: Storefront,
-  filters: { q?: string; category?: string; date?: string },
-): string {
+export function renderHome(store: Storefront): string {
   const org = store.organization;
   const base = `/public/${org.slug}`;
   const hours = store.stats.freeCancellationHours;
@@ -386,7 +383,6 @@ export function renderHome(
       <span class="sf-badge">${escapeHtml(org.name)}</span>
       <h1>${escapeHtml(org.tagline ?? `Book with ${org.name}`)}</h1>
       ${org.about ? `<p class="sf-lede">${escapeHtml(org.about)}</p>` : ''}
-      ${searchPanel(store, filters, `${base}/activities`, 'Search')}
       ${tiles ? `<div class="sf-stats">${tiles}</div>` : ''}
     </div>
   </section>
@@ -454,8 +450,6 @@ export function renderActivities(
         <p>${services.length} available${filtering ? ' matching your search' : ''}</p>
       </div>
     </div>
-
-    ${searchPanel(store, filters, `${base}/activities`, 'Apply')}
 
     ${
       services.length > 0
@@ -769,15 +763,6 @@ h1,h2,h3{letter-spacing:-.02em;line-height:1.2}
 .sf-badge{display:inline-block;padding:5px 13px;border-radius:999px;
   background:rgba(255,255,255,.18);font-size:13px;font-weight:600}
 
-.sf-search{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;background:#fff;
-  padding:12px;border-radius:16px;margin:28px 0 0;box-shadow:0 8px 24px rgba(12,18,32,.12)}
-.sf-field{flex:1 1 180px;display:flex;flex-direction:column;gap:3px;padding:4px 10px}
-.sf-field label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#77808f}
-.sf-field input,.sf-field select{border:0;font-size:15px;padding:4px 0;background:transparent;
-  color:#14181f;width:100%}
-.sf-field input:focus,.sf-field select:focus{outline:2px solid var(--clay);outline-offset:4px;border-radius:4px}
-.sf-search .sf-btn{flex:0 0 auto;margin:4px}
-
 .sf-stats{display:flex;gap:40px;flex-wrap:wrap;margin-top:34px}
 .sf-stat b{display:block;font-size:26px;font-weight:750}
 .sf-stat span{font-size:13px;opacity:.85}
@@ -803,6 +788,9 @@ h1,h2,h3{letter-spacing:-.02em;line-height:1.2}
 .sf-card-body{padding:16px;display:flex;flex-direction:column;gap:8px;flex:1}
 .sf-card-body h3{font-size:17px;margin:0}
 .sf-card-body h3 a{text-decoration:none}
+.sf-card-price{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;font-size:14px;color:#4a5262}
+.sf-card-price b{font-size:18px;color:#14181f}
+.sf-card-child{flex-basis:100%;color:#5c6472;font-size:13px}
 .sf-meta{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:#5c6472}
 .sf-meta-lg{font-size:14px;gap:18px;margin:8px 0 0}
 .sf-desc{margin:0;font-size:14px;color:#4a5262;line-height:1.55;
