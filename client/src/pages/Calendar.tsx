@@ -6,7 +6,11 @@ import { PageHead } from '../components/layout';
 /**
  * The calendar. Month and week.
  *
- * WEEK is the drag-to-reschedule grid. Dragging is a convenience over the real
+ * WEEK shows the same sessions as MONTH, each sized to its length with the
+ * bookings in it, plus one-to-one appointments on their own (FB-05: it used to
+ * read bookings only, so an unbooked class was invisible there).
+ *
+ * WEEK is also the drag-to-reschedule grid. Dragging is a convenience over the real
  * mechanism, not a replacement for it: the drop calls the same reschedule
  * endpoint the customer-facing flow uses, which cancels and rebooks through the
  * scheduling core. If the instructor is busy at the target time, the exclusion
@@ -52,14 +56,8 @@ const START_HOUR = 8;
 const END_HOUR = 21;
 const SLOT_MINUTES = 30;
 
+/** Default grid hours; the week stretches them to fit what is on (FB-05). */
 type Slot = { hour: number; minute: number };
-
-const SLOTS: Slot[] = [];
-for (let hour = START_HOUR; hour < END_HOUR; hour++) {
-  for (let minute = 0; minute < 60; minute += SLOT_MINUTES) {
-    SLOTS.push({ hour, minute });
-  }
-}
 
 /** Local-time parts of an instant, in the studio's zone. */
 function partsIn(iso: string, timezone: string) {
@@ -118,12 +116,111 @@ function instantFor(
   return guess;
 }
 
-function startOfWeek(date: Date): Date {
-  const copy = new Date(date);
-  const day = copy.getDay(); // 0 = Sunday
-  copy.setDate(copy.getDate() - day);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
+
+/*
+  FB-05. The week is a run of STUDIO-local dates ("2026-11-08"), not browser
+  Dates. It used to start at the browser's midnight, so from a laptop in
+  another zone the fetched range slid off the studio's week — from India it
+  ended at 2:30 PM New York time on Saturday and that evening's bookings were
+  never drawn. Calendar dates carry no zone; plain UTC arithmetic on them is
+  exact.
+*/
+function addDays(ymd: string, n: number): string {
+  const [y, m, d] = ymd.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+function sundayOf(ymd: string): string {
+  return addDays(ymd, -new Date(`${ymd}T00:00:00Z`).getUTCDay());
+}
+
+/** A studio-local date as text, e.g. "Nov 8" or "Sun". */
+function dateLabel(ymd: string, options: Intl.DateTimeFormatOptions): string {
+  return new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-US', {
+    ...options,
+    timeZone: 'UTC',
+  });
+}
+
+/** A browser Date's own calendar date, for the month grid's cells. */
+function ymdOf(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** What the week view draws for a session. */
+type WeekSession = {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  capacity: number;
+  seatsTaken: number;
+  serviceType: { id: string; name: string; color: string };
+  staff: { id: string; name: string } | null;
+  seriesLabel: string | null;
+};
+
+/** One block on a day column: a session (with its bookings) or a lone booking. */
+type Block =
+  | { kind: 'session'; id: string; startsAt: string; endsAt: string; session: WeekSession; bookings: BookingListItem[] }
+  | { kind: 'booking'; id: string; startsAt: string; endsAt: string; booking: BookingListItem };
+
+type Placed = Block & { top: number; height: number; column: number; columns: number };
+
+const SLOT_PX = 30;
+
+/** Minutes past studio-local midnight. */
+function minuteOfDay(iso: string, timezone: string): number {
+  const p = partsIn(iso, timezone);
+  return p.hour * 60 + p.minute;
+}
+
+/**
+ * Lays one day's blocks out side by side where they overlap — a 10:00 class
+ * running to 12:00 and an 11:00 class share the column rather than one
+ * covering the other.
+ */
+function layoutDay(blocks: Block[], timezone: string, gridStartHour: number): Placed[] {
+  const sorted = [...blocks].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  const placed: Placed[] = [];
+  let cluster: Placed[] = [];
+  let clusterEnd = -1;
+  let columnEnds: number[] = [];
+
+  const closeCluster = () => {
+    for (const p of cluster) p.columns = columnEnds.length;
+    cluster = [];
+    columnEnds = [];
+  };
+
+  for (const block of sorted) {
+    const start = minuteOfDay(block.startsAt, timezone);
+    // An end on the next day (past midnight) is drawn to the bottom of the grid.
+    const sameDay = partsIn(block.endsAt, timezone).date === partsIn(block.startsAt, timezone).date;
+    const end = Math.max(start + SLOT_MINUTES, sameDay ? minuteOfDay(block.endsAt, timezone) : 24 * 60);
+
+    if (start >= clusterEnd) closeCluster();
+
+    let column = columnEnds.findIndex((e) => e <= start);
+    if (column === -1) {
+      column = columnEnds.length;
+      columnEnds.push(end);
+    } else {
+      columnEnds[column] = end;
+    }
+    clusterEnd = Math.max(clusterEnd, end);
+
+    const item: Placed = {
+      ...block,
+      top: ((start - gridStartHour * 60) / SLOT_MINUTES) * SLOT_PX,
+      height: ((end - start) / SLOT_MINUTES) * SLOT_PX,
+      column,
+      columns: 1,
+    };
+    cluster.push(item);
+    placed.push(item);
+  }
+  closeCluster();
+  return placed;
 }
 
 export default function CalendarPage() {
@@ -131,10 +228,14 @@ export default function CalendarPage() {
   const org = useActiveOrg();
   const timezone = org?.organization.timezone ?? 'UTC';
 
+  /** Today, as a studio-local `YYYY-MM-DD`. */
+  const todayInStudio = partsIn(new Date().toISOString(), timezone).date;
+
   const [mode, setMode] = useState<Mode>('month');
   const [monthAnchor, setMonthAnchor] = useState(() => new Date());
   const [monthSessions, setMonthSessions] = useState<MonthSession[]>([]);
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const [weekStart, setWeekStart] = useState(() => sundayOf(todayInStudio));
+  const [weekSessions, setWeekSessions] = useState<WeekSession[]>([]);
   const [bookings, setBookings] = useState<BookingListItem[]>([]);
   const [dragging, setDragging] = useState<BookingListItem | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -142,30 +243,36 @@ export default function CalendarPage() {
   const [busy, setBusy] = useState(false);
 
   const days = useMemo(
-    () =>
-      Array.from({ length: 7 }, (_, i) => {
-        const date = new Date(weekStart);
-        date.setDate(date.getDate() + i);
-        return date;
-      }),
+    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart],
   );
 
+  /*
+    FB-05. The week reads SESSIONS, like the month, and the bookings inside
+    them. It used to read bookings only, so a class nobody had booked yet —
+    most of a new studio's calendar — showed in Month and not in Week.
+  */
   const load = useCallback(async () => {
-    const from = new Date(weekStart);
-    const to = new Date(weekStart);
-    to.setDate(to.getDate() + 7);
+    const from = instantFor(weekStart, 0, 0, timezone);
+    const to = instantFor(addDays(weekStart, 7), 0, 0, timezone);
 
     try {
-      const res = await api.get<{ bookings: BookingListItem[] }>(
-        `${base}/bookings?from=${from.toISOString()}&to=${to.toISOString()}&limit=200&status=PENDING,CONFIRMED,ATTENDED`,
-      );
-      setBookings(res.bookings);
+      const [bookingRes, sessionRes] = await Promise.all([
+        api.get<{ bookings: BookingListItem[] }>(
+          `${base}/bookings?from=${from.toISOString()}&to=${to.toISOString()}&limit=200&status=PENDING,CONFIRMED,ATTENDED`,
+        ),
+        // Studio-local dates, both ends inclusive (the server's windowFor).
+        api.get<{ sessions: WeekSession[] }>(
+          `${base}/sessions?from=${weekStart}&to=${addDays(weekStart, 6)}`,
+        ),
+      ]);
+      setBookings(bookingRes.bookings);
+      setWeekSessions(sessionRes.sessions);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load.');
     }
-  }, [base, weekStart]);
+  }, [base, weekStart, timezone]);
 
   useEffect(() => {
     if (mode === 'week') void load();
@@ -182,15 +289,11 @@ export default function CalendarPage() {
   const loadMonth = useCallback(async () => {
     const grid = monthGrid(monthAnchor);
     const from = grid[0]!;
-    const to = new Date(grid[grid.length - 1]!);
-    to.setHours(23, 59, 59, 999);
-
-    const iso = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const to = grid[grid.length - 1]!;
 
     try {
       const res = await api.get<{ sessions: MonthSession[] }>(
-        `${base}/sessions?from=${iso(from)}&to=${iso(to)}`,
+        `${base}/sessions?from=${ymdOf(from)}&to=${ymdOf(to)}`,
       );
       setMonthSessions(res.sessions);
       setError(null);
@@ -218,27 +321,72 @@ export default function CalendarPage() {
     return map;
   }, [monthSessions, timezone]);
 
-  /** Bookings indexed by "YYYY-MM-DD HH:MM" in studio-local time. */
-  const byCell = useMemo(() => {
-    const map = new Map<string, BookingListItem[]>();
+  /**
+   * The week's blocks by studio-local date: each session with the bookings
+   * that sit in it, plus any booking with no session in view (one-to-one
+   * appointments) on its own.
+   */
+  const blocksByDate = useMemo(() => {
+    const inSession = new Map<string, BookingListItem[]>();
+    const sessionIds = new Set(weekSessions.map((s) => s.id));
+    const loose: BookingListItem[] = [];
 
     for (const booking of bookings) {
-      const p = partsIn(booking.startsAt, timezone);
-      // Snap to the grid so a 10:10 booking still lands in the 10:00 cell.
-      const snapped = Math.floor(p.minute / SLOT_MINUTES) * SLOT_MINUTES;
-      const key = `${p.date} ${String(p.hour).padStart(2, '0')}:${String(snapped).padStart(2, '0')}`;
-
-      const list = map.get(key) ?? [];
-      list.push(booking);
-      map.set(key, list);
+      if (booking.sessionId && sessionIds.has(booking.sessionId)) {
+        const list = inSession.get(booking.sessionId) ?? [];
+        list.push(booking);
+        inSession.set(booking.sessionId, list);
+      } else {
+        loose.push(booking);
+      }
     }
 
-    return map;
-  }, [bookings, timezone]);
+    const map = new Map<string, Block[]>();
+    const add = (block: Block) => {
+      const key = partsIn(block.startsAt, timezone).date;
+      const list = map.get(key) ?? [];
+      list.push(block);
+      map.set(key, list);
+    };
 
-  function localDateOf(date: Date): string {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  }
+    for (const session of weekSessions) {
+      add({
+        kind: 'session',
+        id: session.id,
+        startsAt: session.startsAt,
+        endsAt: session.endsAt,
+        session,
+        bookings: inSession.get(session.id) ?? [],
+      });
+    }
+    for (const booking of loose) {
+      add({ kind: 'booking', id: booking.id, startsAt: booking.startsAt, endsAt: booking.endsAt, booking });
+    }
+    return map;
+  }, [bookings, weekSessions, timezone]);
+
+  /*
+    The grid's hours: 8am–9pm, stretched to fit anything earlier or later
+    this week. A 7am class or a 9pm party was simply not drawn before.
+  */
+  const { gridStartHour, slots } = useMemo(() => {
+    let first = START_HOUR;
+    let last = END_HOUR;
+    for (const list of blocksByDate.values()) {
+      for (const block of list) {
+        const start = partsIn(block.startsAt, timezone);
+        first = Math.min(first, start.hour);
+        const end = partsIn(block.endsAt, timezone);
+        const endHour = end.date === start.date ? Math.ceil(end.hour + end.minute / 60) : 24;
+        last = Math.max(last, endHour);
+      }
+    }
+    const list: Slot[] = [];
+    for (let hour = first; hour < Math.min(last, 24); hour++) {
+      for (let minute = 0; minute < 60; minute += SLOT_MINUTES) list.push({ hour, minute });
+    }
+    return { gridStartHour: first, slots: list };
+  }, [blocksByDate, timezone]);
 
   async function drop(dayDate: string, slot: Slot) {
     if (!dragging) return;
@@ -272,20 +420,13 @@ export default function CalendarPage() {
     }
   }
 
-  /** Today, as a studio-local `YYYY-MM-DD`, for marking the cell. */
-  const todayInStudio = partsIn(new Date().toISOString(), timezone).date;
-
   const title =
     mode === 'month'
       ? monthAnchor.toLocaleDateString(undefined, {
           month: 'long',
           year: 'numeric',
         })
-      : `${weekStart.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} – ${new Date(
-          weekStart.getFullYear(),
-          weekStart.getMonth(),
-          weekStart.getDate() + 6,
-        ).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`;
+      : `${dateLabel(weekStart, { month: 'short', day: 'numeric' })} – ${dateLabel(addDays(weekStart, 6), { month: 'short', day: 'numeric' })}`;
 
   /** One step back or forward, in whatever unit the current view uses. */
   function step(direction: -1 | 1) {
@@ -296,16 +437,12 @@ export default function CalendarPage() {
       );
       return;
     }
-    setWeekStart((current) => {
-      const next = new Date(current);
-      next.setDate(next.getDate() + direction * 7);
-      return next;
-    });
+    setWeekStart((current) => addDays(current, direction * 7));
   }
 
   function goToday() {
     setMonthAnchor(new Date());
-    setWeekStart(startOfWeek(new Date()));
+    setWeekStart(sundayOf(todayInStudio));
   }
 
   return (
@@ -379,7 +516,7 @@ export default function CalendarPage() {
             ))}
 
             {monthGrid(monthAnchor).map((day) => {
-              const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+              const key = ymdOf(day);
               const sessions = sessionsByDate.get(key) ?? [];
               const outside = day.getMonth() !== monthAnchor.getMonth();
               const isToday = key === todayInStudio;
@@ -392,7 +529,7 @@ export default function CalendarPage() {
                   onClick={() => {
                     // Jump to the week containing this day, which is where
                     // anything can actually be changed.
-                    setWeekStart(startOfWeek(day));
+                    setWeekStart(sundayOf(key));
                     setMode('week');
                   }}
                 >
@@ -420,54 +557,72 @@ export default function CalendarPage() {
       </div>
 
       {mode === 'week' && (
-      <div className="week" style={{ opacity: busy ? 0.6 : 1 }}>
-        <div className="head" />
-        {days.map((day) => (
-          <div className="head" key={day.toISOString()}>
-            {day.toLocaleDateString('en-US', { weekday: 'short' })}
-            <small>{day.getDate()}</small>
-          </div>
-        ))}
+        <div
+          className="week"
+          style={{
+            opacity: busy ? 0.6 : 1,
+            gridTemplateRows: `auto repeat(${slots.length}, ${SLOT_PX}px)`,
+          }}
+        >
+          <div className="head" style={{ gridRow: 1, gridColumn: 1 }} />
+          {days.map((day, i) => (
+            <div
+              className={`head${day === todayInStudio ? ' today' : ''}`}
+              key={day}
+              style={{ gridRow: 1, gridColumn: i + 2 }}
+            >
+              {dateLabel(day, { weekday: 'short' })}
+              <small>{Number(day.slice(8))}</small>
+            </div>
+          ))}
 
-        {SLOTS.map((slot) => (
-          <Row
-            key={`${slot.hour}:${slot.minute}`}
-            slot={slot}
-            days={days}
-            localDateOf={localDateOf}
-            byCell={byCell}
-            timezone={timezone}
-            dropTarget={dropTarget}
-            setDropTarget={setDropTarget}
-            onDragStart={setDragging}
-            onDrop={drop}
-          />
-        ))}
-      </div>
+          {slots.map((slot, index) => (
+            <Row
+              key={`${slot.hour}:${slot.minute}`}
+              row={index + 2}
+              slot={slot}
+              days={days}
+              dropTarget={dropTarget}
+              setDropTarget={setDropTarget}
+              onDrop={drop}
+            />
+          ))}
+
+          {/* One layer per day, over its cells: blocks sized to their length. */}
+          {days.map((day, i) => (
+            <div
+              key={`layer-${day}`}
+              className="week-layer"
+              style={{ gridColumn: i + 2, gridRow: `2 / span ${slots.length}` }}
+            >
+              {layoutDay(blocksByDate.get(day) ?? [], timezone, gridStartHour).map((p) => (
+                <WeekBlock key={p.id} placed={p} timezone={timezone} onDragStart={setDragging} />
+              ))}
+            </div>
+          ))}
+        </div>
       )}
     </>
   );
 }
 
+/*
+  Every hour cell has an explicit grid position: the day layers are placed
+  explicitly too, and auto-placed cells would otherwise flow around them.
+*/
 function Row({
+  row,
   slot,
   days,
-  localDateOf,
-  byCell,
-  timezone,
   dropTarget,
   setDropTarget,
-  onDragStart,
   onDrop,
 }: {
+  row: number;
   slot: Slot;
-  days: Date[];
-  localDateOf: (d: Date) => string;
-  byCell: Map<string, BookingListItem[]>;
-  timezone: string;
+  days: string[];
   dropTarget: string | null;
   setDropTarget: (key: string | null) => void;
-  onDragStart: (booking: BookingListItem) => void;
   onDrop: (dayDate: string, slot: Slot) => void;
 }) {
   const label =
@@ -477,17 +632,16 @@ function Row({
 
   return (
     <>
-      <div className="hour">{label}</div>
+      <div className="hour" style={{ gridRow: row, gridColumn: 1 }}>{label}</div>
 
-      {days.map((day) => {
-        const dayDate = localDateOf(day);
+      {days.map((dayDate, i) => {
         const key = `${dayDate} ${String(slot.hour).padStart(2, '0')}:${String(slot.minute).padStart(2, '0')}`;
-        const items = byCell.get(key) ?? [];
 
         return (
           <div
             key={key}
             className={`cell${dropTarget === key ? ' drop' : ''}`}
+            style={{ gridRow: row, gridColumn: i + 2 }}
             onDragOver={(e) => {
               e.preventDefault();
               setDropTarget(key);
@@ -497,23 +651,89 @@ function Row({
               e.preventDefault();
               onDrop(dayDate, slot);
             }}
-          >
-            {items.map((booking) => (
-              <div
-                key={booking.id}
-                className="event"
-                draggable
-                onDragStart={() => onDragStart(booking)}
-                style={{ background: booking.service.color }}
-                title={`${booking.service.name} — ${booking.customer.name} at ${timeIn(booking.startsAt, timezone)}`}
-              >
-                <div className="who">{booking.customer.name}</div>
-                {booking.service.name}
-              </div>
-            ))}
-          </div>
+          />
         );
       })}
     </>
+  );
+}
+
+function WeekBlock({
+  placed,
+  timezone,
+  onDragStart,
+}: {
+  placed: Placed;
+  timezone: string;
+  onDragStart: (booking: BookingListItem) => void;
+}) {
+  const position = {
+    top: placed.top + 1,
+    height: placed.height - 2,
+    left: `calc(${(placed.column / placed.columns) * 100}% + 2px)`,
+    width: `calc(${100 / placed.columns}% - 4px)`,
+  };
+
+  if (placed.kind === 'booking') {
+    const booking = placed.booking;
+    const movable = booking.service.bookingMode === 'APPOINTMENT';
+    return (
+      <div
+        className="event"
+        draggable={movable}
+        onDragStart={() => onDragStart(booking)}
+        style={{ ...position, background: booking.service.color }}
+        title={`${booking.service.name} — ${booking.customer.name} at ${timeIn(booking.startsAt, timezone)}`}
+      >
+        <div className="who">{booking.customer.name}</div>
+        {booking.service.name}
+      </div>
+    );
+  }
+
+  const { session, bookings } = placed;
+  const color = session.serviceType.color;
+  const full = session.capacity > 0 && session.seatsTaken >= session.capacity;
+  const names = bookings.map((b) => `${b.customer.name}${b.seats > 1 ? ` (${b.seats})` : ''}`);
+
+  return (
+    <div
+      className="event session"
+      style={{
+        ...position,
+        borderLeftColor: color,
+        background: `color-mix(in srgb, ${color} 14%, var(--card))`,
+      }}
+      title={[
+        `${timeIn(session.startsAt, timezone)}–${timeIn(session.endsAt, timezone)} ${session.serviceType.name}`,
+        `${session.seatsTaken} of ${session.capacity} places booked`,
+        session.staff ? `With ${session.staff.name}` : null,
+        ...names,
+      ]
+        .filter(Boolean)
+        .join('\n')}
+    >
+      <div className="who">
+        {timeIn(session.startsAt, timezone)} {session.serviceType.name}
+      </div>
+      <div className={`fill${full ? ' full' : ''}`}>
+        {session.seatsTaken}/{session.capacity} booked
+        {session.seriesLabel ? ` · ${session.seriesLabel}` : ''}
+      </div>
+      {bookings.map((booking) => (
+        <div
+          key={booking.id}
+          className="guest"
+          draggable={booking.service.bookingMode === 'APPOINTMENT'}
+          onDragStart={(e) => {
+            e.stopPropagation();
+            onDragStart(booking);
+          }}
+        >
+          {booking.customer.name}
+          {booking.seats > 1 ? ` (${booking.seats})` : ''}
+        </div>
+      ))}
+    </div>
   );
 }

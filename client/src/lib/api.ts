@@ -305,6 +305,8 @@ export type BookingListItem = {
   reference: string | null;
   /** web | embed | admin. Rendered under the reference, as the demo does. */
   source: string;
+  /** The class session it sits in; null for a one-to-one appointment slot. */
+  sessionId: string | null;
   startsAt: string;
   endsAt: string;
   timezone: string;
