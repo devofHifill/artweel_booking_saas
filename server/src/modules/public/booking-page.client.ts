@@ -502,8 +502,12 @@ export const clientScript = String.raw`
 
         app.innerHTML = back() + '<h2>Who with?</h2>' +
           res.staff.map(function (s) {
+            /* A portrait (FB-11) in place of the colour strip when set. */
+            var face = s.photoKey
+              ? '<img class="who-photo" src="/public/_media/' + esc(s.photoKey) + '-400.webp" alt="' + esc(s.photoAlt || '') + '">'
+              : '<span class="swatch" style="background:' + esc(s.color) + '"></span>';
             return '<button class="card" type="button" data-staff="' + esc(s.id) + '">' +
-              '<span class="swatch" style="background:' + esc(s.color) + '"></span><span>' +
+              face + '<span>' +
               '<h3>' + esc(s.name) + '</h3>' +
               (s.bio ? '<p>' + esc(s.bio) + '</p>' : '') + '</span></button>';
           }).join('');

@@ -22,6 +22,9 @@ const createStaffSchema = z.object({
   role: z.string().max(80).optional().nullable(),
   bio: z.string().max(4000).optional().nullable(),
   photoUrl: z.string().url().max(1000).optional().nullable(),
+  /** Uploaded portrait (FB-11): the key from POST /media, and its description. */
+  photoKey: z.string().max(120).optional().nullable(),
+  photoAlt: z.string().max(300).optional().nullable(),
   /**
    * Per person, not per studio. A studio running mobile work across a state
    * line genuinely has instructors in two zones, and this one is authoritative

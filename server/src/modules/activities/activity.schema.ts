@@ -23,6 +23,9 @@ const common = {
   shortDescription: z.string().trim().max(300).optional(),
   description: z.string().trim().max(4000).optional(),
   emoji: z.string().max(16).optional(),
+  /** Uploaded photo (FB-11): the key from POST /media, and its description. */
+  imageKey: z.string().max(120).optional().nullable(),
+  imageAlt: z.string().max(300).optional().nullable(),
   locationId: z.string().uuid().optional(),
   staffId: z.string().uuid().optional(),
   seats: z.number().int().min(1).max(500),

@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { DateTime } from 'luxon';
 import { prisma } from '../../lib/prisma';
+import { assertAltText, assertOwnImage, releaseImageIfUnused } from '../media/media.service';
 import { AppError } from '../../lib/app-error';
 import { requireCapacity, type PlanId } from '../billing/plan';
 
@@ -187,6 +188,8 @@ export async function createStaff(
   const { locationIds: requestedLocations, ...fields } = input as {
     locationIds?: string[];
   } & Record<string, unknown>;
+  if (fields.photoKey) await assertOwnImage(organizationId, String(fields.photoKey));
+  assertAltText(fields.photoKey, fields.photoAlt);
   const email = String(fields.email).trim().toLowerCase();
 
   // Composite unique is (organizationId, email): the same freelancer may
@@ -321,6 +324,12 @@ export async function updateStaff(
   const existing = await prisma.staff.findFirst({ where: { id, organizationId } });
   if (!existing) throw AppError.notFound('Staff member not found.');
 
+  if (input.photoKey) await assertOwnImage(organizationId, String(input.photoKey));
+  assertAltText(
+    input.photoKey === undefined ? existing.photoKey : input.photoKey,
+    input.photoAlt === undefined ? existing.photoAlt : input.photoAlt,
+  );
+
   const data: Prisma.StaffUncheckedUpdateInput = { ...input };
 
   if (typeof input.email === 'string') {
@@ -385,18 +394,24 @@ export async function updateStaff(
    * Only rules still in the OLD zone follow. A rule deliberately set to some
    * other zone — mobile work over a state line — says so and is kept.
    */
+  let staff;
   if (typeof input.timezone === 'string' && input.timezone !== existing.timezone) {
-    const [staff] = await prisma.$transaction([
+    [staff] = await prisma.$transaction([
       prisma.staff.update({ where: { id }, data }),
       prisma.availabilityRule.updateMany({
         where: { staffId: id, timezone: existing.timezone },
         data: { timezone: input.timezone },
       }),
     ]);
-    return staff;
+  } else {
+    staff = await prisma.staff.update({ where: { id }, data });
   }
 
-  return prisma.staff.update({ where: { id }, data });
+  // A replaced or removed portrait's files go once nothing points at them.
+  if (existing.photoKey && existing.photoKey !== staff.photoKey) {
+    await releaseImageIfUnused(organizationId, existing.photoKey);
+  }
+  return staff;
 }
 
 export async function deleteStaff(organizationId: string, id: string) {

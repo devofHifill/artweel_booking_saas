@@ -85,6 +85,11 @@ COPY demos ./demos
 # dotenv does not overwrite variables that are already set, so there is no
 # conflict between the two mechanisms.
 
+# Uploaded photos (FB-11). Created here, owned by node, so the named volume
+# mounted over it in docker-compose.prod.yml starts out writable by the app.
+ENV MEDIA_DIR=/data/media
+RUN mkdir -p /data/media && chown node:node /data/media
+
 USER node
 
 EXPOSE 4000

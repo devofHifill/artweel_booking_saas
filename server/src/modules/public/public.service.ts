@@ -141,6 +141,8 @@ export async function getStudioPage(slug: string) {
         color: true,
         colorAccent: true,
         emoji: true,
+        imageKey: true,
+        imageAlt: true,
         meetingPoint: true,
         skillLevel: true,
         highlights: true,
@@ -379,7 +381,15 @@ export async function getPublicStaff(organizationId: string, serviceTypeId: stri
     },
     // Explicit select, not exclusion. Adding a column to the model must never
     // silently publish it.
-    select: { id: true, name: true, bio: true, photoUrl: true, color: true },
+    select: {
+      id: true,
+      name: true,
+      bio: true,
+      photoUrl: true,
+      color: true,
+      photoKey: true,
+      photoAlt: true,
+    },
     orderBy: { name: 'asc' },
   });
 

@@ -1,3 +1,4 @@
+import { imageUrls } from '../media/media.service';
 import { config } from '../../config';
 import { clientScript } from './booking-page.client';
 import { tokensCss } from '../../lib/design-tokens';
@@ -35,6 +36,14 @@ function jsonForScript(value: unknown): string {
     .replace(/</g, '\\u003c')
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
+}
+
+
+/** An activity's uploaded photo for its tile (FB-11), or '' for the glyph. */
+function svcPhoto(key: string | null | undefined, alt: string | null | undefined): string {
+  const urls = imageUrls(key);
+  if (!urls) return '';
+  return `<img class="svc-photo" src="${urls.small}" srcset="${urls.small} 400w, ${urls.large} 1200w" sizes="(max-width: 700px) 100vw, 360px" alt="${escapeHtml(alt ?? '')}" loading="lazy" decoding="async">`;
 }
 
 export function escapeHtml(value: unknown): string {
@@ -145,6 +154,9 @@ type PageData = {
        the booking page as on the card that linked here. */
     colorAccent?: string | null;
     emoji?: string | null;
+    /** Uploaded photo (FB-11), shown instead of the glyph when set. */
+    imageKey?: string | null;
+    imageAlt?: string | null;
     shortDescription?: string | null;
     skillLevel: string | null;
     /** G3. One bullet per line, split in the page script. */
@@ -229,6 +241,7 @@ opacity:.85;transition:opacity .12s}
 .card:hover .go{opacity:1}
 .card:focus-visible{outline:2px solid var(--clay);outline-offset:2px}
 .swatch{width:4px;align-self:stretch;border-radius:2px;flex:0 0 4px}
+.who-photo{width:56px;height:56px;border-radius:50%;object-fit:cover;flex:0 0 56px}
 .card h3{margin:0 0 4px;font-size:1.05rem}
 .card p{margin:0;color:var(--muted);font-size:.93rem}
 .meta{display:block;margin-top:8px;font-size:.86rem;color:var(--muted)}
@@ -407,6 +420,8 @@ body.bk .svc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250
 body.bk .card.svc{flex-direction:column;gap:0;padding:0;overflow:hidden;margin:0;height:100%;
   border-radius:16px}
 body.bk .card.svc:hover{transform:translateY(-2px);box-shadow:0 12px 28px -14px rgba(12,18,32,.35)}
+body.bk .svc-media .svc-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit}
+body.bk .svc-media .svc-chip{z-index:1}
 body.bk .svc-media{position:relative;display:grid;place-items:center;height:132px;width:100%;
   font-size:42px}
 body.bk .svc-chip{position:absolute;top:12px;right:12px;padding:4px 10px;border-radius:999px;
@@ -543,7 +558,7 @@ export function renderBookingPage(
     const blurb = s.shortDescription || s.description;
     const inner = `
         <span class="svc-media" style="background:${media}">
-          ${s.emoji ? escapeHtml(s.emoji) : ''}
+          ${svcPhoto(s.imageKey, s.imageAlt) || (s.emoji ? escapeHtml(s.emoji) : '')}
           ${s.category ? `<span class="svc-chip svc-cat">${escapeHtml(s.category.name)}</span>` : ''}
           <span class="svc-chip">${money(s.priceCents, organization.currency)}</span>
         </span>
@@ -551,7 +566,7 @@ export function renderBookingPage(
           <h3>${escapeHtml(s.name)}</h3>
           <span class="svc-meta">${facts.map((f) => `<span>${f}</span>`).join('')}</span>
           ${blurb ? `<p>${escapeHtml(blurb)}</p>` : ''}
-          <span class="svc-cta" aria-hidden="true">Book now</span>
+          <span class="svc-cta" aria-hidden="true">Choose a date</span>
         </span>`;
     return bookable
       ? `

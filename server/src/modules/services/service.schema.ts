@@ -90,6 +90,11 @@ const baseService = z.object({
    */
   emoji: z.string().max(8).optional().nullable(),
 
+  /** Uploaded photo (FB-11): the key from POST /media, and its description.
+      Checked against the studio's own uploads in the service. */
+  imageKey: z.string().max(120).optional().nullable(),
+  imageAlt: z.string().max(300).optional().nullable(),
+
   color: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #A6522C.')

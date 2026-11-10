@@ -10,6 +10,12 @@ import 'dotenv/config';
  */
 process.env.NODE_ENV = 'test';
 
+// Uploaded photos (FB-11) go to a throwaway folder, never server/media. Set
+// here for the same reason as DATABASE_URL: the storage reads it at import.
+import os from 'node:os';
+import path from 'node:path';
+process.env.MEDIA_DIR = path.join(os.tmpdir(), `artweel-media-test-${process.pid}`);
+
 if (!process.env.TEST_DATABASE_URL) {
   throw new Error(
     'TEST_DATABASE_URL is not set. Tests refuse to run against the development database.',

@@ -4747,3 +4747,47 @@ code.path {
   color: var(--text-2, inherit);
   font-size: 13px;
 }
+
+/* --- Photo picker (FB-11) ------------------------------------------------- */
+.danger-text { color: var(--danger); }
+.image-picker-row { display: flex; gap: var(--space-4); align-items: flex-start; flex-wrap: wrap; }
+.image-picker-frame {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.image-picker-frame.wide { width: 200px; aspect-ratio: 4 / 3; }
+.image-picker-frame.square { width: 96px; aspect-ratio: 1; border-radius: 50%; }
+.image-picker-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.image-picker-actions { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; min-width: 0; }
+
+/* The storefront card as a phone shows it, under the activity's photo. */
+.card-preview {
+  width: 260px;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  color: #14181f;
+  box-shadow: 0 2px 8px rgba(12, 18, 32, .06);
+}
+.card-preview-media { height: 120px; display: grid; place-items: center; font-size: 36px; }
+.card-preview-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card-preview-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
+.card-preview-body b { font-size: 14px; }
+.card-preview-body span { font-size: 12px; color: #5c6472; }
+.card-preview-btn { margin-top: 6px; text-align: center; font-size: 12px; font-weight: 600; color: #fff; border-radius: 999px; padding: 6px; }
+
+/* A staff portrait inside the round avatar (FB-11). */
+.avatar { overflow: hidden; }
+.avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* An activity photo across the Activities card head (FB-11). */
+.cat-head { overflow: hidden; }
+.cat-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cat-head .cat-pins { z-index: 1; }
