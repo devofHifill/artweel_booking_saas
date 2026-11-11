@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Deploy BookAIHub / BookAIHub to a VPS.
+# Deploy BookAIHub to a VPS.
 #
 # Run it ON the box, from the project directory:
 #
