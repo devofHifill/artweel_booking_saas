@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { bookingFormat } from '../lib/booking-format';
 import { Link } from 'react-router-dom';
 import { api, dateIn, mediaUrl, money, plusDays, timeIn, todayIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
@@ -1174,7 +1175,12 @@ export default function Classes() {
                           />
                         )}
                         {fixedDates && (
-                          <span className="cat-tag">{svc.kind === 'CLASS' ? 'Class' : 'Event'}</span>
+                          <span
+                            className="cat-tag"
+                            title={`${bookingFormat(svc).summary}. ${bookingFormat(svc).price}.`}
+                          >
+                            {bookingFormat(svc).label}
+                          </span>
                         )}
                         {svc.category && (
                           <span className="cat-tag">{svc.category.name}</span>
@@ -1380,11 +1386,11 @@ export default function Classes() {
             </div>
           ) : (
             <DataTable
-              caption="What you offer, with type, duration, capacity and price"
+              caption="What you offer, with booking format, duration, capacity and price"
               head={
                 <tr>
                   <th>Activity</th>
-                  <th>Type</th>
+                  <th>Booking format</th>
                   <th className="num">Duration</th>
                   <th className="num">Capacity</th>
                   <th className="num">Price</th>
@@ -1405,14 +1411,9 @@ export default function Classes() {
                       <div className="tiny muted">{svc.description}</div>
                     )}
                   </td>
-                  <td>
-                    {svc.kind === 'CLASS'
-                      ? 'Class'
-                      : svc.kind === 'EVENT'
-                        ? 'Event'
-                        : svc.bookingMode === 'APPOINTMENT'
-                          ? 'One to one'
-                          : 'Group class'}
+                  <td title={`${bookingFormat(svc).summary}. ${bookingFormat(svc).price}.`}>
+                    {bookingFormat(svc).label}
+                    <div className="tiny muted nowrap">{bookingFormat(svc).short}</div>
                   </td>
                   <td className="num nowrap">{svc.durationMinutes} min</td>
                   {/* An appointment is one-to-one by a schema rule, so a
