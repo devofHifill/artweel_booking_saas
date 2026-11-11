@@ -3,7 +3,7 @@ import request from 'supertest';
 import { createApp } from '../../src/app';
 import { prisma } from '../../src/lib/prisma';
 import { resetDb } from '../helpers/fixtures';
-import { signUpStudio, type Studio } from '../helpers/api';
+import { addMemberToStudio, signUpStudio, type Studio } from '../helpers/api';
 import { resetRateLimits } from '../../src/middleware/rate-limit';
 import { setProviders } from '../../src/modules/notifications/registry';
 import {
@@ -617,5 +617,104 @@ describe('studio templates', () => {
     await processBatch();
 
     expect(email.sent[0]!.subject).not.toBe('OTHER STUDIO');
+  });
+});
+
+/* FB-24: there was no way back to the built-in wording once it was edited. */
+describe('restoring the default wording', () => {
+  const override = (base: string, headers: Record<string, string>, channel: 'EMAIL' | 'SMS' = 'EMAIL') =>
+    request(app)
+      .put(`${base}/notifications/templates`)
+      .set(headers)
+      .send({
+        templateKey: 'booking.confirmed',
+        channel,
+        subject: channel === 'EMAIL' ? 'Wheel time, {{customerName}}!' : null,
+        body: 'Our own words. — {{studioName}}',
+      });
+
+  const restore = (base: string, headers: Record<string, string>, channel = 'EMAIL') =>
+    request(app)
+      .delete(`${base}/notifications/templates/booking.confirmed/${channel}`)
+      .set(headers);
+
+  it('sends the default again once the studio wording is removed', async () => {
+    await override(studio.base, studio.headers);
+
+    const res = await restore(studio.base, studio.headers);
+    expect(res.status).toBe(200);
+    expect(res.body.restored).toBe(true);
+
+    const list = await request(app)
+      .get(`${studio.base}/notifications/templates`)
+      .set(studio.headers);
+    expect(list.body.overrides).toHaveLength(0);
+
+    await book();
+    await processBatch();
+    expect(email.sent[0]!.subject).not.toBe('Wheel time, Ada Potter!');
+  });
+
+  it('restores one channel and leaves the other alone', async () => {
+    await override(studio.base, studio.headers, 'EMAIL');
+    await override(studio.base, studio.headers, 'SMS');
+
+    await restore(studio.base, studio.headers, 'EMAIL');
+
+    const left = await prisma.notificationTemplate.findMany({
+      where: { organizationId: studio.organizationId },
+    });
+    expect(left.map((t) => t.channel)).toEqual(['SMS']);
+  });
+
+  it('does not switch a message back on', async () => {
+    await request(app)
+      .patch(`${studio.base}/notifications/automations/booking.confirmed`)
+      .set(studio.headers)
+      .send({ enabled: false });
+    await override(studio.base, studio.headers);
+
+    await restore(studio.base, studio.headers);
+
+    const rule = await prisma.notificationRule.findFirst({
+      where: { organizationId: studio.organizationId, templateKey: 'booking.confirmed' },
+    });
+    expect(rule?.enabled).toBe(false);
+  });
+
+  it('is harmless when there is nothing to restore', async () => {
+    const res = await restore(studio.base, studio.headers);
+    expect(res.status).toBe(200);
+    expect(res.body.restored).toBe(false);
+  });
+
+  it('refuses a template or channel the system does not have', async () => {
+    const key = await request(app)
+      .delete(`${studio.base}/notifications/templates/invented.key/EMAIL`)
+      .set(studio.headers);
+    expect(key.status).toBe(400);
+    expect(key.body.error.code).toBe('UNKNOWN_TEMPLATE');
+
+    const channel = await restore(studio.base, studio.headers, 'FAX');
+    expect(channel.status).toBe(400);
+  });
+
+  it('is for owners and admins only', async () => {
+    await override(studio.base, studio.headers);
+    const desk = await addMemberToStudio(app, studio.organizationId, 'FRONT_DESK');
+
+    const res = await restore(studio.base, desk.headers);
+
+    expect(res.status).toBe(403);
+    expect(await prisma.notificationTemplate.count()).toBe(1);
+  });
+
+  it("cannot remove another studio's wording", async () => {
+    await override(studio.base, studio.headers);
+    const other = await signUpStudio(app);
+
+    await restore(other.base, other.headers);
+
+    expect(await prisma.notificationTemplate.count()).toBe(1);
   });
 });
