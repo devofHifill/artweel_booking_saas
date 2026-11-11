@@ -643,13 +643,15 @@ export function ServiceForm({
               value={isActive ? 'active' : 'off'}
               onChange={(e) => setIsActive(e.target.value === 'active')}
             >
-              <option value="active">Active</option>
-              <option value="off">Draft</option>
+              {/* The words every screen uses (FB-14). This menu said "Draft"
+                  for what the card called "Inactive". */}
+              <option value="active">Published</option>
+              <option value="off">Hidden</option>
             </select>
             <p className="tiny muted">
               {isActive
-                ? 'Bookable on your page.'
-                : 'Hidden from your page. Existing bookings stand.'}
+                ? 'On your booking page. Customers can book it.'
+                : 'Not on your booking page. Bookings already made stand.'}
             </p>
           </div>
         </div>

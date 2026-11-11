@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { bookingFormat } from '../lib/booking-format';
 import { CategoryManager } from '../components/CategoryPicker';
+import { ACTIVITY_STATUS, activityStatus } from '../lib/activity-status';
 import { Link } from 'react-router-dom';
 import { api, dateIn, mediaUrl, money, plusDays, timeIn, todayIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
@@ -869,13 +870,17 @@ export default function Classes() {
           {drafts.map((draft) => (
             <div className="draft-row" key={draft.id}>
               <span>
+                <StatusPill status={ACTIVITY_STATUS.DRAFT.tone}>
+                  {ACTIVITY_STATUS.DRAFT.label}
+                </StatusPill>{' '}
                 <strong>
                   {String(draft.data.name ?? '').trim() ||
                     (draft.kind === 'CLASS' ? 'Untitled class' : 'Untitled event')}
                 </strong>{' '}
                 <span className="muted">
-                  · {draft.kind === 'CLASS' ? 'Class' : 'Event'} draft, saved{' '}
-                  {shortDate(draft.updatedAt.slice(0, 10))}
+                  · {draft.kind === 'CLASS' ? 'Class' : 'Event'}, last edited{' '}
+                  {shortDate(draft.updatedAt.slice(0, 10))}. Not on your booking page
+                  until you finish it.
                 </span>
               </span>
               <span className="draft-row-actions">
@@ -976,7 +981,7 @@ export default function Classes() {
       {/*
         The four figures, matching the prototype's row.
 
-        "Drafts" is "Switched off" here: a service has an isActive flag and no
+        "Hidden" here, the word every screen uses (FB-14): a service has an isActive flag and no
         draft state, and calling a deactivated class a draft would invent a
         workflow the product does not have.
 
@@ -1000,22 +1005,22 @@ export default function Classes() {
             services.length === 0
               ? 'Nothing set up yet'
               : notReady > 0
-                ? `${notReady} live ${notReady === 1 ? 'activity cannot' : 'activities cannot'} be booked yet`
-                : 'Every live activity'
+                ? `${notReady} published ${notReady === 1 ? 'activity cannot' : 'activities cannot'} be booked yet`
+                : 'Every published activity'
           }
         />
         <Kpi
-          label="Switched off"
+          label="Hidden"
           value={String(inactive)}
           icon="classes"
           tone={inactive > 0 ? 'amber' : undefined}
-          foot={inactive > 0 ? 'Not on your booking page' : 'All of them are live'}
+          foot={inactive > 0 ? 'Saved, not on your booking page' : 'Everything is published'}
         />
         <Kpi
           label="Average price"
           value={money(averageCents, currency)}
           icon="money"
-          foot="Across your live activities"
+          foot="Across your published activities"
         />
         <Kpi
           label="Seats scheduled"
@@ -1186,9 +1191,11 @@ export default function Classes() {
                         {past ? (
                           <span className="cat-tag">Ended</span>
                         ) : (
-                          <StatusPill
-                            status={svc.isActive === false ? 'INACTIVE' : 'ACTIVE'}
-                          />
+                          <span title={activityStatus(svc).hint}>
+                            <StatusPill status={activityStatus(svc).tone}>
+                              {activityStatus(svc).label}
+                            </StatusPill>
+                          </span>
                         )}
                         {fixedDates && (
                           <span
@@ -1443,8 +1450,10 @@ export default function Classes() {
                       ? '—'
                       : money(svc.priceCents, currency)}
                   </td>
-                  <td>
-                    <StatusPill status={svc.isActive === false ? 'INACTIVE' : 'ACTIVE'} />
+                  <td title={activityStatus(svc).hint}>
+                    <StatusPill status={activityStatus(svc).tone}>
+                      {activityStatus(svc).label}
+                    </StatusPill>
                   </td>
                   {isAdmin && (
                     <td className="nowrap">
