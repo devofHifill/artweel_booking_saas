@@ -280,4 +280,25 @@ describe('public course enrolment', () => {
     });
     expect(customer.smsConsentAt).not.toBeNull();
   });
+
+  /* FB-15: the studio's phone rule ran on single bookings only. */
+  it('refuses a Class enrolment with no phone when the studio requires one', async () => {
+    const { seriesId } = await publishCourse({ priceCents: 0 });
+    await prisma.organization.update({
+      where: { id: studio.organizationId },
+      data: { requirePhoneAtCheckout: true },
+    });
+
+    const without = await request(app)
+      .post(`/public/${slug}/courses/${seriesId}/enrollments`)
+      .send({ customer: { name: 'Ana Vidal', email: 'ana@student.test' } });
+    expect(without.status).toBe(400);
+    expect(without.body.error.code).toBe('PHONE_REQUIRED');
+    expect(await prisma.enrollment.count()).toBe(0);
+
+    const withPhone = await request(app)
+      .post(`/public/${slug}/courses/${seriesId}/enrollments`)
+      .send(student);
+    expect(withPhone.status).toBe(201);
+  });
 });

@@ -540,6 +540,7 @@ publicRouter.post(
       param(req, 'slug'),
       param(req, 'seriesId'),
     );
+    service.assertPhoneIfRequired(organization, req.body.customer.phone);
 
     const base = `${config.PUBLIC_URL}/public/${organization.slug}`;
 
@@ -551,6 +552,7 @@ publicRouter.post(
       children: req.body.children,
       customerEmail: req.body.customer.email,
       customerName: req.body.customer.name,
+      customerPhone: req.body.customer.phone,
       successUrl: `${base}?enrolled=1`,
       cancelUrl: `${base}?cancelled=1`,
     });
@@ -598,6 +600,7 @@ publicRouter.post(
   ),
   asyncHandler(async (req, res) => {
     const studio = await service.getStudio(param(req, 'slug'));
+    service.assertPhoneIfRequired(studio, req.body.customer.phone);
     const base = `${config.PUBLIC_URL}/public/${studio.slug}`;
 
     const result = await startCheckout({
@@ -608,6 +611,7 @@ publicRouter.post(
       children: req.body.children,
       customerEmail: req.body.customer.email,
       customerName: req.body.customer.name,
+      customerPhone: req.body.customer.phone,
       successUrl: `${base}?paid=1`,
       cancelUrl: `${base}?cancelled=1`,
     });

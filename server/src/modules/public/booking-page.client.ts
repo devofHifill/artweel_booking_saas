@@ -28,6 +28,33 @@ export const clientScript = String.raw`
   var IS_EMBED = /(?:^|[?&])embed=1(?:&|$)/.test(location.search);
   var BOOKING_SOURCE = IS_EMBED ? 'embed' : 'web';
 
+  /*
+    The phone field, labelled from the studio's own rule (FB-15). It said
+    "Mobile (optional)" even when the studio required one, and the customer
+    found out only when the booking was refused.
+  */
+  var REQUIRE_PHONE = DATA.requirePhone === true;
+
+  function phoneField() {
+    return REQUIRE_PHONE
+      ? '<label for="phone">Mobile</label>' +
+          '<input id="phone" type="tel" autocomplete="tel" required aria-required="true">' +
+          '<p class="hint">The studio needs a number to reach you about your booking.</p>'
+      : '<label for="phone">Mobile (optional)</label>' +
+          '<input id="phone" type="tel" autocomplete="tel">';
+  }
+
+  /** What is missing from the details form, in words, or null when nothing is. */
+  function missingDetails(name, email, phone) {
+    if (!name || !email) {
+      return REQUIRE_PHONE && !phone
+        ? 'Please add your name, email and mobile number.'
+        : 'Please add your name and email.';
+    }
+    if (REQUIRE_PHONE && !phone) return 'Please add your mobile number.';
+    return null;
+  }
+
   var state = {
     service: null, location: null, staff: null,
     slot: null, session: null, address: null, coverage: null, seats: 1, children: 0
@@ -259,7 +286,7 @@ export const clientScript = String.raw`
       '<div id="err"></div>' +
       '<label for="name">Full name</label><input id="name" autocomplete="name">' +
       '<label for="email">Email</label><input id="email" type="email" autocomplete="email">' +
-      '<label for="phone">Mobile (optional)</label><input id="phone" type="tel" autocomplete="tel">' +
+      phoneField() +
       (maxSeats > 1
         ? '<label for="seats">How many places?</label>' +
           '<input id="seats" type="number" min="' + minSeats + '" max="' + maxSeats +
@@ -300,15 +327,17 @@ export const clientScript = String.raw`
     var email = document.getElementById('email').value.trim();
     var seats = state.seats || 1;
     var children = state.children || 0;
+    var phone = document.getElementById('phone').value.trim();
 
-    if (!name || !email) {
-      document.getElementById('err').innerHTML = error('Please add your name and email.');
+    var missing = missingDetails(name, email, phone);
+    if (missing) {
+      document.getElementById('err').innerHTML = error(missing);
       return;
     }
 
     var customer = {
       name: name, email: email,
-      phone: document.getElementById('phone').value.trim() || undefined
+      phone: phone || undefined
     };
     var paying = quote && quote.willCharge;
     var url = '/public/' + DATA.slug + '/courses/' + course.id +
@@ -1173,7 +1202,7 @@ export const clientScript = String.raw`
       '<div id="err"></div>' +
       '<label for="name">Full name</label><input id="name" autocomplete="name">' +
       '<label for="email">Email</label><input id="email" type="email" autocomplete="email">' +
-      '<label for="phone">Mobile (optional)</label><input id="phone" type="tel" autocomplete="tel">' +
+      phoneField() +
       (maxSeats > 1
         ? '<label for="seats">How many places?</label>' +
           '<input id="seats" type="number" min="' + minSeats + '" max="' + maxSeats +
@@ -1229,9 +1258,11 @@ export const clientScript = String.raw`
       var name = document.getElementById('name').value.trim();
       var email = document.getElementById('email').value.trim();
       var seatsEl = document.getElementById('seats');
+      var phone = document.getElementById('phone').value.trim();
 
-      if (!name || !email) {
-        document.getElementById('err').innerHTML = error('Please add your name and email.');
+      var missing = missingDetails(name, email, phone);
+      if (missing) {
+        document.getElementById('err').innerHTML = error(missing);
         return;
       }
 
@@ -1241,7 +1272,7 @@ export const clientScript = String.raw`
         children: state.children || 0,
         customer: {
           name: name, email: email,
-          phone: document.getElementById('phone').value.trim() || undefined
+          phone: phone || undefined
         },
         smsConsent: document.getElementById('sms').checked,
         notes: document.getElementById('notes').value.trim() || undefined,

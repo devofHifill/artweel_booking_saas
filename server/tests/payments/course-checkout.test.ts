@@ -447,4 +447,38 @@ describe('course checkout', () => {
     expect(res.body.error.code).toBe('COURSE_REQUIRES_PAYMENT');
     expect(await prisma.enrollment.count()).toBe(0);
   });
+
+  /* FB-15: a paid Class skipped the studio's phone rule, and dropped the
+     phone it was given before Stripe. */
+  it('refuses a paid Class checkout with no phone when the studio requires one', async () => {
+    await enablePayments();
+    await prisma.organization.update({
+      where: { id: studio.organizationId },
+      data: { requirePhoneAtCheckout: true },
+    });
+
+    const res = await startCourseCheckout();
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('PHONE_REQUIRED');
+    expect(await prisma.bookingHold.count()).toBe(0);
+  });
+
+  it('keeps the phone given at checkout on the customer it creates', async () => {
+    await enablePayments();
+    await request(app)
+      .post(`/public/${slug}/courses/${seriesId}/checkout`)
+      .send({
+        seats: 1,
+        customer: { name: 'Ada Potter', email: 'ada@student.test', phone: '+1 555 010 2200' },
+      });
+
+    const csid = (await prisma.payment.findFirstOrThrow({})).providerCheckoutSessionId!;
+    await deliverWebhook(provider.payCheckout(csid));
+
+    const customer = await prisma.customer.findFirstOrThrow({
+      where: { organizationId: studio.organizationId, email: 'ada@student.test' },
+    });
+    expect(customer.phone).toBe('+1 555 010 2200');
+  });
 });
