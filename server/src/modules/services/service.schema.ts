@@ -161,6 +161,10 @@ export const createCategorySchema = z.object({
   sortOrder: z.number().int().min(0).max(9999).default(0),
 });
 
+export const renameCategorySchema = z.object({
+  name: z.string().min(1).max(100),
+});
+
 export const listServicesQuerySchema = z.object({
   includeInactive: z
     .enum(['true', 'false'])

@@ -12,7 +12,7 @@ replying "already fixed".
 
 ## Progress
 
-**15 of 30 done** (✅ FB-01, FB-02, FB-03, FB-04, FB-05, FB-06, FB-07, FB-08, FB-09, FB-10, FB-11, FB-12, FB-15, FB-16, FB-30) · 15 pending.
+**16 of 30 done** (✅ FB-01, FB-02, FB-03, FB-04, FB-05, FB-06, FB-07, FB-08, FB-09, FB-10, FB-11, FB-12, FB-15, FB-16, FB-24, FB-30) · 14 pending.
 
 ## Legend
 
@@ -72,7 +72,7 @@ replying "already fixed".
 |:-:|---|---|---|---|---|---|---|
 | ⬜ | FB-22 | Is Stripe in test or live mode? First-purchase procedure | Configuration | Not a bug | Live runs Stripe **test mode** (live-mode setup A9 is postponed). No real money can move; test card `4242 4242 4242 4242` completes a purchase. | Tell the client; anyone can make the first purchase with the test card. | Open |
 | ⬜ | FB-23 | Verify charge, confirmation, merchant record, seat reduction, messages, cancel, reschedule, refund | Already supported | — | All built and tested; a paid booking and a refund were verified on live in test mode (Oct). | Client to retest after P1 fixes deploy. | Open |
-| ⬜ | FB-24 | Customize notifications: edit/save, preview, restore default, merge fields, test send | Fix | Partly genuine | Edit/save, preview, merge-field chips and "Send a test" exist. **No restore-to-default** — there is no route to delete an override. | Add "Restore default". The rest is a retest. | Open |
+| ✅ | FB-24 | Customize notifications: edit/save, preview, restore default, merge fields, test send | Fix | Partly genuine | Edit/save, preview, merge-field chips and "Send a test" exist. **No restore-to-default** — there is no route to delete an override. | **Deployed 2026-11-11** (PR #58). Each message's editor has **Restore default**, shown only when the studio has its own wording, with an inline confirmation (the studio's version cannot be brought back). `DELETE /notifications/templates/:templateKey/:channel` removes that channel's override only, owners and admins only, and leaves the message's on/off alone. 7 new tests. Checked locally end to end; on live the button is in the dashboard, and Galaxy Empire has no custom wording yet, so there was nothing to restore. Edit/save, preview, merge-field chips and test send were already there: client to retest. | Deployed |
 | ⬜ | FB-25 | Test more instructors without paying for an upgrade | Plan restriction | Not a bug | Solo allows one instructor (`plan.ts`). The platform admin can set a studio's plan with `comp` (`POST /platform/organizations/:id/plan`). | Comp the client's test studio to Studio/Pro from the admin panel. Controlled destinations: use their own email/phone as staff and customers. | Open |
 | ⬜ | FB-26 | Tax handling | Future feature | Genuine | Settings says it plainly: tax is not calculated. | Stripe Tax or a per-studio flat rate — needs a decision on scope. | Open |
 
