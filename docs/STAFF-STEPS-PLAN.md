@@ -1,6 +1,6 @@
 # Add staff in steps: plan
 
-Status: **Phase 1 built 2026-11-11** (branch `feat/add-staff-steps`). Decisions taken: the Review step offers the login invite, ticked by default; editing stays the one form, with Bio added. Phase 2 (editing in steps) not started.
+Status: **Phase 1 deployed 2026-11-11** (PR #62): adding in steps, with the login invite on Review, ticked by default. **Phase 2 built 2026-11-11** (branch `feat/edit-staff-steps`): Edit opens the same steps, all reachable, "Save changes" on each; details, activities and locations saved in one PATCH; the Hours step shows their week and offers "Save and open Hours" rather than re-asking it.
 
 ## Why
 

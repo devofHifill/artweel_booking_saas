@@ -59,46 +59,85 @@ function daysText(codes: string[]) {
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Someone being edited (Phase 2): the fields the steps show, as the list holds them. */
+export type StaffForEdit = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  role: string | null;
+  bio?: string | null;
+  photoKey: string | null;
+  photoAlt: string | null;
+  color: string;
+  isPublic: boolean;
+  maxBookingsPerDay: number;
+  timezone: string;
+  staffLocations: { location: { id: string } }[];
+  staffServices: { serviceType: { id: string } }[];
+};
+
+type Rule = { id: string; ruleType: string; rrule: string; startMinute: number; endMinute: number };
+
+const hhmm = (minutes: number) =>
+  `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
 export function AddStaff({
   base,
+  existing,
   onClose,
   onAdded,
+  onOpenHours,
 }: {
   base: string;
+  /** Present when editing (Phase 2): the same steps, all reachable at once. */
+  existing?: StaffForEdit;
   onClose: () => void;
   /** After the person is saved, so the page can reload its list. */
   onAdded: () => void;
+  /** Editing: hours have their own panel; this opens it after saving. */
+  onOpenHours?: (staff: { id: string; name: string }) => void;
 }) {
+  const editing = Boolean(existing);
   const [step, setStep] = useState(0);
-  const [reached, setReached] = useState(0);
+  const [reached, setReached] = useState(editing ? STEPS.length - 1 : 0);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Who
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [role, setRole] = useState('');
+  const [name, setName] = useState(existing?.name ?? '');
+  const [email, setEmail] = useState(existing?.email ?? '');
+  const [phone, setPhone] = useState(existing?.phone ?? '');
+  const [role, setRole] = useState(existing?.role ?? '');
 
   // What they teach, and where
   const [services, setServices] = useState<Option[] | null>(null);
   const [locations, setLocations] = useState<Option[]>([]);
-  const [teaches, setTeaches] = useState<string[]>([]);
-  /** Null means every location, the server's default. */
-  const [worksAt, setWorksAt] = useState<string[] | null>(null);
+  const [teaches, setTeaches] = useState<string[]>(
+    existing?.staffServices.map((s) => s.serviceType.id) ?? [],
+  );
+  /** Null means every location, the server's default for someone new. */
+  const [worksAt, setWorksAt] = useState<string[] | null>(
+    existing ? existing.staffLocations.map((l) => l.location.id) : null,
+  );
 
   // Hours
   const [setHours, setSetHours] = useState(true);
   const [days, setDays] = useState<string[]>(['TU', 'WE', 'TH', 'FR', 'SA']);
   const [start, setStart] = useState('10:00');
   const [end, setEnd] = useState('18:00');
-  const [timezone, setTimezone] = useState('');
+  const [timezone, setTimezone] = useState(existing?.timezone ?? '');
+  /** Editing: their current weekly patterns, shown rather than re-asked. */
+  const [rules, setRules] = useState<Rule[] | null>(null);
 
   // Profile
-  const [photo, setPhoto] = useState<{ key: string | null; alt: string }>({ key: null, alt: '' });
-  const [bio, setBio] = useState('');
-  const [color, setColor] = useState('#a6522c');
-  const [isPublic, setIsPublic] = useState(true);
-  const [maxPerDay, setMaxPerDay] = useState(0);
+  const [photo, setPhoto] = useState<{ key: string | null; alt: string }>({
+    key: existing?.photoKey ?? null,
+    alt: existing?.photoAlt ?? '',
+  });
+  const [bio, setBio] = useState(existing?.bio ?? '');
+  const [color, setColor] = useState(existing?.color ?? '#a6522c');
+  const [isPublic, setIsPublic] = useState(existing?.isPublic ?? true);
+  const [maxPerDay, setMaxPerDay] = useState(existing?.maxBookingsPerDay ?? 0);
 
   // Review and after
   const [invite, setInvite] = useState(true);
@@ -123,6 +162,13 @@ export function AddStaff({
       .get<{ locations: Option[] }>(`${base}/locations`)
       .then((res) => setLocations(res.locations ?? []))
       .catch(() => setLocations([]));
+    if (existing) {
+      api
+        .get<{ rules: Rule[] }>(`${base}/schedules/${existing.id}/rules`)
+        .then((res) => setRules((res.rules ?? []).filter((r) => r.ruleType === 'WORKING')))
+        .catch(() => setRules([]));
+      return;
+    }
     api
       .get<{
         billing: {
@@ -140,7 +186,7 @@ export function AddStaff({
       .catch(() => {
         /* Unknown: let the server say so on Add. */
       });
-  }, [base]);
+  }, [base, existing]);
 
   const stepName = STEPS[step]!;
   const last = step === STEPS.length - 1;
@@ -152,7 +198,7 @@ export function AddStaff({
       if (!name.trim()) found.name = 'Add their name.';
       if (!EMAIL.test(email.trim())) found.email = 'Add an email address that works.';
     }
-    if (at === 'Hours' && setHours) {
+    if (at === 'Hours' && setHours && !editing) {
       if (days.length === 0) found.days = 'Pick at least one day, or choose "Set hours later".';
       if (toMinutes(end) <= toMinutes(start)) found.time = 'The end time must be after the start time.';
     }
@@ -189,6 +235,47 @@ export function AddStaff({
         ok: false,
         message: err instanceof Error ? err.message : 'The invite did not send.',
       });
+    }
+  }
+
+  /** Editing: one PATCH with the details, what they teach and where they work. */
+  async function saveEdit(then?: 'hours') {
+    for (const [index, at] of STEPS.entries()) {
+      const found = check(at);
+      if (Object.keys(found).length > 0) {
+        setStep(index);
+        setErrors(found);
+        return;
+      }
+    }
+    if (!existing) return;
+
+    setBusy(true);
+    setServerError(null);
+    try {
+      await api.patch(`${base}/staff/${existing.id}`, {
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim() || null,
+        role: role.trim() || null,
+        bio: bio.trim() || null,
+        photoKey: photo.key,
+        photoAlt: photo.key ? photo.alt.trim() : null,
+        color,
+        isPublic,
+        maxBookingsPerDay: Number(maxPerDay) || 0,
+        ...(timezone ? { timezone } : {}),
+        serviceTypeIds: teaches,
+        ...(locations.length > 0 && worksAt ? { locationIds: worksAt } : {}),
+      });
+      onAdded();
+      onClose();
+      if (then === 'hours') onOpenHours?.({ id: existing.id, name: name.trim() });
+    } catch (err) {
+      setServerError(
+        `${err instanceof Error ? err.message : 'Could not save.'} Nothing was changed.`,
+      );
+      setBusy(false);
     }
   }
 
@@ -298,7 +385,7 @@ export function AddStaff({
 
   // --- The plan is full -----------------------------------------------------
 
-  if (full) {
+  if (full && !editing) {
     return (
       <Modal title="Add staff" onClose={onClose}>
         <p>
@@ -329,7 +416,7 @@ export function AddStaff({
 
   return (
     <Modal
-      title="Add staff"
+      title={existing ? `Edit ${existing.name}` : 'Add staff'}
       subtitle={
         <span className="step-bar" role="list" aria-label="Steps">
           {STEPS.map((label, index) => (
@@ -357,7 +444,18 @@ export function AddStaff({
           <button type="button" onClick={() => (step === 0 ? onClose() : goTo(step - 1))} disabled={busy}>
             {step === 0 ? 'Cancel' : 'Back'}
           </button>
-          {last ? (
+          {/* Editing saves from any step: the steps are a way to find a
+              field, not a sequence that must be walked again. */}
+          {editing && !last && (
+            <button type="button" onClick={next}>
+              Next
+            </button>
+          )}
+          {editing ? (
+            <button type="button" className="primary" onClick={() => void saveEdit()} disabled={busy}>
+              {busy ? 'Saving…' : 'Save changes'}
+            </button>
+          ) : last ? (
             <button type="button" className="primary" onClick={() => void add()} disabled={busy}>
               {busy ? 'Adding…' : `Add ${name.trim() || 'them'}`}
             </button>
@@ -373,7 +471,8 @@ export function AddStaff({
         className="step-form"
         onSubmit={(e) => {
           e.preventDefault();
-          if (last) void add();
+          if (editing) void saveEdit();
+          else if (last) void add();
           else next();
         }}
       >
@@ -472,7 +571,55 @@ export function AddStaff({
           </>
         )}
 
-        {stepName === 'Hours' && (
+        {stepName === 'Hours' && editing && (
+          <>
+            {/* Shown, not re-asked: someone can have several weekly patterns and
+                days off, which the Hours panel already edits in full. */}
+            <div className="setting setting-stack step-field">
+              <span className="step-label">Their week</span>
+              {rules === null ? (
+                <p className="tiny muted">Loading…</p>
+              ) : rules.length === 0 ? (
+                <p className="not-bookable">No hours yet, so customers cannot book them.</p>
+              ) : (
+                <ul className="added-summary">
+                  {rules.map((r) => (
+                    <li key={r.id}>
+                      {daysText(/BYDAY=([A-Z,]+)/.exec(r.rrule)?.[1]?.split(',') ?? [])},{' '}
+                      {clock(hhmm(r.startMinute))} to {clock(hhmm(r.endMinute))}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {onOpenHours && (
+                <p>
+                  <button type="button" disabled={busy} onClick={() => void saveEdit('hours')}>
+                    Save and open Hours
+                  </button>
+                </p>
+              )}
+              <p className="tiny muted">Days off, breaks and other patterns are in Hours too.</p>
+            </div>
+            <div className="setting setting-stack step-field">
+              <label htmlFor="stTzEdit">Timezone</label>
+              <select id="stTzEdit" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                {timezone && !TIMEZONES.includes(timezone) && (
+                  <option value={timezone}>{timezone.replace('_', ' ')}</option>
+                )}
+                {TIMEZONES.map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz.replace('_', ' ')}
+                  </option>
+                ))}
+              </select>
+              <p className="tiny muted">
+                Their hours are read in this timezone. Changing it keeps the same hours on the clock.
+              </p>
+            </div>
+          </>
+        )}
+
+        {stepName === 'Hours' && !editing && (
           <>
             <div className="setting setting-stack step-field" role="radiogroup" aria-label="Working hours">
               <label className="check">
@@ -628,7 +775,20 @@ export function AddStaff({
               )}
               <dt>Hours</dt>
               <dd>
-                {setHours ? (
+                {editing ? (
+                  rules && rules.length > 0 ? (
+                    rules
+                      .map(
+                        (r) =>
+                          `${daysText(/BYDAY=([A-Z,]+)/.exec(r.rrule)?.[1]?.split(',') ?? [])}, ${clock(
+                            hhmm(r.startMinute),
+                          )} to ${clock(hhmm(r.endMinute))}`,
+                      )
+                      .join('; ')
+                  ) : (
+                    <span className="not-bookable">None yet: customers cannot book them</span>
+                  )
+                ) : setHours ? (
                   `${daysText(days)}, ${clock(start)} to ${clock(end)}`
                 ) : (
                   <span className="not-bookable">None yet: customers cannot book them</span>
@@ -638,14 +798,17 @@ export function AddStaff({
               <dd>{isPublic ? 'Shown' : 'Not shown'}</dd>
             </dl>
 
-            <label className="check">
-              <input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} />
-              Send them a login invite, so they can see their own schedule
-            </label>
-
-            {serverError && <div className="err">{serverError}</div>}
+            {!editing && (
+              <label className="check">
+                <input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} />
+                Send them a login invite, so they can see their own schedule
+              </label>
+            )}
           </>
         )}
+
+        {/* On every step: editing saves from any of them. */}
+        {serverError && <div className="err">{serverError}</div>}
       </form>
     </Modal>
   );

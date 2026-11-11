@@ -161,3 +161,61 @@ describe('nothing is half-made', () => {
     await nothingSaved();
   });
 });
+
+/* Phase 2: editing in the same steps saves what they teach and where they
+   work with the edit itself. */
+describe('editing someone with what they teach and where they work', () => {
+  const edit = (staffId: string, body: Record<string, unknown>) =>
+    request(app).patch(`${studio.base}/staff/${staffId}`).set(studio.headers).send(body);
+
+  const location = () =>
+    request(app)
+      .post(`${studio.base}/locations`)
+      .set(studio.headers)
+      .send({ name: 'Back room', locationType: 'FIXED', address: '1 Kiln Street' });
+
+  it('replaces both with the edit, and leaves them alone when omitted', async () => {
+    const created = await add({ ...person, serviceTypeIds: [serviceId] });
+    const staffId = created.body.staff.id;
+    const room = await location();
+    expect(room.status).toBe(201);
+    const roomId = room.body.location.id;
+
+    const res = await edit(staffId, {
+      name: 'Rowan P.',
+      serviceTypeIds: [],
+      locationIds: [roomId],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.staff.name).toBe('Rowan P.');
+    expect(await prisma.staffService.count({ where: { staffId } })).toBe(0);
+    const at = await prisma.staffLocation.findMany({ where: { staffId } });
+    expect(at.map((l) => l.locationId)).toEqual([roomId]);
+
+    // A plain edit changes neither.
+    await edit(staffId, { role: 'Glaze lead' });
+    const after = await prisma.staffLocation.findMany({ where: { staffId } });
+    expect(after.map((l) => l.locationId)).toEqual([roomId]);
+  });
+
+  it("refuses another studio's activity and changes nothing", async () => {
+    const created = await add({ ...person, serviceTypeIds: [serviceId] });
+    const staffId = created.body.staff.id;
+    const other = await signUpStudio(app);
+    const theirs = await request(app)
+      .post(`${other.base}/services`)
+      .set(other.headers)
+      .send({ name: 'Theirs', bookingMode: 'EVENT', durationMinutes: 60, capacityMax: 4, priceCents: 1000 });
+
+    const res = await edit(staffId, {
+      name: 'Changed',
+      serviceTypeIds: [theirs.body.service.id],
+    });
+
+    expect(res.status).toBe(400);
+    const still = await prisma.staff.findUniqueOrThrow({ where: { id: staffId } });
+    expect(still.name).toBe(person.name);
+    const teaches = await prisma.staffService.findMany({ where: { staffId } });
+    expect(teaches.map((t) => t.serviceTypeId)).toEqual([serviceId]);
+  });
+});

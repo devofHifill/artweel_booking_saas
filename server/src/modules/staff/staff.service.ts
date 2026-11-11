@@ -368,6 +368,35 @@ export async function updateStaff(
   const existing = await prisma.staff.findFirst({ where: { id, organizationId } });
   if (!existing) throw AppError.notFound('Staff member not found.');
 
+  /* Editing in steps (docs/STAFF-STEPS-PLAN.md, Phase 2): what they teach
+     and where they work may come with the edit and are saved in the same
+     transaction, both checked first so a refusal changes nothing. */
+  const {
+    serviceTypeIds,
+    locationIds,
+    ...fields
+  } = input as { serviceTypeIds?: string[]; locationIds?: string[] } & Record<string, unknown>;
+  input = fields;
+
+  const teaches = serviceTypeIds ? [...new Set(serviceTypeIds)] : null;
+  if (teaches && teaches.length > 0) {
+    const owned = await prisma.serviceType.count({
+      where: { id: { in: teaches }, organizationId },
+    });
+    if (owned !== teaches.length) {
+      throw AppError.badRequest('One or more activities were not found.');
+    }
+  }
+  const worksAt = locationIds ? [...new Set(locationIds)] : null;
+  if (worksAt && worksAt.length > 0) {
+    const owned = await prisma.location.count({
+      where: { id: { in: worksAt }, organizationId },
+    });
+    if (owned !== worksAt.length) {
+      throw AppError.badRequest('One or more locations were not found.');
+    }
+  }
+
   if (input.photoKey) await assertOwnImage(organizationId, String(input.photoKey));
   assertAltText(
     input.photoKey === undefined ? existing.photoKey : input.photoKey,
@@ -438,18 +467,36 @@ export async function updateStaff(
    * Only rules still in the OLD zone follow. A rule deliberately set to some
    * other zone — mobile work over a state line — says so and is kept.
    */
-  let staff;
-  if (typeof input.timezone === 'string' && input.timezone !== existing.timezone) {
-    [staff] = await prisma.$transaction([
-      prisma.staff.update({ where: { id }, data }),
-      prisma.availabilityRule.updateMany({
+  const staff = await prisma.$transaction(async (tx) => {
+    const updated = await tx.staff.update({ where: { id }, data });
+
+    if (typeof input.timezone === 'string' && input.timezone !== existing.timezone) {
+      await tx.availabilityRule.updateMany({
         where: { staffId: id, timezone: existing.timezone },
         data: { timezone: input.timezone },
-      }),
-    ]);
-  } else {
-    staff = await prisma.staff.update({ where: { id }, data });
-  }
+      });
+    }
+
+    if (teaches) {
+      await tx.staffService.deleteMany({ where: { staffId: id } });
+      if (teaches.length > 0) {
+        await tx.staffService.createMany({
+          data: teaches.map((serviceTypeId) => ({ staffId: id, serviceTypeId })),
+        });
+      }
+    }
+
+    if (worksAt) {
+      await tx.staffLocation.deleteMany({ where: { staffId: id } });
+      if (worksAt.length > 0) {
+        await tx.staffLocation.createMany({
+          data: worksAt.map((locationId) => ({ staffId: id, locationId })),
+        });
+      }
+    }
+
+    return updated;
+  });
 
   // A replaced or removed portrait's files go once nothing points at them.
   if (existing.photoKey && existing.photoKey !== staff.photoKey) {

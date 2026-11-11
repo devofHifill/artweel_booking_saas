@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError, api, mediaUrl } from '../lib/api';
-import { ImagePicker } from '../components/ImagePicker';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import {
   DataTable,
@@ -15,7 +14,6 @@ import { EmptyState, LoadingRegion, SkeletonTable } from '../components/states';
 import { WorkingHours } from '../components/working-hours';
 import { Icon } from '../components/Icon';
 import { StaffSchedule } from '../components/StaffSchedule';
-import { TIMEZONES } from '../components/settings-sections';
 import { AddStaff } from '../components/AddStaff';
 
 /**
@@ -99,7 +97,6 @@ function initials(name: string): string {
 }
 
 type ServiceOption = { id: string; name: string };
-type LocationOption = { id: string; name: string };
 
 /** The four figures above the list. See `getRotaSummary` on the server. */
 type Rota = {
@@ -109,23 +106,6 @@ type Rota = {
   unassignedThisWeek: number;
 };
 
-const BLANK = {
-  name: '',
-  email: '',
-  phone: '',
-  role: '',
-  bio: '',
-  photoKey: null as string | null,
-  photoAlt: '',
-  color: '#a6522c',
-  isPublic: true,
-  maxBookingsPerDay: 0,
-  /** Empty means the studio's own zone, which the server fills in. */
-  timezone: '',
-  /** Null means "every location", the server's default for somebody new. */
-  locationIds: null as string[] | null,
-};
-
 export default function Staff() {
   const base = useOrgBase();
   const org = useActiveOrg();
@@ -133,7 +113,6 @@ export default function Staff() {
 
   const [staff, setStaff] = useState<StaffRow[] | null>(null);
   const [services, setServices] = useState<ServiceOption[]>([]);
-  const [locations, setLocations] = useState<LocationOption[]>([]);
   /*
     Everyone is fetched and the filtering happens here, because the statuses
     the filter offers are DERIVED on the server and there is nothing to query
@@ -148,8 +127,8 @@ export default function Staff() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState({ ...BLANK });
+  /** Whose details are open in the steps dialog for Edit, if anyone's. */
+  const [editing, setEditing] = useState<StaffRow | null>(null);
 
   /** Whose hours are open, if anyone's. Its own panel, not part of the edit form. */
   const [hoursFor, setHoursFor] = useState<{ id: string; name: string } | null>(
@@ -203,97 +182,20 @@ export default function Staff() {
         // The list still works; only the "teaches" picker is unavailable.
       });
 
-    api
-      .get<{ locations: LocationOption[] }>(`${base}/locations`)
-      .then((res) => setLocations(res.locations))
-      .catch(() => {
-        // The form still saves; somebody new is placed at every location.
-      });
   }, [base]);
 
-  /* Adding someone is the steps dialog (AddStaff); this form is for Edit. */
+  /* Adding and editing someone both use the steps dialog (AddStaff). */
   const [adding, setAdding] = useState(false);
   function startCreate() {
     setEditing(null);
     setAdding(true);
   }
 
+  /* Edit opens the same steps as Add staff, every one reachable at once
+     (docs/STAFF-STEPS-PLAN.md, Phase 2). */
   function startEdit(row: StaffRow) {
-    setEditing(row.id);
-    setForm({
-      name: row.name,
-      email: row.email,
-      phone: row.phone ?? '',
-      role: row.role ?? '',
-      bio: row.bio ?? '',
-      photoKey: row.photoKey ?? null,
-      photoAlt: row.photoAlt ?? '',
-      color: row.color,
-      isPublic: row.isPublic,
-      maxBookingsPerDay: row.maxBookingsPerDay,
-      timezone: row.timezone,
-      locationIds: row.staffLocations.map((l) => l.location.id),
-    });
-  }
-
-  function toggleLocation(id: string) {
-    const current = form.locationIds ?? locations.map((l) => l.id);
-    setForm({
-      ...form,
-      locationIds: current.includes(id)
-        ? current.filter((l) => l !== id)
-        : [...current, id],
-    });
-  }
-
-  async function save(event: React.FormEvent) {
-    event.preventDefault();
-    setError(null);
-    if (form.photoKey && !form.photoAlt.trim()) {
-      setError('Describe the photo before saving — it is read aloud to people who cannot see it.');
-      return;
-    }
-    setBusy(true);
-
-    const body = {
-      name: form.name.trim(),
-      email: form.email.trim(),
-      // Empty means "not recorded", which is null — not an empty string that
-      // renders as a blank phone number on the public page.
-      phone: form.phone.trim() || null,
-      role: form.role.trim() || null,
-      bio: form.bio.trim() || null,
-      photoKey: form.photoKey,
-      photoAlt: form.photoKey ? form.photoAlt.trim() : null,
-      color: form.color,
-      isPublic: form.isPublic,
-      maxBookingsPerDay: Number(form.maxBookingsPerDay) || 0,
-      // Omitted rather than empty, so a new person gets the studio's zone.
-      ...(form.timezone ? { timezone: form.timezone } : {}),
-    };
-
-    try {
-      if (editing === 'new') {
-        await api.post(`${base}/staff`, {
-          ...body,
-          ...(form.locationIds ? { locationIds: form.locationIds } : {}),
-        });
-      } else {
-        await api.patch(`${base}/staff/${editing}`, body);
-        if (form.locationIds) {
-          await api.put(`${base}/staff/${editing}/locations`, {
-            locationIds: form.locationIds,
-          });
-        }
-      }
-
-      setEditing(null);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save.');
-    } finally {
-      setBusy(false);
-    }
+    setAdding(false);
+    setEditing(row);
   }
 
   async function setActive(row: StaffRow, isActive: boolean) {
@@ -401,13 +303,9 @@ export default function Staff() {
             {isAdmin && (
               <button
                 className="primary"
-                onClick={() => (editing ? setEditing(null) : startCreate())}
+                onClick={startCreate}
               >
-                {editing ? 'Close' : (
-                  <>
-                    <Icon name="plus" /> Add staff
-                  </>
-                )}
+                <Icon name="plus" /> Add staff
               </button>
             )}
           </>
@@ -489,180 +387,14 @@ export default function Staff() {
       )}
 
       {editing && isAdmin && (
-        <form className="card schedule" onSubmit={(e) => void save(e)}>
-          <h2>{editing === 'new' ? 'Add someone' : 'Edit'}</h2>
-
-          <div className="fields">
-            <label>
-              Name
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                required
-                maxLength={120}
-              />
-            </label>
-
-            <label>
-              Email
-              <input
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                required
-              />
-            </label>
-
-            <label>
-              Phone
-              <input
-                value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                placeholder="Optional"
-              />
-            </label>
-
-            <label>
-              Role
-              <input
-                value={form.role}
-                maxLength={80}
-                onChange={(e) => setForm({ ...form, role: e.target.value })}
-                placeholder="Wheel instructor"
-              />
-              {/* Distinct from the public bio, which is prose. This is the
-                  line under a name on a card. */}
-              <span className="tiny muted">
-                Two or three words. Shown on their card, not on your booking
-                page.
-              </span>
-            </label>
-
-            {/* The server always accepted a bio; no screen set it until the
-                Add staff steps. Editable here so it can be changed later. */}
-            <label className="field-wide">
-              About them
-              <textarea
-                rows={3}
-                maxLength={4000}
-                value={form.bio}
-                onChange={(e) => setForm({ ...form, bio: e.target.value })}
-                placeholder="A line or two customers read before they book."
-              />
-            </label>
-
-            <label>
-              Calendar colour
-              <input
-                type="color"
-                value={form.color}
-                onChange={(e) => setForm({ ...form, color: e.target.value })}
-              />
-            </label>
-
-            <label>
-              Max bookings a day
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={form.maxBookingsPerDay}
-                onChange={(e) =>
-                  setForm({ ...form, maxBookingsPerDay: Number(e.target.value) })
-                }
-              />
-              <span className="sub">0 means no limit.</span>
-            </label>
-
-            <label>
-              Timezone
-              <select
-                value={form.timezone}
-                onChange={(e) => setForm({ ...form, timezone: e.target.value })}
-              >
-                {editing === 'new' && <option value="">Same as the studio</option>}
-                {form.timezone && !TIMEZONES.includes(form.timezone) && (
-                  <option value={form.timezone}>
-                    {form.timezone.replace('_', ' ')}
-                  </option>
-                )}
-                {TIMEZONES.map((tz) => (
-                  <option key={tz} value={tz}>
-                    {tz.replace('_', ' ')}
-                  </option>
-                ))}
-              </select>
-              {/* Not cosmetic: their working hours are read in this zone. */}
-              <span className="sub">
-                Their working hours are in this timezone. Changing it keeps the
-                same hours on the clock.
-              </span>
-            </label>
-
-            {/*
-              Where they work. One to one bookings only offer people linked to
-              the location the customer picked, so somebody linked to nowhere is
-              silently unbookable for 1:1 — which is what everybody added here
-              used to be, because this field did not exist.
-            */}
-            {locations.length > 0 && (
-              <div className="field-group" role="group" aria-labelledby="staff-works-at">
-                <span id="staff-works-at">Works at</span>
-                <span className="chips">
-                  {locations.map((location) => {
-                    const on = (
-                      form.locationIds ?? locations.map((l) => l.id)
-                    ).includes(location.id);
-                    return (
-                      <button
-                        type="button"
-                        key={location.id}
-                        className={`chip ${on ? 'on' : ''}`.trim()}
-                        aria-pressed={on}
-                        onClick={() => toggleLocation(location.id)}
-                      >
-                        {location.name}
-                      </button>
-                    );
-                  })}
-                </span>
-                {form.locationIds?.length === 0 && (
-                  <span className="not-bookable">
-                    Not offered for One to one bookings anywhere
-                  </span>
-                )}
-              </div>
-            )}
-
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={form.isPublic}
-                onChange={(e) => setForm({ ...form, isPublic: e.target.checked })}
-              />
-              Show on the booking page
-            </label>
-          </div>
-
-          <ImagePicker
-            base={base}
-            id="staffPhoto"
-            label="Photo"
-            shape="square"
-            value={{ key: form.photoKey, alt: form.photoAlt }}
-            onChange={(v) => setForm({ ...form, photoKey: v.key, photoAlt: v.alt })}
-            hint="Shown on your booking page and team section. A head-and-shoulders photo works best."
-          />
-
-          <div className="toolbar">
-            <button className="primary" disabled={busy}>
-              {editing === 'new' ? 'Add' : 'Save'}
-            </button>
-            <button type="button" className="link" onClick={() => setEditing(null)}>
-              Cancel
-            </button>
-          </div>
-        </form>
+        <AddStaff
+          key={editing.id}
+          base={base}
+          existing={editing}
+          onClose={() => setEditing(null)}
+          onAdded={() => void load()}
+          onOpenHours={(who) => setHoursFor(who)}
+        />
       )}
 
       {!staff && !error && (
