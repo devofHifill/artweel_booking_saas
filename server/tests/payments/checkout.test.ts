@@ -444,6 +444,49 @@ describe('the payment webhook', () => {
   });
 });
 
+/* FB-15: the phone typed on a paid booking stopped at the route. */
+describe('the customer phone on a paid booking', () => {
+  async function payWithPhone(phone?: string) {
+    await request(app)
+      .post(`/public/${slug}/checkout`)
+      .send({
+        serviceTypeId: serviceId,
+        sessionId,
+        seats: 1,
+        customer: { name: 'Ada Potter', email: 'ada@student.test', ...(phone ? { phone } : {}) },
+      });
+    const payment = await prisma.payment.findFirstOrThrow({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+    });
+    await deliverWebhook(provider.payCheckout(payment.providerCheckoutSessionId!));
+    return prisma.customer.findFirstOrThrow({
+      where: { organizationId: studio.organizationId, email: 'ada@student.test' },
+    });
+  }
+
+  it('keeps the phone on the customer the webhook creates', async () => {
+    await enablePayments();
+    const customer = await payWithPhone('+1 555 010 2200');
+    expect(customer.phone).toBe('+1 555 010 2200');
+  });
+
+  it('updates a returning customer with a new phone, and keeps it when none is given', async () => {
+    await enablePayments();
+    await prisma.customer.create({
+      data: {
+        organizationId: studio.organizationId,
+        email: 'ada@student.test',
+        name: 'Ada Potter',
+        phone: '+1 555 000 0000',
+      },
+    });
+
+    expect((await payWithPhone()).phone).toBe('+1 555 000 0000');
+    expect((await payWithPhone('+1 555 010 2200')).phone).toBe('+1 555 010 2200');
+  });
+});
+
 describe('refunds', () => {
   async function paidBooking(seats = 2) {
     await enablePayments();

@@ -193,6 +193,12 @@ export type StartCheckoutInput = {
   courseSeriesId?: string;
   customerEmail: string;
   customerName: string;
+  /**
+   * Carried through Stripe's metadata to the webhook, which creates the
+   * customer. It used to stop at the route, so a paid booking never kept the
+   * phone the customer typed (FB-15).
+   */
+  customerPhone?: string;
   seats: number;
   /** How many of `seats` are children, priced at the service's child rate. */
   children?: number;
@@ -344,6 +350,9 @@ export async function startCheckout(input: StartCheckoutInput) {
         ...(series ? { courseSeriesId: series.id } : {}),
         customerEmail: input.customerEmail,
         customerName: input.customerName,
+        ...(input.customerPhone?.trim()
+          ? { customerPhone: input.customerPhone.trim() }
+          : {}),
         seats: String(input.seats),
         children: String(price.children),
         totalCents: String(price.totalCents),
@@ -663,6 +672,7 @@ async function onCheckoutCompleted(event: WebhookEvent) {
   const customer = await upsertCustomer(organizationId, {
     email: metadata.customerEmail ?? '',
     name: metadata.customerName ?? 'Customer',
+    phone: metadata.customerPhone || null,
   });
 
   const totalCents = Number(metadata.totalCents ?? data.amount_total ?? 0);
@@ -906,7 +916,7 @@ async function onInvoicePaymentSucceeded(event: WebhookEvent) {
 
 async function upsertCustomer(
   organizationId: string,
-  input: { email: string; name: string },
+  input: { email: string; name: string; phone?: string | null },
 ) {
   const email = input.email.trim().toLowerCase();
 
@@ -917,10 +927,20 @@ async function upsertCustomer(
      after the customer has paid: refusing here would keep their money and make
      no booking. Blocked customers are stopped before checkout starts, in
      `startCheckout` above. */
-  if (existing) return existing;
+  if (existing) {
+    /* A phone given at checkout replaces the one on file, as a free booking
+       does (`upsertCustomer` in public.service). No phone keeps the old one. */
+    if (input.phone && input.phone !== existing.phone) {
+      return prisma.customer.update({
+        where: { id: existing.id },
+        data: { phone: input.phone },
+      });
+    }
+    return existing;
+  }
 
   return prisma.customer.create({
-    data: { organizationId, email, name: input.name },
+    data: { organizationId, email, name: input.name, phone: input.phone ?? null },
   });
 }
 

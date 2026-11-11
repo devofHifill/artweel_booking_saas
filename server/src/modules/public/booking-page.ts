@@ -130,6 +130,8 @@ type PageData = {
     contactPhone?: string | null;
     seoTitle?: string | null;
     seoDescription?: string | null;
+    /** Settings › Booking rules. The page labels the phone field from it. */
+    requirePhoneAtCheckout?: boolean;
   };
   acceptingBookings: boolean;
   /** Whether the studio has finished Stripe onboarding. Never the account id. */
@@ -775,6 +777,9 @@ window.__BOOKING__ = ${jsonForScript({
     studioName: organization.name,
     contactEmail: organization.contactEmail ?? null,
     contactPhone: organization.contactPhone ?? null,
+    /* The server refuses a booking without a phone when this is on; the page
+       says so up front instead of the field claiming to be optional (FB-15). */
+    requirePhone: organization.requirePhoneAtCheckout === true,
     currency: organization.currency,
     timezone: organization.timezone,
     acceptsPayment: data.acceptsPayment,

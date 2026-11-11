@@ -121,6 +121,35 @@ describe('require a phone number at checkout', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('PHONE_REQUIRED');
   });
+
+  /* FB-15: the page said "Mobile (optional)" whatever the studio's rule. */
+  it('tells the booking page whether a phone is required', async () => {
+    const off = await request(app).get(`/public/${slug}/book`);
+    expect(off.text).toContain('"requirePhone":false');
+
+    await setOrg({ requirePhoneAtCheckout: true });
+    const on = await request(app).get(`/public/${slug}/book`);
+    expect(on.text).toContain('"requirePhone":true');
+  });
+
+  /* FB-15: the rule ran on free bookings only; a paid one skipped it. */
+  it('refuses a paid checkout with no phone, before anything is held', async () => {
+    await connectStripe();
+    await setOrg({ requirePhoneAtCheckout: true });
+
+    const res = await request(app)
+      .post(`/public/${slug}/checkout`)
+      .send({
+        serviceTypeId: serviceId,
+        sessionId,
+        seats: 1,
+        customer: { name: 'Ada Potter', email: 'ada@example.com' },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('PHONE_REQUIRED');
+    expect(await prisma.bookingHold.count()).toBe(0);
+  });
 });
 
 describe('child places', () => {

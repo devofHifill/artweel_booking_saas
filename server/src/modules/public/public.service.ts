@@ -543,6 +543,26 @@ export type PublicBookingInput = {
  * contract changes when that lands; it simply stops being the entry point for
  * services that require payment.
  */
+/**
+ * The studio's "require a phone number at checkout" rule (FB-15).
+ *
+ * One check for every way a customer can book from the public page: a free
+ * class, a paid class, a free Class (course) and a paid Class. It used to run
+ * on the first only, so a studio that asked for a phone got bookings without
+ * one through the other three.
+ */
+export function assertPhoneIfRequired(
+  organization: { requirePhoneAtCheckout: boolean },
+  phone: string | null | undefined,
+) {
+  if (organization.requirePhoneAtCheckout && !phone?.trim()) {
+    throw AppError.badRequest(
+      'This studio needs a phone number to take your booking.',
+      'PHONE_REQUIRED',
+    );
+  }
+}
+
 export async function createPublicBooking(input: PublicBookingInput) {
   const organization = await getStudio(input.slug);
 
@@ -563,12 +583,7 @@ export async function createPublicBooking(input: PublicBookingInput) {
     asked for, leaves a customer holding a place that is not what they thought
     they bought.
   */
-  if (organization.requirePhoneAtCheckout && !input.customer.phone?.trim()) {
-    throw AppError.badRequest(
-      'This studio needs a phone number to take your booking.',
-      'PHONE_REQUIRED',
-    );
-  }
+  assertPhoneIfRequired(organization, input.customer.phone);
 
   const service = await prisma.serviceType.findFirst({
     where: {
@@ -1230,6 +1245,8 @@ export async function enrollPublic(input: PublicEnrollInput) {
       'STUDIO_INACTIVE',
     );
   }
+
+  assertPhoneIfRequired(organization, input.customer.phone);
 
   const series = await prisma.courseSeries.findFirst({
     where: {
