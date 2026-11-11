@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { formatPhone } from '../lib/phone';
 import { Link, useParams } from 'react-router-dom';
 import { api, dateIn, expiryIn, money, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
@@ -337,7 +338,7 @@ export default function CustomerDetail() {
         lede={
           <>
             {data.email}
-            {data.phone && ` · ${data.phone}`}
+            {data.phone && ` · ${formatPhone(data.phone)}`}
           </>
         }
       />

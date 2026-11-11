@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { formatPhone } from '../lib/phone';
 import { Link } from 'react-router-dom';
 import { ApiError, api, mediaUrl } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
@@ -461,7 +462,7 @@ export default function Staff() {
                 </td>
                 <td>
                   {row.email}
-                  {row.phone && <div className="sub tiny">{row.phone}</div>}
+                  {row.phone && <div className="sub tiny">{formatPhone(row.phone)}</div>}
                 </td>
                 <td>
                   <Teaches

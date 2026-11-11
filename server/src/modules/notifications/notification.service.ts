@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import { toE164 } from '../../lib/phone';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config';
@@ -253,7 +254,7 @@ export async function schedulePieceReadyNotification(pieceId: string) {
         'SKIPPED',
       );
     } else {
-      await write('SMS', piece.customer.phone!, {
+      await write('SMS', toE164(piece.customer.phone)!, {
         body: render(smsTemplate.body, values),
       });
     }
@@ -371,7 +372,7 @@ export async function scheduleWaitlistOffer(entryId: string) {
     if (skip) {
       await write('SMS', entry.customer.phone ?? '', { skipReason: skip }, 'SKIPPED');
     } else {
-      await write('SMS', entry.customer.phone!, {
+      await write('SMS', toE164(entry.customer.phone)!, {
         body: render(smsTemplate.body, values),
       });
     }
@@ -558,7 +559,7 @@ async function enqueue(input: {
         booking,
         channel: 'SMS',
         templateKey,
-        destination: booking.customer.phone!,
+        destination: toE164(booking.customer.phone)!,
         scheduledFor: input.immediate
           ? input.scheduledFor
           : applyQuietHours(input.scheduledFor, booking.timezone),
@@ -583,7 +584,10 @@ function smsSkipReason(customer: {
   smsOptedOutAt: Date | null;
 }): SkipReason | null {
   if (customer.smsOptedOutAt) return 'OPTED_OUT';
-  if (!customer.phone) return 'NO_DESTINATION';
+  /* A number Twilio cannot take (no country code and not US / Canada) is
+     no destination at all: skipped and logged, rather than a send that fails
+     (FB-17). */
+  if (!toE164(customer.phone)) return 'NO_DESTINATION';
   if (!customer.smsConsentAt) return 'NO_CONSENT';
   return null;
 }

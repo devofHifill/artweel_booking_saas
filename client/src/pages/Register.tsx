@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatPhone } from '../lib/phone';
 import { api, money, timeIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
 import { PageHead } from '../components/layout';
@@ -452,7 +453,7 @@ function SessionSheet({
             {/* The number to ring when somebody is not where they should be.
                 Sent to the sheet rather than looked up on another screen,
                 because the person reading this is holding paper. */}
-            {session.staff?.phone && ` · ${session.staff.phone}`}
+            {session.staff?.phone && ` · ${formatPhone(session.staff.phone)}`}
             {session.location ? ` · ${session.location.name}` : ''}
           </p>
 
@@ -528,7 +529,7 @@ function SessionSheet({
                 </td>
 
                 <td className="tiny muted contact-col">
-                  {entry.customer.phone ?? entry.customer.email}
+                  {entry.customer.phone ? formatPhone(entry.customer.phone) : entry.customer.email}
                 </td>
 
                 <td className="num">{entry.seats}</td>

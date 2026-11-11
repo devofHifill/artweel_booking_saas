@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { formatMoney } from '../../lib/money';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config';
@@ -337,7 +338,7 @@ export async function startCheckout(input: StartCheckoutInput) {
       productName: series ? `${series.name} — ${series.sessionCount} weeks` : service.name,
       productDescription:
         price.kind === 'DEPOSIT'
-          ? `Deposit — balance of ${(price.balanceCents / 100).toFixed(2)} due at the studio`
+          ? `Deposit — balance of ${formatMoney(price.balanceCents, org.currency)} due at the studio`
           : undefined,
       customerEmail: input.customerEmail,
       successUrl: input.successUrl,

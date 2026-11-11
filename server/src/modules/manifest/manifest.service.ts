@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import { formatMoney } from '../../lib/money';
 import { Prisma, type BookingStatus, type PaymentStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
@@ -468,12 +469,7 @@ function renderForStaff(
   const time = (at: Date) =>
     DateTime.fromJSDate(at, { zone }).toFormat('h:mm a');
 
-  const money = (cents: number) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: manifest.studio.currency,
-      minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-    }).format(cents / 100);
+  const money = (cents: number) => formatMoney(cents, manifest.studio.currency);
 
   const blocks = mine.map((row) => {
     const header = [

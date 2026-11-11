@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { formatPhone } from '../lib/phone';
 import { Link } from 'react-router-dom';
 import { api, dateIn, money } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
@@ -325,7 +326,7 @@ export default function Customers() {
                   <td>
                     <div className="sub">{customer.email}</div>
                     {customer.phone && (
-                      <div className="sub">{customer.phone}</div>
+                      <div className="sub">{formatPhone(customer.phone)}</div>
                     )}
                   </td>
                   <td className="muted">{customer.country ?? '—'}</td>

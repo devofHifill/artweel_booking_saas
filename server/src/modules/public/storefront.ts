@@ -1,4 +1,6 @@
 import { imageUrls } from '../media/media.service';
+import { formatMoney } from '../../lib/money';
+import { formatPhone, telHref } from '../../lib/phone';
 import { brandCss, resolveBrand } from '../../lib/brand';
 import { escapeHtml } from './booking-page';
 import { freeCancellationHours, type Storefront } from './storefront.service';
@@ -66,14 +68,8 @@ function photoTag(
   return `<img class="${className}" src="${urls.small}" srcset="${urls.small} 400w, ${urls.large} 1200w" sizes="${sizes}" alt="${escapeHtml(alt ?? '')}"${eager ? '' : ' loading="lazy"'} decoding="async">`;
 }
 
-const money = (cents: number, currency: string) =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    /* Whole pounds and dollars read better on a card. A price with a real
-       fractional part still shows it. */
-    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-  }).format(cents / 100);
+/* Whole pounds and dollars read better on a card; see lib/money. */
+const money = formatMoney;
 
 function duration(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;
@@ -174,8 +170,8 @@ function header(store: Storefront, active: string): string {
       ${
         store.organization.contactPhone
           ? `<a class="sf-phone" href="tel:${escapeHtml(
-              store.organization.contactPhone.replace(/\s+/g, ''),
-            )}">${escapeHtml(store.organization.contactPhone)}</a>`
+              telHref(store.organization.contactPhone),
+            )}">${escapeHtml(formatPhone(store.organization.contactPhone))}</a>`
           : ''
       }
       <a class="sf-btn sf-btn-primary sf-btn-sm" href="${base}/book">${escapeHtml(
@@ -214,7 +210,7 @@ function footer(store: Storefront): string {
       <div>
         <h4>Get in touch</h4>
         ${org.contactEmail ? `<a href="mailto:${escapeHtml(org.contactEmail)}">${escapeHtml(org.contactEmail)}</a>` : ''}
-        ${org.contactPhone ? `<a href="tel:${escapeHtml(org.contactPhone.replace(/[^+\d]/g, ''))}">${escapeHtml(org.contactPhone)}</a>` : ''}
+        ${org.contactPhone ? `<a href="tel:${escapeHtml(telHref(org.contactPhone))}">${escapeHtml(formatPhone(org.contactPhone))}</a>` : ''}
       </div>
     </div>
     <div class="sf-foot-bottom">
@@ -735,8 +731,8 @@ export function renderContact(store: Storefront): string {
                org.contactPhone
                  ? `<li><span class="sf-muted">Phone</span>
                     <a href="tel:${escapeHtml(
-                      org.contactPhone.replace(/\s+/g, ''),
-                    )}">${escapeHtml(org.contactPhone)}</a></li>`
+                      telHref(org.contactPhone),
+                    )}">${escapeHtml(formatPhone(org.contactPhone))}</a></li>`
                  : ''
              }
            </ul>`

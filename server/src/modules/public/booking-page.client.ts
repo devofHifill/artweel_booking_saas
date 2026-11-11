@@ -478,7 +478,7 @@ export const clientScript = String.raw`
       ways.push('<a href="mailto:' + esc(DATA.contactEmail) + '">' + esc(DATA.contactEmail) + '</a>');
     }
     if (DATA.contactPhone) {
-      ways.push('<a href="tel:' + esc(DATA.contactPhone.replace(/[^+\d]/g, '')) + '">' +
+      ways.push('<a href="tel:' + esc(DATA.contactPhoneHref || DATA.contactPhone) + '">' +
         esc(DATA.contactPhone) + '</a>');
     }
     if (ways.length) {

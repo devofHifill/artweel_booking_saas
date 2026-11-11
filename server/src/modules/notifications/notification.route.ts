@@ -4,6 +4,7 @@ import { asyncHandler } from '../../lib/async-handler';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAdmin, requireMember } from '../../middleware/authenticate';
 import { AppError } from '../../lib/app-error';
+import { toE164 } from '../../lib/phone';
 import { prisma } from '../../lib/prisma';
 import { DEFAULT_TEMPLATES, buildValues, render } from './templates';
 import { listAutomations, setAutomation } from './notification.service';
@@ -488,7 +489,14 @@ notificationRouter.post(
         );
       }
 
-      destination = staff.phone;
+      const textable = toE164(staff.phone);
+      if (!textable) {
+        throw AppError.badRequest(
+          'The mobile number on your staff profile cannot receive texts. Add the country code, for example +1 555 010 2200.',
+          'NO_TEST_NUMBER',
+        );
+      }
+      destination = textable;
     }
 
     const values = buildValues({
