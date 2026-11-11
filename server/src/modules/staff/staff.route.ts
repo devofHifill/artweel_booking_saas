@@ -59,7 +59,15 @@ const createStaffSchema = z.object({
   maxBookingsPerDay: z.number().int().min(0).max(100).default(0),
 });
 
-const updateStaffSchema = createStaffSchema.omit({ locationIds: true }).partial();
+const updateStaffFieldsSchema = createStaffSchema.omit({ locationIds: true }).partial();
+
+/* Editing in steps sends what they teach and where they work with the edit,
+   saved together with it (docs/STAFF-STEPS-PLAN.md, Phase 2). Omitted means
+   unchanged, so a plain edit and the older routes still work. */
+const updateStaffSchema = updateStaffFieldsSchema.extend({
+  serviceTypeIds: z.array(z.string().uuid()).max(200).optional(),
+  locationIds: z.array(z.string().uuid()).max(200).optional(),
+});
 
 /**
  * Add staff in steps (docs/STAFF-STEPS-PLAN.md): what they teach and their

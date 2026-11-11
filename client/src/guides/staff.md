@@ -56,7 +56,9 @@ If your plan's instructor places are all taken, **Add staff** says so before you
 ### Step 3: Add
 Press **Add [name]**. The person, the activities they teach and their hours are saved together: if anything is refused, nothing is saved and the message says why. With hours set, they can be booked straight away.
 
-If you ticked the invite, it goes out next. If it doesn't send, they're still added; press **Try again**, or copy the invite link shown and send it yourself.
+If you ticked the invite, it goes out next.
+
+**Editing someone** opens the same steps, every one reachable from the names along the top, with **Save changes** on each. Their details, the activities they teach and where they work are saved together. The **Hours** step shows their week; **Save and open Hours** saves and opens the Hours panel, where patterns and days off are changed. If it doesn't send, they're still added; press **Try again**, or copy the invite link shown and send it yourself.
 
 ---
 
@@ -72,10 +74,10 @@ You can also choose who teaches an activity from the activity's side: the **Who 
 ### Step 5: Check where they work
 *Matters for **One to one** activities.*
 
-**One to one** activities only offer staff who work at the location the customer picks. New staff work at **every** location, so there's usually nothing to do. To change it, **Edit** them and turn the **Works at** chips on or off.
+**One to one** activities only offer staff who work at the location the customer picks. New staff work at **every** location, so there's usually nothing to do. To change it, **Edit** them, go to **What they teach**, and turn the **Works at** chips on or off.
 
 ### Step 6: Check their timezone
-New staff use the studio's timezone. Only change it (**Edit → Timezone**) for someone who works in a different one. Changing it later keeps their hours the same on the clock, e.g. 10:00–18:00 stays 10:00–18:00 in the new timezone.
+New staff use the studio's timezone. Only change it (**Edit → Hours → Timezone**) for someone who works in a different one. Changing it later keeps their hours the same on the clock, e.g. 10:00–18:00 stays 10:00–18:00 in the new timezone.
 
 ### Step 7: Set working hours
 *Already done if you set their week in the **Hours** step.* To add another pattern or change it, click **Hours** on their card. This opens **"When [name] works"**.
