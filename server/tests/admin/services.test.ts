@@ -336,3 +336,91 @@ describe('role gates', () => {
     expect(res.status).toBe(404);
   });
 });
+
+/* FB-13: categories existed on the server with no screen to make one. */
+describe('categories', () => {
+  const add = (name: string, s: Studio = studio) =>
+    request(app).post(`${s.base}/services/categories`).set(s.headers).send({ name });
+
+  it('creates, lists with how many activities use each, renames and deletes', async () => {
+    const kids = await add('  Kids  ');
+    expect(kids.status).toBe(201);
+    expect(kids.body.category.name).toBe('Kids');
+    expect(kids.body.category.activityCount).toBe(0);
+
+    await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send({ ...wheelClass, categoryId: kids.body.category.id });
+
+    const list = await request(app).get(`${studio.base}/services/categories`).set(studio.headers);
+    expect(list.body.categories).toMatchObject([{ name: 'Kids', activityCount: 1 }]);
+
+    const renamed = await request(app)
+      .patch(`${studio.base}/services/categories/${kids.body.category.id}`)
+      .set(studio.headers)
+      .send({ name: 'Family' });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.category).toMatchObject({ name: 'Family', activityCount: 1 });
+
+    const removed = await request(app)
+      .delete(`${studio.base}/services/categories/${kids.body.category.id}`)
+      .set(studio.headers);
+    expect(removed.status).toBe(204);
+
+    // The activity survives, uncategorised.
+    const services = await prisma.serviceType.findMany({
+      where: { organizationId: studio.organizationId },
+    });
+    expect(services).toHaveLength(1);
+    expect(services[0]!.categoryId).toBeNull();
+  });
+
+  it('refuses a name it already has, whatever the case', async () => {
+    await add('Kids');
+
+    const dup = await add('kids ');
+    expect(dup.status).toBe(409);
+
+    const other = await add('Wheel');
+    const rename = await request(app)
+      .patch(`${studio.base}/services/categories/${other.body.category.id}`)
+      .set(studio.headers)
+      .send({ name: 'KIDS' });
+    expect(rename.status).toBe(409);
+  });
+
+  it('refuses a blank name', async () => {
+    expect((await add('   ')).status).toBe(400);
+  });
+
+  it('keeps categories to owners and admins', async () => {
+    const instructor = await addMemberToStudio(app, studio.organizationId, 'INSTRUCTOR');
+    expect((await add('Kids', instructor)).status).toBe(403);
+
+    const kids = await add('Kids');
+    const rename = await request(app)
+      .patch(`${studio.base}/services/categories/${kids.body.category.id}`)
+      .set(instructor.headers)
+      .send({ name: 'Family' });
+    expect(rename.status).toBe(403);
+  });
+
+  it("cannot rename or delete another studio's category", async () => {
+    const kids = await add('Kids');
+    const other = await signUpStudio(app);
+
+    const rename = await request(app)
+      .patch(`${other.base}/services/categories/${kids.body.category.id}`)
+      .set(other.headers)
+      .send({ name: 'Mine now' });
+    expect(rename.status).toBe(404);
+
+    const del = await request(app)
+      .delete(`${other.base}/services/categories/${kids.body.category.id}`)
+      .set(other.headers);
+    expect(del.status).toBe(404);
+
+    expect(await prisma.serviceCategory.count()).toBe(1);
+  });
+});

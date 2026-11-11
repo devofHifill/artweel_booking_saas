@@ -7,6 +7,7 @@ import { AppError } from '../../lib/app-error';
 import * as service from './service.service';
 import {
   createCategorySchema,
+  renameCategorySchema,
   createServiceSchema,
   listServicesQuerySchema,
   updateServiceSchema,
@@ -42,6 +43,21 @@ serviceRouter.post(
   asyncHandler(async (req, res) => {
     res.status(201).json({
       category: await service.createCategory(req.tenant!.organizationId, req.body),
+    });
+  }),
+);
+
+serviceRouter.patch(
+  '/categories/:categoryId',
+  requireAdmin,
+  validateBody(renameCategorySchema),
+  asyncHandler(async (req, res) => {
+    res.json({
+      category: await service.renameCategory(
+        req.tenant!.organizationId,
+        id(req, 'categoryId'),
+        req.body,
+      ),
     });
   }),
 );

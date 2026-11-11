@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { bookingFormat } from '../lib/booking-format';
+import { CategoryManager } from '../components/CategoryPicker';
 import { Link } from 'react-router-dom';
 import { api, dateIn, mediaUrl, money, plusDays, timeIn, todayIn } from '../lib/api';
 import { useActiveOrg, useOrgBase } from '../lib/auth';
@@ -362,6 +363,8 @@ export default function Classes() {
    */
   const [creating, setCreating] = useState(false);
   const [resume, setResume] = useState<ResumableDraft | undefined>(undefined);
+  /** The category manager (FB-13). */
+  const [managingCategories, setManagingCategories] = useState(false);
   /** A published Class or Event open in the steps for Edit. */
   const [editingActivity, setEditingActivity] = useState<EditingActivity | undefined>(undefined);
   const [drafts, setDrafts] = useState<(ResumableDraft & { updatedAt: string })[]>([]);
@@ -815,6 +818,11 @@ export default function Classes() {
                 How this works
               </Link>
             )}
+            {isAdmin && (
+              <button type="button" onClick={() => setManagingCategories(true)}>
+                Categories
+              </button>
+            )}
             <SegRange
               label="How to show the catalogue"
               options={[
@@ -846,6 +854,14 @@ export default function Classes() {
         <div className="alert" role="status">
           {notice}
         </div>
+      )}
+
+      {managingCategories && (
+        <CategoryManager
+          base={base}
+          onClose={() => setManagingCategories(false)}
+          onChanged={() => void loadServices()}
+        />
       )}
 
       {isAdmin && drafts.length > 0 && (

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { FORMATS } from '../lib/booking-format';
+import { CategoryPicker } from './CategoryPicker';
 import { api, money, plusDays, todayIn } from '../lib/api';
 import {
   WEEKDAYS,
@@ -1030,22 +1031,18 @@ export function CreateActivity({
                     hint={
                       categories.length
                         ? 'Groups it on your booking page. Optional.'
-                        : 'None set up yet. They group activities on your booking page.'
+                        : 'None yet. Choose "+ New category…" to add one; they group activities on your booking page.'
                     }
                     htmlFor="actCategory"
                   >
-                    <select
+                    <CategoryPicker
+                      base={base}
                       id="actCategory"
                       value={answers.categoryId}
-                      onChange={(e) => set('categoryId', e.target.value)}
-                    >
-                      <option value="">Uncategorised</option>
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(categoryId) => set('categoryId', categoryId)}
+                      categories={categories}
+                      onCategoriesChange={setCategories}
+                    />
                   </Field>
                 </div>
               </>

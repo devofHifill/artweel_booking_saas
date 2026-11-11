@@ -2955,6 +2955,25 @@ td.strong { font-weight: 600; }
   display: flex; flex-direction: column; gap: var(--space-2);
 }
 .restore-confirm p { margin: 0; }
+
+/* Categories (FB-13): the inline "New category" row and the manager list. */
+.category-add {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.category-add input { flex: 1 1 180px; min-width: 0; }
+.category-list { list-style: none; margin: var(--space-3) 0 0; padding: 0; }
+.category-list li {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--space-2); padding: var(--space-2) 0; border-top: 1px solid var(--line);
+}
+.category-list li > form { flex: 1 1 100%; margin: 0; }
+.category-name { font-weight: 600; }
+.category-actions { display: inline-flex; gap: var(--space-3); align-items: center; }
+.category-confirm {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--space-2); width: 100%;
+}
 .template-edit code {
   background: var(--clay-lt);
   border-radius: 4px;
@@ -4757,6 +4776,8 @@ code.path {
 
 /* --- Photo picker (FB-11) ------------------------------------------------- */
 .danger-text { color: var(--danger); }
+/* `button.link` sets its own colour and outranks the class alone. */
+button.link.danger-text { color: var(--danger); }
 .image-picker-row { display: flex; gap: var(--space-4); align-items: flex-start; flex-wrap: wrap; }
 .image-picker-frame {
   flex: 0 0 auto;

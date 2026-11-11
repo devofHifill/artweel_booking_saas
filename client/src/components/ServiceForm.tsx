@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, mediaUrl, money } from '../lib/api';
 import { Modal } from './layout';
 import { ImagePicker, type ImageValue } from './ImagePicker';
+import { CategoryPicker } from './CategoryPicker';
 
 /**
  * Creating and editing what a studio offers.
@@ -620,21 +621,17 @@ export function ServiceForm({
         <div className="form-row">
           <div className="setting setting-stack">
             <label htmlFor="svcCategory">Category</label>
-            <select
+            <CategoryPicker
+              base={base}
               id="svcCategory"
               value={categoryId ?? ''}
-              onChange={(e) => setCategoryId(e.target.value)}
-            >
-              <option value="">Uncategorised</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onChange={setCategoryId}
+              categories={categories}
+              onCategoriesChange={setCategories}
+            />
             <p className="tiny muted">
               {categories.length === 0
-                ? 'None set up. They group classes on your booking page.'
+                ? 'None yet. Choose "+ New category…" to add one; they group classes on your booking page.'
                 : 'Groups classes on your booking page.'}
             </p>
           </div>

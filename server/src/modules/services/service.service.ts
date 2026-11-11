@@ -730,27 +730,75 @@ export async function assertReferencesBelong(
 
 // --- Categories -----------------------------------------------------------
 
+/**
+ * The studio's categories, each with how many activities use it (FB-13), so
+ * the manager can say what deleting one would touch.
+ */
 export async function listCategories(organizationId: string) {
-  return prisma.serviceCategory.findMany({
+  const rows = await prisma.serviceCategory.findMany({
     where: { organizationId },
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    include: { _count: { select: { serviceTypes: true } } },
   });
+  return rows.map(({ _count, ...category }) => ({
+    ...category,
+    activityCount: _count.serviceTypes,
+  }));
+}
+
+/**
+ * Refuses a name another category of this studio already has, ignoring case
+ * and surrounding spaces: "Kids" and "kids " side by side in a picker look
+ * like a bug, and the unique index alone would let them both in.
+ */
+async function assertCategoryNameFree(
+  organizationId: string,
+  name: string,
+  exceptId?: string,
+) {
+  const clash = await prisma.serviceCategory.findFirst({
+    where: {
+      organizationId,
+      name: { equals: name, mode: 'insensitive' },
+      ...(exceptId ? { NOT: { id: exceptId } } : {}),
+    },
+  });
+  if (clash) {
+    throw AppError.conflict('A category with that name already exists.');
+  }
 }
 
 export async function createCategory(
   organizationId: string,
   input: { name: string; sortOrder?: number },
 ) {
-  const clash = await prisma.serviceCategory.findFirst({
-    where: { organizationId, name: input.name },
-  });
-  if (clash) {
-    throw AppError.conflict('A category with that name already exists.');
-  }
+  const name = input.name.trim();
+  if (!name) throw AppError.badRequest('Give the category a name.');
+  await assertCategoryNameFree(organizationId, name);
 
-  return prisma.serviceCategory.create({
-    data: { ...input, organizationId },
+  const category = await prisma.serviceCategory.create({
+    data: { ...input, name, organizationId },
   });
+  return { ...category, activityCount: 0 };
+}
+
+/** Renames a category. Its activities stay in it under the new name. */
+export async function renameCategory(
+  organizationId: string,
+  id: string,
+  input: { name: string },
+) {
+  const category = await prisma.serviceCategory.findFirst({
+    where: { id, organizationId },
+  });
+  if (!category) throw AppError.notFound('Category not found.');
+
+  const name = input.name.trim();
+  if (!name) throw AppError.badRequest('Give the category a name.');
+  await assertCategoryNameFree(organizationId, name, id);
+
+  await prisma.serviceCategory.update({ where: { id }, data: { name } });
+  return (await listCategories(organizationId)).find((c) => c.id === id)!;
 }
 
 export async function deleteCategory(organizationId: string, id: string) {
