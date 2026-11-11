@@ -262,6 +262,40 @@ notificationRouter.put(
 );
 
 /**
+ * Restores the built-in wording for one message on one channel (FB-24).
+ *
+ * The studio's wording is an override row, so restoring is deleting it: with
+ * no row, the default is what goes out. Whether the message is switched on is
+ * a separate row (`notificationRule`) and is not touched. Idempotent, so a
+ * double click or a retry after a dropped response is harmless.
+ */
+notificationRouter.delete(
+  '/templates/:templateKey/:channel',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const templateKey = req.params.templateKey ?? '';
+    const parsed = channel.safeParse(req.params.channel);
+
+    if (!DEFAULT_TEMPLATES[templateKey] || !parsed.success) {
+      throw AppError.badRequest(
+        'Unknown template. Editing is limited to the messages the system sends.',
+        'UNKNOWN_TEMPLATE',
+      );
+    }
+
+    const { count } = await prisma.notificationTemplate.deleteMany({
+      where: {
+        organizationId: req.tenant!.organizationId,
+        templateKey,
+        channel: parsed.data,
+      },
+    });
+
+    res.json({ restored: count > 0 });
+  }),
+);
+
+/**
  * Renders a template against sample data.
  *
  * A studio editing their confirmation email should see what a customer will

@@ -531,6 +531,10 @@ function Templates() {
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testNote, setTestNote] = useState<string | null>(null);
+  /* Restore default (FB-24) asks once, inline, before the studio's own wording
+     is thrown away; there is no undo. Holds the key being confirmed. */
+  const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
+  const [restored, setRestored] = useState<string | null>(null);
 
   /* The editor's textarea, so a token lands where the cursor is rather than
      at the end of whatever has been typed. */
@@ -563,6 +567,8 @@ function Templates() {
     setForm({ subject: current.subject ?? '', body: current.body });
     setPreview(null);
     setTestNote(null);
+    setConfirmRestore(null);
+    setRestored(null);
 
     /*
       The preview is fetched on open rather than on demand, because it is also
@@ -655,9 +661,28 @@ function Templates() {
         isActive: true,
       });
       setEditing(null);
+      setRestored(null);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Drops the studio's wording so the built-in default goes out again. */
+  async function restoreDefault(t: Template) {
+    setBusy(true);
+    try {
+      await api.del(
+        `${base}/notifications/templates/${encodeURIComponent(t.templateKey)}/${t.channel}`,
+      );
+      setConfirmRestore(null);
+      setEditing(null);
+      setRestored(keyOf(t));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not restore the default.');
     } finally {
       setBusy(false);
     }
@@ -733,6 +758,12 @@ function Templates() {
                 </button>
               )}
             </header>
+
+            {!open && restored === keyOf(template) && (
+              <p className="sub tiny" role="status">
+                Restored. This message now uses the default wording.
+              </p>
+            )}
 
             {!open && (
               <pre className="template-body">{(override ?? template).body}</pre>
@@ -815,7 +846,45 @@ function Templates() {
                   >
                     {testing ? 'Sending…' : 'Send me a test'}
                   </button>
+                  {/* Only when there is wording of the studio's own to drop. */}
+                  {override && (
+                    <button
+                      type="button"
+                      className="link danger-text"
+                      disabled={busy}
+                      onClick={() => setConfirmRestore(keyOf(template))}
+                    >
+                      Restore default
+                    </button>
+                  )}
                 </div>
+
+                {override && confirmRestore === keyOf(template) && (
+                  <div className="restore-confirm" role="alertdialog" aria-label="Restore default">
+                    <p className="sub tiny">
+                      Replace your wording with the default? Your version is
+                      deleted and cannot be brought back. Whether this message
+                      is switched on stays as it is.
+                    </p>
+                    <div className="toolbar">
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={busy}
+                        onClick={() => void restoreDefault(template)}
+                      >
+                        {busy ? 'Restoring…' : 'Restore default'}
+                      </button>
+                      <button
+                        type="button"
+                        className="link"
+                        onClick={() => setConfirmRestore(null)}
+                      >
+                        Keep my wording
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {testNote && (
                   <p className="sub tiny" role="status">
