@@ -893,14 +893,20 @@ export const clientScript = String.raw`
     var tiers = service.cancellationTiers;
     if (!tiers || !tiers.length) return '';
 
-    var best = null;
+    /* The LOWEST full-refund tier, as the storefront reads it (FB-16): the last
+       moment a customer can still walk away whole. Taking the first one listed
+       could say 72 hours on this page and 48 on the activity page. */
+    var hours = null;
     for (var i = 0; i < tiers.length; i++) {
-      if (tiers[i].refundPercent >= 100) { best = tiers[i]; break; }
+      if (tiers[i].refundPercent >= 100 &&
+          (hours === null || tiers[i].hoursBefore < hours)) {
+        hours = tiers[i].hoursBefore;
+      }
     }
-    if (!best) return '';
+    if (hours === null) return '';
 
-    return '<p class="hint">Free cancellation up to ' + best.hoursBefore +
-      ' hours before it starts.</p>';
+    return '<p class="hint">Free cancellation up to ' +
+      (hours === 1 ? '1 hour' : hours + ' hours') + ' before it starts.</p>';
   }
 
   /*

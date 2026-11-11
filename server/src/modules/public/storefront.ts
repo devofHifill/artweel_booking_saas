@@ -1,7 +1,23 @@
 import { imageUrls } from '../media/media.service';
 import { brandCss, resolveBrand } from '../../lib/brand';
 import { escapeHtml } from './booking-page';
-import type { Storefront } from './storefront.service';
+import { freeCancellationHours, type Storefront } from './storefront.service';
+
+/*
+  The cancellation promise, in words (FB-16).
+
+  The home page said "48h · free cancellation", which read as anything from
+  "cancel within 48 hours of booking" to a 48-hour window. Every surface now
+  says the same sentence the checkout does: "Free cancellation up to 48 hours
+  before it starts".
+*/
+function hoursText(hours: number): string {
+  return hours === 1 ? '1 hour' : `${hours} hours`;
+}
+
+function freeCancellationText(hours: number): string {
+  return `Free cancellation up to ${hoursText(hours)} before it starts`;
+}
 
 /**
  * The public storefront: home, activities, one activity, about, contact.
@@ -349,7 +365,7 @@ export function renderHome(store: Storefront): string {
         )}</b><span>guests hosted</span></div>`
       : '',
     hours !== null
-      ? `<div class="sf-stat"><b>${hours}h</b><span>free cancellation</span></div>`
+      ? `<div class="sf-stat"><b>${hoursText(hours)}</b><span>notice to cancel for free</span></div>`
       : '',
   ]
     .filter(Boolean)
@@ -371,7 +387,7 @@ export function renderHome(store: Storefront): string {
     hours !== null
       ? [
           'Free cancellation',
-          `Cancel up to ${hours} hours before and get everything back, no questions.`,
+          `Cancel up to ${hoursText(hours)} before it starts and get everything back, no questions.`,
         ]
       : null,
     [
@@ -495,7 +511,12 @@ export function renderActivity(store: Storefront, s: Service): string {
   const org = store.organization;
   const base = `/public/${org.slug}`;
   const tz = org.timezone;
-  const hours = store.stats.freeCancellationHours;
+  /* The activity's own policy when it names one, else the studio's default:
+     the same choice the checkout makes, so this page and the checkout cannot
+     promise different terms for the same booking. */
+  const hours = s.cancellationPolicy
+    ? freeCancellationHours(s.cancellationPolicy.tiers)
+    : store.stats.freeCancellationHours;
 
   /* One bullet per line, the same convention the migration that added
      `highlights` established and the same split the booking page uses. */
@@ -551,7 +572,7 @@ export function renderActivity(store: Storefront, s: Service): string {
             ? /* One line, deliberately. `.sf-prose` keeps newlines so the
                  STUDIO's own paragraphs survive; that also means an incidental
                  line break in this template would show up as one on the page. */
-              `<h3>Cancellation</h3><p class="sf-prose">Cancel up to ${hours} hours before and you get a full refund.</p>`
+              `<h3>Cancellation</h3><p class="sf-prose">${freeCancellationText(hours)}, with a full refund.</p>`
             : ''
         }
       </div>
@@ -612,7 +633,7 @@ export function renderActivity(store: Storefront, s: Service): string {
         }
         ${
           hours !== null
-            ? `<p class="sf-fine">Free cancellation up to ${hours} hours before</p>`
+            ? `<p class="sf-fine">${freeCancellationText(hours)}</p>`
             : ''
         }
       </aside>

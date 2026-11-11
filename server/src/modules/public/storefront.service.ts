@@ -247,7 +247,7 @@ export async function getStorefront(slug: string) {
  * Null when no tier refunds fully. A studio with a 50%-at-48-hours ladder has
  * no free-cancellation window and must not be given one.
  */
-function freeCancellationHours(tiers: unknown): number | null {
+export function freeCancellationHours(tiers: unknown): number | null {
   if (!Array.isArray(tiers)) return null;
 
   const full = tiers.filter(
