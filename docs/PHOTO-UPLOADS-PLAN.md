@@ -48,7 +48,7 @@ JPEG or PNG.
 
 ## What gets built
 
-### Phase 1 — storage and upload (server) — **built 2026-11-10, branch `feat/media-uploads`, not deployed**
+### Phase 1 — storage and upload (server) — **built 2026-11-10, deployed to live 2026-11-10 (PR #53)**
 
 As built: `lib/media/storage.ts` (disk, behind the interface),
 `modules/media/` (`POST /media`, `DELETE /media/:imageId`, public files at
@@ -82,7 +82,7 @@ Originally planned:
 6. Volume in `docker-compose.prod.yml`; `deploy.sh` backs it up alongside the
    database dump.
 
-### Phases 2–4 — **built 2026-11-10, same branch, not deployed**
+### Phases 2–4 — **built 2026-11-10, deployed to live 2026-11-10 (PR #53)**
 
 As built:
 - Migration `20261110120000_activity_and_staff_photos`: `image_key`,
@@ -141,7 +141,26 @@ Originally planned:
     step, and the storefront "The team" section.
 14. Widget / embed: same images.
 
-### Phase 5 — crop (after the above is live)
+### Phase 5 — crop — **built 2026-11-11, branch `feat/photo-crop`, not deployed**
+
+As built: choosing a photo opens `CropDialog` (no library) in the shape it is
+shown in — 4:3 for activities, a square with a round mask for portraits.
+Drag (mouse or touch) to move, slider / mouse wheel / +− to zoom up to 4×,
+arrow keys to nudge; Escape closes only the crop, not the editor under it.
+The frame is never taller than half the screen, so the slider and buttons
+stay in view on a phone. The dialog sends a `crop` field
+`{x, y, width, height}` (pixels of the photo as seen) with the upload; the
+server turns the photo upright, cuts that box (`fitCrop`: up to 2 px of
+rounding pulled back in, anything further refused as `MEDIA_CROP`), then
+resizes — so the stored photo is cut from the original, with no quality lost.
+An existing photo cannot be re-framed (the original is not kept); Replace
+picks it again. Tests: `tests/admin/media.test.ts` now 30 (crop applied,
+sideways phone photo, rounding, four bad boxes stored nothing). Tried
+locally: a 16:9 photo zoomed 2× and dragged to its top-right quarter came
+back 600×450 and entirely that quarter; a portrait at phone size came back
+1200×1200 framed as shown; Escape left the editor open with nothing uploaded.
+
+Originally planned:
 15. A crop step in `ImagePicker` with fixed shapes — 4:3 for activities,
     square for portraits — using a small library (e.g. `react-easy-crop`);
     the crop box is sent with the upload and applied by `sharp`.
