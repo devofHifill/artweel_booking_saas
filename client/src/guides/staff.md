@@ -40,29 +40,30 @@ An instructor who only teaches needs a **staff record** and nothing else. Someon
 
 Only an **Owner** or **Admin** sees this button.
 
-### Step 2: Fill in the details
+### Step 2: Go through the steps
+**Add staff** asks in five short steps. **Next** checks each step; **Back** never loses what you typed.
 
-| Field | Required | Notes |
+| Step | What it asks | Notes |
 |---|---|---|
-| **Name** | ✅ | Shown to customers |
-| **Email** | ✅ | Must be unique within the studio. **Never shown publicly** |
-| Phone | | Optional. **Never shown publicly** |
-| Role | | The line under their name, 2–3 words, e.g. `Wheel instructor` |
-| Calendar colour | | Colour of their sessions on your calendar |
-| Max bookings a day | | `0` = unlimited |
-| Timezone | | Starts as **Same as the studio**. Their working hours are read in this timezone, so only change it for someone who genuinely works in another one |
-| Works at | | The studio's locations they work from. **All are on by default.** Only shown once the studio has a location |
-| **Show on the booking page** | | **On**: customers see them and can pick them. **Off**: hidden from customers, but still usable behind the scenes |
+| **Who** | **Name**, **Email**, Phone, Role | Email must be unique within the studio. Email and phone are **never shown publicly**. Role is the line under their name, e.g. `Wheel instructor` |
+| **What they teach** | The activities they teach; **Works at** if you have more than one location | Only the activities you pick are offered with them. New staff work at every location unless you turn some off |
+| **Hours** | Their usual week: days, **From**, **Until**, timezone | Starts at Tue–Sat 10:00–18:00. **Set hours later** is allowed, but they can't be booked until they have hours |
+| **Profile** | Photo, **About them**, calendar colour, **Show on the booking page** | **More options** has the most bookings they take in a day (`0` = no limit) |
+| **Review** | Everything in one place, and **Send them a login invite** | The invite lets them see their own schedule (Part D) |
 
-### Step 3: Save
-They now appear on the page marked **No hours set**.
+If your plan's instructor places are all taken, **Add staff** says so before you start, with a link to upgrade.
+
+### Step 3: Add
+Press **Add [name]**. The person, the activities they teach and their hours are saved together: if anything is refused, nothing is saved and the message says why. With hours set, they can be booked straight away.
+
+If you ticked the invite, it goes out next. If it doesn't send, they're still added; press **Try again**, or copy the invite link shown and send it yourself.
 
 ---
 
 ## Part B: Make them bookable
 
 ### Step 4: Assign activities
-On their card, **click each activity chip** they teach so it turns on.
+*Already done if you picked them in **What they teach**.* To change them later, **click each activity chip** on their card.
 
 > If no chip is on, the card shows **"Not bookable yet"**, and **nothing can be booked with them**.
 
@@ -77,7 +78,7 @@ You can also choose who teaches an activity from the activity's side: the **Who 
 New staff use the studio's timezone. Only change it (**Edit → Timezone**) for someone who works in a different one. Changing it later keeps their hours the same on the clock, e.g. 10:00–18:00 stays 10:00–18:00 in the new timezone.
 
 ### Step 7: Set working hours
-On their card, click **Hours**. This opens **"When [name] works"**.
+*Already done if you set their week in the **Hours** step.* To add another pattern or change it, click **Hours** on their card. This opens **"When [name] works"**.
 
 1. Tick the **days**.
 2. Set **From** and **Until**.
