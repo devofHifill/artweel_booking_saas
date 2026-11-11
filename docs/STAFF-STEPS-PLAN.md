@@ -1,6 +1,6 @@
 # Add staff in steps: plan
 
-Status: **planned 2026-11-11, not started.**
+Status: **Phase 1 built 2026-11-11** (branch `feat/add-staff-steps`). Decisions taken: the Review step offers the login invite, ticked by default; editing stays the one form, with Bio added. Phase 2 (editing in steps) not started.
 
 ## Why
 

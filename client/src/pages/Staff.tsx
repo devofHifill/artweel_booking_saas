@@ -16,6 +16,7 @@ import { WorkingHours } from '../components/working-hours';
 import { Icon } from '../components/Icon';
 import { StaffSchedule } from '../components/StaffSchedule';
 import { TIMEZONES } from '../components/settings-sections';
+import { AddStaff } from '../components/AddStaff';
 
 /**
  * Staff & Guides.
@@ -45,6 +46,8 @@ type StaffRow = {
   phone: string | null;
   /** Job title, shown under the name. Free text, often empty. */
   role: string | null;
+  /** The public 'about them' text. */
+  bio?: string | null;
   /** Uploaded portrait (FB-11): a media key, and its description. */
   photoKey: string | null;
   photoAlt: string | null;
@@ -111,6 +114,7 @@ const BLANK = {
   email: '',
   phone: '',
   role: '',
+  bio: '',
   photoKey: null as string | null,
   photoAlt: '',
   color: '#a6522c',
@@ -207,9 +211,11 @@ export default function Staff() {
       });
   }, [base]);
 
+  /* Adding someone is the steps dialog (AddStaff); this form is for Edit. */
+  const [adding, setAdding] = useState(false);
   function startCreate() {
-    setEditing('new');
-    setForm({ ...BLANK });
+    setEditing(null);
+    setAdding(true);
   }
 
   function startEdit(row: StaffRow) {
@@ -219,6 +225,7 @@ export default function Staff() {
       email: row.email,
       phone: row.phone ?? '',
       role: row.role ?? '',
+      bio: row.bio ?? '',
       photoKey: row.photoKey ?? null,
       photoAlt: row.photoAlt ?? '',
       color: row.color,
@@ -255,6 +262,7 @@ export default function Staff() {
       // renders as a blank phone number on the public page.
       phone: form.phone.trim() || null,
       role: form.role.trim() || null,
+      bio: form.bio.trim() || null,
       photoKey: form.photoKey,
       photoAlt: form.photoKey ? form.photoAlt.trim() : null,
       color: form.color,
@@ -472,6 +480,14 @@ export default function Staff() {
         />
       )}
 
+      {adding && isAdmin && (
+        <AddStaff
+          base={base}
+          onClose={() => setAdding(false)}
+          onAdded={() => void load()}
+        />
+      )}
+
       {editing && isAdmin && (
         <form className="card schedule" onSubmit={(e) => void save(e)}>
           <h2>{editing === 'new' ? 'Add someone' : 'Edit'}</h2>
@@ -520,6 +536,19 @@ export default function Staff() {
                 Two or three words. Shown on their card, not on your booking
                 page.
               </span>
+            </label>
+
+            {/* The server always accepted a bio; no screen set it until the
+                Add staff steps. Editable here so it can be changed later. */}
+            <label className="field-wide">
+              About them
+              <textarea
+                rows={3}
+                maxLength={4000}
+                value={form.bio}
+                onChange={(e) => setForm({ ...form, bio: e.target.value })}
+                placeholder="A line or two customers read before they book."
+              />
             </label>
 
             <label>

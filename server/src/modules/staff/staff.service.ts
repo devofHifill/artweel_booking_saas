@@ -185,9 +185,28 @@ export async function createStaff(
   });
   requireCapacity(org.plan as PlanId, 'maxStaff', activeStaff);
 
-  const { locationIds: requestedLocations, ...fields } = input as {
+  const {
+    locationIds: requestedLocations,
+    serviceTypeIds,
+    weeklyHours,
+    ...fields
+  } = input as {
     locationIds?: string[];
+    serviceTypeIds?: string[];
+    weeklyHours?: { days: string[]; startMinute: number; endMinute: number };
   } & Record<string, unknown>;
+
+  /* What they teach, checked before anything is written, as
+     `setStaffServices` checks it: another studio's activity is refused. */
+  const teaches = [...new Set(serviceTypeIds ?? [])];
+  if (teaches.length > 0) {
+    const owned = await prisma.serviceType.count({
+      where: { id: { in: teaches }, organizationId },
+    });
+    if (owned !== teaches.length) {
+      throw AppError.badRequest('One or more activities were not found.');
+    }
+  }
   if (fields.photoKey) await assertOwnImage(organizationId, String(fields.photoKey));
   assertAltText(fields.photoKey, fields.photoAlt);
   const email = String(fields.email).trim().toLowerCase();
@@ -246,6 +265,31 @@ export async function createStaff(
       await tx.staffLocation.createMany({
         data: locationIds.map((locationId) => ({ staffId: staff.id, locationId })),
         skipDuplicates: true,
+      });
+    }
+
+    if (teaches.length > 0) {
+      await tx.staffService.createMany({
+        data: teaches.map((serviceTypeId) => ({ staffId: staff.id, serviceTypeId })),
+        skipDuplicates: true,
+      });
+    }
+
+    /* Their week, as the Hours panel writes it (one weekly WORKING rule in
+       their own zone, from today), so they are bookable the moment they are
+       added rather than "No hours set". */
+    if (weeklyHours) {
+      await tx.availabilityRule.create({
+        data: {
+          organizationId,
+          staffId: staff.id,
+          ruleType: 'WORKING',
+          rrule: `FREQ=WEEKLY;BYDAY=${[...new Set(weeklyHours.days)].join(',')}`,
+          startMinute: weeklyHours.startMinute,
+          endMinute: weeklyHours.endMinute,
+          timezone: staff.timezone,
+          effectiveFrom: new Date(),
+        },
       });
     }
 

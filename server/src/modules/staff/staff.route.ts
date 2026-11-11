@@ -60,6 +60,29 @@ const createStaffSchema = z.object({
 });
 
 const updateStaffSchema = createStaffSchema.omit({ locationIds: true }).partial();
+
+/**
+ * Add staff in steps (docs/STAFF-STEPS-PLAN.md): what they teach and their
+ * weekly hours arrive with the person and are saved in the same transaction,
+ * so nobody is left half-made (added, but with no hours and unbookable)
+ * when a later call fails. Both optional, so the one-call form still works.
+ * Create only: afterwards they have their own routes.
+ */
+const weekday = z.enum(['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']);
+const createStaffWithSetupSchema = createStaffSchema.extend({
+  serviceTypeIds: z.array(z.string().uuid()).max(200).optional(),
+  weeklyHours: z
+    .object({
+      days: z.array(weekday).min(1, 'Pick at least one day.').max(7),
+      /** Minutes after midnight, in the person's own timezone. */
+      startMinute: z.number().int().min(0).max(1439),
+      endMinute: z.number().int().min(1).max(1440),
+    })
+    .refine((h) => h.endMinute > h.startMinute, {
+      message: 'The end time must be after the start time.',
+    })
+    .optional(),
+});
 const listQuerySchema = z.object({
   includeInactive: z
     .enum(['true', 'false'])
@@ -84,7 +107,7 @@ staffRouter.get(
 staffRouter.post(
   '/',
   requireAdmin,
-  validateBody(createStaffSchema),
+  validateBody(createStaffWithSetupSchema),
   asyncHandler(async (req, res) => {
     res.status(201).json({
       staff: await service.createStaff(req.tenant!.organizationId, req.body),

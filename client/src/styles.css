@@ -2956,6 +2956,23 @@ td.strong { font-weight: 600; }
 }
 .restore-confirm p { margin: 0; }
 
+/* Add staff in steps: the review list, the after-Add summary, more options. */
+.review-list {
+  display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-4);
+}
+.review-list dt { color: var(--muted); font-size: var(--text-sm); }
+.review-list dd { margin: 0; }
+@media (max-width: 520px) {
+  .review-list { grid-template-columns: 1fr; gap: 2px; }
+  .review-list dd { margin-bottom: var(--space-2); }
+}
+.added-summary { margin: 0 0 var(--space-3); padding-left: 1.2em; }
+.invite-link { display: block; width: 100%; margin-top: var(--space-2); font-family: var(--font-mono, monospace); font-size: var(--text-sm); }
+.more-options summary { cursor: pointer; color: var(--clay-text); margin: var(--space-2) 0; }
+.field-wide { grid-column: 1 / -1; }
+.field-wide textarea { width: 100%; font-family: inherit; resize: vertical; }
+
 /* Categories (FB-13): the inline "New category" row and the manager list. */
 .category-add {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
