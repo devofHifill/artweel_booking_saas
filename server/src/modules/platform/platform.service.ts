@@ -3,7 +3,7 @@ import { AppError } from '../../lib/app-error';
 import { logger } from '../../lib/logger';
 
 /**
- * Platform (Artweel) authority.
+ * Platform (BookAIHub) authority.
  *
  * Everything here operates on OUR data about our customers — organizations,
  * subscriptions, users. None of it goes through `withOrganization`, because

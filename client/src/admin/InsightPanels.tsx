@@ -147,7 +147,7 @@ export function GeographyPanel({
       */}
       <p className="insight-note">
         GMV is processed directly on each studio&rsquo;s connected Stripe
-        account. Artweel does not hold or route customer funds.
+        account. BookAIHub does not hold or route customer funds.
       </p>
       <p className="insight-note subtle">
         Country is derived from each studio&rsquo;s timezone — studios never
@@ -279,7 +279,7 @@ export function RevenueModelPanel({
     <div className="card insight-panel">
       <div className="insight-head">
         <h2>Revenue Model</h2>
-        <p className="sub">How Artweel earns</p>
+        <p className="sub">How BookAIHub earns</p>
       </div>
 
       <div className="revenue-callout">

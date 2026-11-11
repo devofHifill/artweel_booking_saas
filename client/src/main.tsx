@@ -32,12 +32,12 @@ captureAttribution();
   invalidate. Baking it in also means no attribute swap after mount, and so no
   frame where the product is a different shape than it settles on.
 
-  `artweel` is the default and emits nothing; the packs live in
+  `bookaihub` (formerly `artweel`) is the default and emits nothing; the packs live in
   `styles.css` under `[data-pack]`, mirrored from `server/src/lib/design-tokens.ts`
   and checked against it by `tests/design/packs.test.ts`.
 */
 const pack = import.meta.env.VITE_THEME_PACK;
-if (pack && pack !== 'artweel') {
+if (pack && pack !== 'bookaihub' && pack !== 'artweel') {
   document.documentElement.dataset.pack = pack;
 }
 

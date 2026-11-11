@@ -44,14 +44,14 @@ export function AuthLayout({
           <StudioDayMock />
         </div>
 
-        <p className="auth-brand-foot">Artweel · studio management</p>
+        <p className="auth-brand-foot">BookAIHub · studio management</p>
       </section>
 
       <section className="auth-panel">
         <header className="auth-top">
           <span className="auth-mark">
             <Wordmark />
-            Artweel
+            BookAIHub
           </span>
 
           {onSwitch && (
@@ -69,7 +69,7 @@ export function AuthLayout({
         </div>
 
         <footer className="auth-foot">
-          <span>© {new Date().getFullYear()} Artweel</span>
+          <span>© {new Date().getFullYear()} BookAIHub</span>
           <ThemeToggle />
         </footer>
       </section>
@@ -82,14 +82,14 @@ function Wordmark() {
   return (
     <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
       <defs>
-        <linearGradient id="artweel-mark" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id="bookaihub-mark" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#6e3418" />
           <stop offset="55%" stopColor="#c06a3c" />
           <stop offset="100%" stopColor="#e0a878" />
         </linearGradient>
       </defs>
-      <circle cx="13" cy="13" r="11" fill="none" stroke="url(#artweel-mark)" strokeWidth="2.4" />
-      <circle cx="13" cy="13" r="4.5" fill="none" stroke="url(#artweel-mark)" strokeWidth="1.6" />
+      <circle cx="13" cy="13" r="11" fill="none" stroke="url(#bookaihub-mark)" strokeWidth="2.4" />
+      <circle cx="13" cy="13" r="4.5" fill="none" stroke="url(#bookaihub-mark)" strokeWidth="1.6" />
     </svg>
   );
 }

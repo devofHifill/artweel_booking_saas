@@ -1,4 +1,4 @@
-# Handoff — Artweel Booking SaaS
+# Handoff — BookAIHub Booking SaaS
 
 Paste this into a new chat to resume work.
 
@@ -533,7 +533,7 @@ Calendar (blank credentials fall back to the in-memory fake).
 
 ## OPEN DECISIONS
 
-1. ~~**Product name.**~~ **Settled 2026-08-14: the product is Artweel.** The
+1. ~~**Product name.**~~ **Settled 2026-08-14: the product is BookAIHub.** The
    repo, staging hostnames, WordPress plugin and embed protocol already said
    so; only the marketing footer and two JSON-LD fields held out, and they were
    moved to match. Nothing is indexed under any name while staging carries

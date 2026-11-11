@@ -22,7 +22,7 @@ export type ShellAlert = {
   message: string;
 };
 
-/** Somebody from Artweel is inside this studio right now. See S7. */
+/** Somebody from BookAIHub is inside this studio right now. See S7. */
 export type SupportPresence = {
   id: string;
   by: string;

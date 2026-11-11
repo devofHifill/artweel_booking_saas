@@ -10,7 +10,7 @@ new session.
 **Built and verified locally. Not committed, not deployed.**
 
 The TourFlow prototype is complete and works end to end. It is wired into the
-Artweel app at `/demo` and the `Demo` nav link renders on the marketing site.
+BookAIHub app at `/demo` and the `Demo` nav link renders on the marketing site.
 Nothing has been pushed or deployed — git is yours.
 
 Working tree was on **`feature/auth-redesign`** when this was written, with the
@@ -34,7 +34,7 @@ TourFlow has two surfaces on one shared state: the operator dashboard
 
 ---
 
-## Changes made to the Artweel app (4 files, all marked `TEMPORARY`)
+## Changes made to the BookAIHub app (4 files, all marked `TEMPORARY`)
 
 1. `server/src/app.ts` — `express.static` mount at `/demo`
 2. `server/Dockerfile` — `COPY demos ./demos` (without this the deployed image has no demos)
@@ -239,13 +239,13 @@ docker compose -f docker-compose.prod.yml build api && docker compose -f docker-
 Estimate given 2026-08-19, assuming Claude Code writes the code at two sessions
 per day:
 
-| Target | From scratch | Forked from Artweel |
+| Target | From scratch | Forked from BookAIHub |
 | --- | --- | --- |
 | Internal alpha (real DB, auth, test-mode payments) | 4–6 weeks | 2–3 weeks |
 | First real operator taking real money | 3–4 months | 6–9 weeks |
 | Commercial self-serve SaaS | 5–6 months | 3–4 months |
 
-**Forking Artweel is the single biggest lever** — the domains overlap ~70%
+**Forking BookAIHub is the single biggest lever** — the domains overlap ~70%
 (seat-based capacity, staff availability, Stripe Connect, notification outbox,
 Google Calendar sync with the loop guard, waitlists, packs, multi-tenancy,
 billing, superadmin). Genuinely new for TourFlow: OTA channel sync, per-departure

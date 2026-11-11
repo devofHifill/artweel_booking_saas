@@ -91,7 +91,7 @@ beforeEach(async () => {
   provider = new RecordingProvider();
   setPaymentProvider(provider);
 
-  admin = await signUpStudio(app, { organizationName: 'Artweel HQ' });
+  admin = await signUpStudio(app, { organizationName: 'BookAIHub HQ' });
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: admin.userId },
     select: { email: true },

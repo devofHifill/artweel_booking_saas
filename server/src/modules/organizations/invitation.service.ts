@@ -426,7 +426,7 @@ async function queueInvitationEmail(invitationId: string, rawToken: string) {
         body: [
           `Hi ${invitation.name},`,
           '',
-          `${invitation.invitedBy.name} has invited you to join ${invitation.organization.name} on Artweel as ${roleLabel}.`,
+          `${invitation.invitedBy.name} has invited you to join ${invitation.organization.name} on BookAIHub as ${roleLabel}.`,
           '',
           url,
           '',

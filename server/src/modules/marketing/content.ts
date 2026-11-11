@@ -19,12 +19,10 @@ import { GENERAL, VERTICAL_PAGES } from './verticals';
  * The name on the public site, in one place.
  *
  * It was written out nineteen times across four files, which is the shape a
- * rename takes when nobody expects one. This is PUBLIC-SITE ONLY: the
- * dashboard, the transactional emails, the booking pages, the calendar invites
- * and the platform console all still say Artweel, deliberately, because a name
- * that changes in one surface and not the others is worse than either name.
- * When the rename is real, those follow — and so does the domain, the sender
- * address and the Stripe statement descriptor, none of which live here.
+ * rename takes when nobody expects one. Since FB-18 every surface (dashboard,
+ * emails, booking pages, calendar invites, platform console) says BookAIHub
+ * too; the old name survives only in infrastructure (Docker volumes and
+ * container names, the staging domain), which nobody sees.
  */
 export const BRAND = 'BookAIHub';
 

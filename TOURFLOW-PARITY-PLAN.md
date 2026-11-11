@@ -193,7 +193,7 @@ Some items will be nearly nothing. A few are real.
 `css/style.css` has no `prefers-color-scheme`, no `[data-theme]`, no dark
 palette anywhere. It is a light-only design.
 
-Artweel has a full dark theme, six AA-checked brand presets, and
+BookAIHub has a full dark theme, six AA-checked brand presets, and
 `tests/design/tokens.test.ts` asserting contrast ratios. Pixel-matching a
 light-only design means choosing:
 
@@ -853,7 +853,7 @@ search and "For" column, and now this), which is starting to look less like
 coincidence and more like what happens when a screen and its endpoint are
 written weeks apart.
 
-**The travelling class is the one that mattered.** Artweel's stated wedge is
+**The travelling class is the one that mattered.** BookAIHub's stated wedge is
 mobile delivery, and the sheet whose entire job is telling somebody where to go
 was silent for exactly those bookings. It now carries the customer's address
 per ROLL ENTRY rather than per class, because two mobile bookings on one

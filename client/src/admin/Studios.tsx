@@ -99,7 +99,7 @@ export default function Studios() {
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement('a');
     a.href = url;
-    a.download = `artweel-studios-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `bookaihub-studios-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -113,7 +113,7 @@ export default function Studios() {
         <div>
           <h1>Studios</h1>
           <p className="sub">
-            Every organisation on the Artweel platform. Each studio is an
+            Every organisation on the BookAIHub platform. Each studio is an
             isolated tenant.
           </p>
         </div>

@@ -1,5 +1,5 @@
 /**
- * Client-side registration for the Artweel Booking block.
+ * Client-side registration for the BookAIHub Booking block.
  *
  * Registering a block server-side with `render_callback` makes it RENDER, but
  * not appear — the inserter is driven entirely by client-side registration, so
@@ -15,12 +15,12 @@
 	var el = element.createElement;
 	var __ = i18n.__;
 
-	blocks.registerBlockType('artweel/booking', {
+	blocks.registerBlockType('bookaihub/booking', {
 		apiVersion: 2,
-		title: __('Artweel Booking', 'artweel-booking'),
+		title: __('BookAIHub Booking', 'bookaihub-booking'),
 		category: 'embed',
 		icon: 'calendar-alt',
-		description: __("Your studio's booking page, embedded.", 'artweel-booking'),
+		description: __("Your studio's booking page, embedded.", 'bookaihub-booking'),
 		attributes: {
 			slug: { type: 'string', default: '' },
 			height: { type: 'number', default: 900 },
@@ -43,12 +43,12 @@
 					null,
 					el(
 						components.PanelBody,
-						{ title: __('Booking page', 'artweel-booking') },
+						{ title: __('Booking page', 'bookaihub-booking') },
 						el(components.TextControl, {
-							label: __('Studio address', 'artweel-booking'),
+							label: __('Studio address', 'bookaihub-booking'),
 							help: __(
-								'Leave empty to use the studio set in Settings → Artweel Booking.',
-								'artweel-booking'
+								'Leave empty to use the studio set in Settings → BookAIHub Booking.',
+								'bookaihub-booking'
 							),
 							value: slug,
 							onChange: function (value) {
@@ -56,7 +56,7 @@
 							},
 						}),
 						el(components.RangeControl, {
-							label: __('Height', 'artweel-booking'),
+							label: __('Height', 'bookaihub-booking'),
 							value: height,
 							min: 200,
 							max: 5000,
@@ -71,12 +71,12 @@
 					components.Placeholder,
 					{
 						icon: 'calendar-alt',
-						label: __('Artweel Booking', 'artweel-booking'),
+						label: __('BookAIHub Booking', 'bookaihub-booking'),
 						instructions: slug
-							? __('Your booking page appears here when the page is published.', 'artweel-booking')
+							? __('Your booking page appears here when the page is published.', 'bookaihub-booking')
 							: __(
-									'Using the studio set in Settings → Artweel Booking. Set a studio address on the right to override it.',
-									'artweel-booking'
+									'Using the studio set in Settings → BookAIHub Booking. Set a studio address on the right to override it.',
+									'bookaihub-booking'
 							  ),
 					},
 					slug ? el('code', null, slug) : null

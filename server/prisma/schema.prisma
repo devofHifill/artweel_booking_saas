@@ -514,7 +514,7 @@ model User {
   @@map("users")
 }
 
-/// Platform-level (Artweel) authority. NOT a studio role.
+/// Platform-level (BookAIHub) authority. NOT a studio role.
 ///
 /// `MembershipRole` answers "what may this person do inside that studio", and
 /// platform authority is a different question with a different blast radius, so

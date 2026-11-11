@@ -1,7 +1,7 @@
 # Phase B — implementation plan
 
 Rebuilding the studio dashboard against the TourFlow prototype: its dashboard,
-its sidebar, and an Artweel screen behind every one of its thirteen nav items.
+its sidebar, and an BookAIHub screen behind every one of its thirteen nav items.
 
 Written 2026-08-20, after Phase A shipped. Ordered so each step de-risks the
 next, and so a failure tells you which thing broke.
@@ -45,7 +45,7 @@ change — `/classes`, `/staff`, `/register` — so links and bookmarks survive 
 the code keeps calling things what the schema calls them.
 
 Tour concepts themselves are NOT imported. No departures, no guides-as-a-role,
-no waivers. Artweel's equivalents already exist under ceramics names, and
+no waivers. BookAIHub's equivalents already exist under ceramics names, and
 doubling them would blur the vertical the product deliberately picked. Where a
 TourFlow dashboard block depends on a concept that does not exist here, it is
 substituted rather than faked — see B1.
@@ -70,7 +70,7 @@ owner reach this?
 | **GROWTH & SETUP** | Notifications · Integrations · Website & Widget · Settings · Plan |
 
 TourFlow's thirteen items in TourFlow's order and grouping, plus four screens it
-has no equivalent for. Those four are real Artweel features — multi-week
+has no equivalent for. Those four are real BookAIHub features — multi-week
 courses, class packs, pieces through the firing cycle, and billing — and they
 get their own group rather than being scattered through the other two.
 
@@ -222,7 +222,7 @@ Charts are hand-drawn CSS and inline SVG — the same choice TourFlow made, for
 the same reason: a charting library is 90KB to draw nine bars.
 
 **One block cannot be built as specified.** TourFlow's attention list includes
-"guests have not signed a waiver". Waivers do not exist in Artweel. Substituted,
+"guests have not signed a waiver". Waivers do not exist in BookAIHub. Substituted,
 by decision 2026-08-20, with two conditions that do: **sessions with no
 instructor assigned** and **pieces past their pickup hold**. Both are real, both
 are actionable, and both are already in the schema.
@@ -386,7 +386,7 @@ room.
 
 ## Phase C — deferred, each needing its own decision
 
-**Deposits and partial payment.** Artweel charges in full. TourFlow does not,
+**Deposits and partial payment.** BookAIHub charges in full. TourFlow does not,
 and two dashboard blocks are thinner for it: the "Pending Payments" KPI and the
 "balance owing" attention row both collapse toward "unpaid or paid". This is the
 one in this list worth arguing for.

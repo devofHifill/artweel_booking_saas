@@ -166,7 +166,7 @@ export default function AcceptInvite() {
             password here would be asking them to change one.
           */
           <p className="sub">
-            You already have an Artweel account for this address. Accepting adds{' '}
+            You already have an BookAIHub account for this address. Accepting adds{' '}
             {invite.studio} to it — your password does not change.
           </p>
         )}

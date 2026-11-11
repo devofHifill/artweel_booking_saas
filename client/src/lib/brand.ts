@@ -186,7 +186,7 @@ export function setBrand(organizationId: string, scheme: BrandScheme) {
 /**
  * Signing out drops the override.
  *
- * The login screen belongs to Artweel, not to the studio someone last used, and
+ * The login screen belongs to BookAIHub, not to the studio someone last used, and
  * a shared machine should not tell the next person what the previous one's
  * studio colour was.
  */

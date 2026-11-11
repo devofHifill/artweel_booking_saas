@@ -126,7 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     tokens.clear();
     localStorage.removeItem(ACTIVE_ORG_KEY);
-    // The login screen is Artweel's, not the last studio's — and on a shared
+    // The login screen is BookAIHub's, not the last studio's — and on a shared
     // machine the next person should not be shown the previous one's branding.
     clearBrand();
     setUser(null);

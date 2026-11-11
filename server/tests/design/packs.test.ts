@@ -60,17 +60,17 @@ describe('what a pack may touch', () => {
 
 describe('the default pack', () => {
   /**
-   * `artweel` is the shipped look, so it must be an ABSENCE rather than a
+   * `bookaihub` is the shipped look, so it must be an ABSENCE rather than a
    * restatement of the base values. A pack that re-declared them would drift
    * from `SCALE_TOKENS` the first time one changed, and the product would have
    * two answers for its own radius.
    */
   it('emits nothing at all', () => {
-    expect(packCss('artweel')).toBe('');
+    expect(packCss('bookaihub')).toBe('');
   });
 
   it('leaves the token block byte-identical to the unpacked one', () => {
-    expect(tokensCss('artweel')).toBe(tokensCss());
+    expect(tokensCss('bookaihub')).toBe(tokensCss());
   });
 });
 

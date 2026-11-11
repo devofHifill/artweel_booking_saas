@@ -1,5 +1,5 @@
-=== Artweel Booking ===
-Contributors: artweel
+=== BookAIHub Booking ===
+Contributors: bookaihub
 Tags: booking, pottery, ceramics, classes, scheduling
 Requires at least: 6.0
 Tested up to: 6.6
@@ -12,12 +12,12 @@ Put your pottery studio's booking page on your WordPress site.
 
 == Description ==
 
-Embeds your Artweel booking page into any WordPress page, with a block or a
+Embeds your BookAIHub booking page into any WordPress page, with a block or a
 shortcode. Customers browse classes, pick a time and pay without leaving your
 site.
 
 **This plugin does not run your bookings.** Availability, seat counts, payment
-and cancellation all happen on Artweel. The plugin renders a container and
+and cancellation all happen on BookAIHub. The plugin renders a container and
 loads the booking page into it.
 
 That is deliberate rather than lazy. Booking software's hardest problem is
@@ -40,13 +40,13 @@ without you updating anything.
 == Installation ==
 
 1. Install and activate.
-2. Go to **Settings → Artweel Booking** and enter your studio address — the
+2. Go to **Settings → BookAIHub Booking** and enter your studio address — the
    last part of your booking page URL.
-3. Add the **Artweel Booking** block to a page, or paste `[artweel]`.
+3. Add the **BookAIHub Booking** block to a page, or paste `[bookaihub]`.
 
 == Frequently Asked Questions ==
 
-= Do I need an Artweel account? =
+= Do I need an BookAIHub account? =
 
 Yes. The plugin displays a booking page that already exists; it does not create
 one.
@@ -54,12 +54,12 @@ one.
 = Does this store customer data in WordPress? =
 
 No. Nothing is written to your database. Bookings, names and payments live in
-Artweel.
+BookAIHub.
 
 = Can I put booking pages for two studios on one site? =
 
-Yes — pass the address on each one: `[artweel slug="first-studio"]` and
-`[artweel slug="second-studio"]`.
+Yes — pass the address on each one: `[bookaihub slug="first-studio"]` and
+`[bookaihub slug="second-studio"]`.
 
 = The booking page is cut off or has its own scrollbar =
 

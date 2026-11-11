@@ -130,7 +130,7 @@ export default function Overview() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `artweel-platform-${stamp}.csv`;
+    a.download = `bookaihub-platform-${stamp}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -156,7 +156,7 @@ export default function Overview() {
       <div className="page-head ov-head">
         <div>
           <h1>Platform Overview</h1>
-          <p className="sub">Monitor Artweel&rsquo;s entire booking ecosystem.</p>
+          <p className="sub">Monitor BookAIHub&rsquo;s entire booking ecosystem.</p>
         </div>
 
         <div className="ov-controls">

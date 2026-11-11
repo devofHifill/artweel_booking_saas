@@ -682,6 +682,9 @@ publicRouter.get(
       /* The booking id, not the token. A UID is written into the reader's
          calendar and may be synced onward; the token is a credential and has
          no business travelling with it. */
+      /* Kept as "@artweel" after FB-18 on purpose: calendars match an update
+         to the event they already hold by this UID, so changing it would make
+         a re-downloaded invite a second copy. Nobody sees it. */
       uid: `booking-${booking.id}@artweel`,
       startsAt: booking.startsAt,
       endsAt: booking.endsAt,

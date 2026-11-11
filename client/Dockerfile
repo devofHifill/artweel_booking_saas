@@ -26,7 +26,7 @@ RUN npm ci
 COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src
 
-ARG VITE_THEME_PACK=artweel
+ARG VITE_THEME_PACK=bookaihub
 ENV VITE_THEME_PACK=$VITE_THEME_PACK
 RUN npm run build
 

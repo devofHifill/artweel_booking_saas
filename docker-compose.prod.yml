@@ -126,7 +126,7 @@ services:
         # Vite inlines this at BUILD time, so it cannot be set on the running
         # container the way the API's THEME_PACK can. Same value as the API's,
         # or the dashboard is a different shape from the booking page.
-        VITE_THEME_PACK: ${THEME_PACK:-artweel}
+        VITE_THEME_PACK: ${THEME_PACK:-bookaihub}
     image: artweel-client:latest
     container_name: artweel-client
     restart: unless-stopped

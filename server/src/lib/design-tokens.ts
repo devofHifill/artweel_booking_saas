@@ -243,11 +243,11 @@ export const PACKABLE = [
   actually reads as.
 */
 
-export type PackId = 'artweel' | 'crisp';
+export type PackId = 'bookaihub' | 'crisp';
 
 export const THEME_PACKS: Record<PackId, Record<string, string>> = {
   /** The shipped values. An empty pack, so the default emits nothing at all. */
-  artweel: {},
+  bookaihub: {},
 
   /**
    * Tighter, the shape the TourFlow prototype wears: smaller radii and a step
@@ -293,7 +293,7 @@ export function packCss(pack: PackId): string {
  *
  * Emitted compact because it ships in the document on every request.
  */
-export function tokensCss(pack: PackId = 'artweel'): string {
+export function tokensCss(pack: PackId = 'bookaihub'): string {
   return [
     `:root{${declare({ ...COLOR_TOKENS.light, ...SCALE_TOKENS })}}`,
     /* After the base block, so it overrides it, and before the dark one, whose

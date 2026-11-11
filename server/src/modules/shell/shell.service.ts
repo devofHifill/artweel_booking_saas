@@ -106,7 +106,7 @@ export async function getSummary(organizationId: string, now = new Date()) {
   }
 
   /**
-   * Somebody from Artweel is inside this studio right now (S7).
+   * Somebody from BookAIHub is inside this studio right now (S7).
    *
    * Surfaced to the STUDIO, not only to the platform. A support session is
    * somebody reading a studio's customer list and bookings, and that studio is

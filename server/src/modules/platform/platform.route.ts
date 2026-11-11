@@ -65,7 +65,7 @@ import {
 } from './integrations.service';
 
 /**
- * `/api/platform/*` — Artweel's own operator surface.
+ * `/api/platform/*` — BookAIHub's own operator surface.
  *
  * Mounted OUTSIDE `/api/organizations`, so nothing here passes through
  * `withOrganization`. That is not an oversight: these routes act on platform
@@ -191,7 +191,7 @@ platformRouter.get(
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="artweel-studios-${stamp}.csv"`,
+      `attachment; filename="bookaihub-studios-${stamp}.csv"`,
     );
     // A BOM, or Excel on Windows reads the file as the system codepage and any
     // accented studio name opens as mojibake.

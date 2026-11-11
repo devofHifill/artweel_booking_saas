@@ -1,7 +1,7 @@
 # /demo — static product prototypes
 
 **This directory is temporary.** It holds self-contained front-end prototypes
-served by the Artweel app at `/demo`, so they can be shown from this host
+served by the BookAIHub app at `/demo`, so they can be shown from this host
 without deploying anything else. They are plain HTML/CSS/JS: no build step, no
 database, no API, no session. Nothing in `src/` imports them and nothing here
 imports the app.

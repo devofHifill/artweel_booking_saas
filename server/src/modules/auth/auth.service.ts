@@ -278,12 +278,12 @@ export async function requestPasswordReset(rawEmail: string) {
   void getEmailProvider()
     .send({
       to: user.email,
-      subject: 'Reset your Artweel password',
-      fromName: 'Artweel',
+      subject: 'Reset your BookAIHub password',
+      fromName: 'BookAIHub',
       text: [
         `Hi ${user.name || 'there'},`,
         '',
-        'Someone asked to reset the password on your Artweel account. If that ' +
+        'Someone asked to reset the password on your BookAIHub account. If that ' +
           'was you, open this link to choose a new one:',
         '',
         resetUrl,

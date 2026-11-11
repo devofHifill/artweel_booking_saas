@@ -36,7 +36,7 @@ function freeCancellationText(hours: number): string {
  * WHAT THE PROTOTYPE HAS THAT THIS DOES NOT, so nobody "restores" it:
  *
  * - **Ratings and review counts.** ★4.9, "(412)", "4.8 average rating" and a
- *   whole reviews section. Artweel has no reviews feature — nothing collects
+ *   whole reviews section. BookAIHub has no reviews feature — nothing collects
  *   guest feedback — so every one of those numbers would be invented, printed
  *   next to a price, on the page where somebody decides to spend money.
  * - **A contact FORM.** There is no endpoint behind one and no inbox for it to
@@ -215,7 +215,7 @@ function footer(store: Storefront): string {
     </div>
     <div class="sf-foot-bottom">
       <span>&copy; ${new Date().getFullYear()} ${escapeHtml(org.name)}</span>
-      <span>Powered by Artweel</span>
+      <span>Powered by BookAIHub</span>
     </div>
   </footer>`;
 }

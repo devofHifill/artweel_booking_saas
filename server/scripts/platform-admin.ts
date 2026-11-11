@@ -1,5 +1,5 @@
 /**
- * Grant, revoke and list platform (Artweel) admins.
+ * Grant, revoke and list platform (BookAIHub) admins.
  *
  *   npm run platform:grant  -- someone@example.com "on-call, ticket #42"
  *   npm run platform:revoke -- someone@example.com
