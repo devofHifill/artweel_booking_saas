@@ -325,13 +325,9 @@ export function formatAction(action: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-export function money(cents: number, currency = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
-}
+/* The dashboard's rule (FB-17): whole amounts without cents, anything else
+   with them. This one rounded to whole dollars, so $9.50 read as $10. */
+export { money } from '../lib/api';
 
 export function shortDate(value: string | null): string {
   if (!value) return '—';

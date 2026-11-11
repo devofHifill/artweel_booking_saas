@@ -1,4 +1,6 @@
 import { imageUrls } from '../media/media.service';
+import { formatMoney } from '../../lib/money';
+import { formatPhone, telHref } from '../../lib/phone';
 import { config } from '../../config';
 import { clientScript } from './booking-page.client';
 import { tokensCss } from '../../lib/design-tokens';
@@ -55,13 +57,7 @@ export function escapeHtml(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
-function money(cents: number, currency: string): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-  }).format(cents / 100);
-}
+const money = formatMoney;
 
 function duration(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;
@@ -760,7 +756,7 @@ ${chrome ? chrome.header : ''}
       }
       ${
         organization.contactPhone
-          ? `<p><a href="tel:${escapeHtml(organization.contactPhone.replace(/[^+\d]/g, ''))}">${escapeHtml(organization.contactPhone)}</a></p>`
+          ? `<p><a href="tel:${escapeHtml(telHref(organization.contactPhone))}">${escapeHtml(formatPhone(organization.contactPhone))}</a></p>`
           : ''
       }
     </footer>`
@@ -776,7 +772,9 @@ window.__BOOKING__ = ${jsonForScript({
        the studio itself, not a dead end. The same details the footer shows. */
     studioName: organization.name,
     contactEmail: organization.contactEmail ?? null,
-    contactPhone: organization.contactPhone ?? null,
+    /* Read and linked the same way as everywhere else (lib/phone). */
+    contactPhone: organization.contactPhone ? formatPhone(organization.contactPhone) : null,
+    contactPhoneHref: organization.contactPhone ? telHref(organization.contactPhone) : null,
     /* The server refuses a booking without a phone when this is on; the page
        says so up front instead of the field claiming to be optional (FB-15). */
     requirePhone: organization.requirePhoneAtCheckout === true,

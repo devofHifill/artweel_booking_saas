@@ -3,6 +3,7 @@ import { config } from '../../config';
 import { logger } from '../../lib/logger';
 import { recordWorkerRun } from '../../lib/heartbeat';
 import { DeliveryError } from './provider';
+import { toE164 } from '../../lib/phone';
 import { getEmailProvider, getSmsProvider } from './registry';
 import { scheduleBookingNotifications } from './notification.service';
 
@@ -130,9 +131,15 @@ async function deliver(row: ClaimedRow, settings?: EmailSettings) {
     });
   }
 
+  /* Rows written before FB-17 hold the number as typed; Twilio takes E.164
+     only. A number that cannot be read is a permanent failure, not a retry. */
+  const to = toE164(row.destination);
+  if (!to) {
+    throw new DeliveryError(`Not a phone number that can receive texts: ${row.destination}`, true);
+  }
   const provider = getSmsProvider();
   return provider.send({
-    to: row.destination,
+    to,
     body: String(row.payload.body ?? ''),
   });
 }

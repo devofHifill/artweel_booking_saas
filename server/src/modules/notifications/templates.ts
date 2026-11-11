@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import { formatMoney } from '../../lib/money';
 
 /**
  * Built-in message templates.
@@ -267,12 +268,7 @@ export type BookingContext = {
 export function buildValues(ctx: BookingContext): Record<string, string> {
   const dt = DateTime.fromJSDate(ctx.startsAt, { zone: ctx.timezone });
 
-  const money = (cents: number) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: ctx.currency,
-      minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-    }).format(cents / 100);
+  const money = (cents: number) => formatMoney(cents, ctx.currency);
 
   // Assembled as whole lines so a template can drop them without leaving a
   // dangling label like "With:" on its own.

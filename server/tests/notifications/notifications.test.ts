@@ -214,6 +214,36 @@ describe('SMS consent', () => {
     expect(row.destination).toBe('+15550100');
   });
 
+  /* FB-17: Twilio takes E.164 only, and numbers are stored as typed. */
+  it('texts the international form of a number typed with brackets', async () => {
+    await book({
+      customer: { name: 'Ada', email: 'ada@student.test', phone: '(555) 010-2200' },
+      smsConsent: true,
+    });
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { channel: 'SMS', templateKey: 'booking.confirmed' },
+    });
+    expect(row.status).toBe('PENDING');
+    expect(row.destination).toBe('+15550102200');
+
+    await processBatch();
+    expect(sms.sent[0]!.to).toBe('+15550102200');
+  });
+
+  it('skips SMS to a number that cannot be texted, rather than failing', async () => {
+    await book({
+      customer: { name: 'Ada', email: 'ada@student.test', phone: '020 7946 0958' },
+      smsConsent: true,
+    });
+
+    const row = await prisma.notification.findFirstOrThrow({
+      where: { channel: 'SMS', templateKey: 'booking.confirmed' },
+    });
+    expect(row.status).toBe('SKIPPED');
+    expect((row.payload as { skipped?: string }).skipped).toBe('NO_DESTINATION');
+  });
+
   it('skips SMS with no number even when consent was ticked', async () => {
     await book({
       customer: { name: 'Ada', email: 'ada@student.test' },

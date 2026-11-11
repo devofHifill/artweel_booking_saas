@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatPhone } from '../lib/phone';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Modal } from './layout';
@@ -754,7 +755,7 @@ export function AddStaff({
                 {role.trim() && ` · ${role.trim()}`}
                 <br />
                 {email.trim()}
-                {phone.trim() && ` · ${phone.trim()}`}
+                {phone.trim() && ` · ${formatPhone(phone)}`}
               </dd>
               <dt>Teaches</dt>
               <dd>
