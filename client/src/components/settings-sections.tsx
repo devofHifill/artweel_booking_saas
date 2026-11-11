@@ -1137,7 +1137,7 @@ export function CurrencySection() {
         it is absent rather than assume they have missed a screen.
       */}
       <div className="alert" role="note">
-        <b>Tax is not calculated.</b> Nothing in Artweel adds tax to a price,
+        <b>Tax is not calculated.</b> Nothing in BookAIHub adds tax to a price,
         shows it on a receipt or reports it, so there is no rate to set here.
         Prices are what your customer pays. If you need tax handled, tell us —
         it affects every price and refund, so it is not a field we can quietly
@@ -1271,7 +1271,7 @@ export function LocalisationSection() {
  * The permissions table, READ ONLY.
  *
  * The prototype's is a grid of toggles with its own footnote admitting it is
- * "front-end simulation only". Artweel enforces four fixed roles in
+ * "front-end simulation only". BookAIHub enforces four fixed roles in
  * middleware, so toggles here would change nothing — an owner unticking
  * "Cancel booking" for the front desk would believe they had removed it.
  *

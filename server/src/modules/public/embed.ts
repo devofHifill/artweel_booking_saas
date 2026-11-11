@@ -64,7 +64,7 @@ const LOADER = `(function () {
   'use strict';
 
   var ORIGIN = '${config.PUBLIC_URL}';
-  var MOUNTED = 'artweelMounted';
+  var MOUNTED = 'bookaihubMounted';
 
   function mount(el) {
     // Pasting the snippet twice is a thing studios do. Mounting twice is not.
@@ -87,7 +87,7 @@ const LOADER = `(function () {
     iframe.style.height = (el.getAttribute('data-height') || '900') + 'px';
 
     el.appendChild(iframe);
-    el.__artweelFrame = iframe;
+    el.__bookaihubFrame = iframe;
   }
 
   function mountAll() {
@@ -101,14 +101,16 @@ const LOADER = `(function () {
     if (event.origin !== ORIGIN) return;
 
     var data = event.data;
-    if (!data || data.type !== 'artweel:height') return;
+    /* 'artweel:height' is the name before FB-18, still sent by a booking page
+       a browser has cached; both mean the same. */
+    if (!data || (data.type !== 'bookaihub:height' && data.type !== 'artweel:height')) return;
 
     var height = parseInt(data.height, 10);
     if (!height || height < 100 || height > 20000) return;
 
     var nodes = document.querySelectorAll('[data-studio]');
     for (var i = 0; i < nodes.length; i++) {
-      var frame = nodes[i].__artweelFrame;
+      var frame = nodes[i].__bookaihubFrame;
       if (frame && frame.contentWindow === event.source) {
         frame.style.height = height + 'px';
       }
@@ -191,7 +193,7 @@ export const EMBED_HEIGHT_SCRIPT = `(function () {
     // postMessage flood.
     if (Math.abs(height - last) < 8) return;
     last = height;
-    parent.postMessage({ type: 'artweel:height', height: height }, '*');
+    parent.postMessage({ type: 'bookaihub:height', height: height }, '*');
   }
 
   window.addEventListener('load', report);

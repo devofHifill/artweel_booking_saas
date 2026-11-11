@@ -25,7 +25,7 @@ import { ThemeToggle } from '../components/ThemeToggle';
 import { ChangePasswordDialog } from '../components/ChangePasswordDialog';
 
 /**
- * Artweel's own operator surface.
+ * BookAIHub's own operator surface.
  *
  * Rendered as a SEPARATE SHELL, not as extra links in the studio sidebar. Same
  * Vite bundle — a second build pipeline is not worth it for one operator — but no
@@ -119,7 +119,7 @@ export default function AdminApp() {
       className="admin"
       brand={
         <>
-          Artweel
+          BookAIHub
           <small>platform</small>
         </>
       }

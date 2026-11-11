@@ -20,7 +20,7 @@ import { PLANS, refreshPlans } from '../../src/modules/billing/plan';
 
 const actor = {
   actorUserId: '00000000-0000-4000-8000-000000000001',
-  actorEmail: 'ops@artweel.test',
+  actorEmail: 'ops@bookaihub.test',
   ip: null,
   userAgent: null,
 };

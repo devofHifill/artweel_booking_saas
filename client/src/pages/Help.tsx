@@ -74,7 +74,7 @@ export default function Help() {
           named there, with a link to the screen that fixes it.
         </p>
         <p className="sub">
-          For anything else, your studio owner can reach the Artweel team. There
+          For anything else, your studio owner can reach the BookAIHub team. There
           is no support desk inside the product yet.
         </p>
       </section>

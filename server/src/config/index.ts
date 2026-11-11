@@ -128,7 +128,11 @@ const EnvSchema = z.object({
    * than a string, so a typo fails at boot rather than silently rendering the
    * default.
    */
-  THEME_PACK: z.enum(['artweel', 'crisp']).default('artweel'),
+  /* 'artweel' is the pack's name before FB-18; an .env still saying it gets
+     the same (default) look rather than a failed start. */
+  THEME_PACK: z
+    .preprocess((v) => (v === 'artweel' ? 'bookaihub' : v), z.enum(['bookaihub', 'crisp']))
+    .default('bookaihub'),
 
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),

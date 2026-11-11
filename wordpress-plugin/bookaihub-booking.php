@@ -1,20 +1,20 @@
 <?php
 /**
- * Plugin Name:       Artweel Booking
- * Plugin URI:        https://artweel.fillforge.cloud
+ * Plugin Name:       BookAIHub Booking
+ * Plugin URI:        https://bookaihub.com
  * Description:       Embed your pottery studio's booking page on any WordPress page with a shortcode or block.
  * Version:           1.0.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
- * Text Domain:       artweel-booking
+ * Text Domain:       bookaihub-booking
  *
  * ---------------------------------------------------------------------------
  * This plugin contains NO booking logic, and that is the whole design.
  *
  * Everything — availability, seats, payment, cancellation — happens on the
- * Artweel side, inside an iframe. A WordPress plugin that reimplemented any of
+ * BookAIHub side, inside an iframe. A WordPress plugin that reimplemented any of
  * it would be a second copy of the concurrency rules running on somebody's
  * shared host, which is exactly the mistake the original WP Booking Flow
  * plugin made: seat counts read and written with no lock, on a platform where
@@ -30,8 +30,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ARTWEEL_VERSION', '1.0.0' );
-define( 'ARTWEEL_DEFAULT_ORIGIN', 'https://artweel.fillforge.cloud' );
+define( 'BOOKAIHUB_VERSION', '1.0.0' );
+define( 'BOOKAIHUB_DEFAULT_ORIGIN', 'https://bookaihub.com' );
 
 /**
  * Where the widget is loaded from.
@@ -39,14 +39,14 @@ define( 'ARTWEEL_DEFAULT_ORIGIN', 'https://artweel.fillforge.cloud' );
  * Overridable so a studio on a custom domain, or anyone running this against a
  * staging instance, does not need a forked plugin.
  */
-function artweel_origin() {
-	$origin = get_option( 'artweel_origin', ARTWEEL_DEFAULT_ORIGIN );
+function bookaihub_origin() {
+	$origin = get_option( 'bookaihub_origin', BOOKAIHUB_DEFAULT_ORIGIN );
 	$origin = untrailingslashit( trim( $origin ) );
 
 	// Refuse anything that is not a plain http(s) origin. A javascript: or
 	// data: URL here would become a script tag on every page of the site.
 	if ( ! preg_match( '#^https?://[A-Za-z0-9.\-]+(:\d+)?$#', $origin ) ) {
-		return ARTWEEL_DEFAULT_ORIGIN;
+		return BOOKAIHUB_DEFAULT_ORIGIN;
 	}
 
 	return $origin;
@@ -58,16 +58,16 @@ function artweel_origin() {
  * Not enqueued globally — only on pages that actually contain the shortcode or
  * block, so a site with one booking page does not ship this on every post.
  */
-function artweel_register_assets() {
+function bookaihub_register_assets() {
 	wp_register_script(
-		'artweel-embed',
-		artweel_origin() . '/embed.js',
+		'bookaihub-embed',
+		bookaihub_origin() . '/embed.js',
 		array(),
-		ARTWEEL_VERSION,
+		BOOKAIHUB_VERSION,
 		true
 	);
 }
-add_action( 'init', 'artweel_register_assets' );
+add_action( 'init', 'bookaihub_register_assets' );
 
 /**
  * Renders the embed.
@@ -75,14 +75,14 @@ add_action( 'init', 'artweel_register_assets' );
  * @param array $atts Shortcode or block attributes.
  * @return string HTML.
  */
-function artweel_render( $atts = array() ) {
+function bookaihub_render( $atts = array() ) {
 	$atts = shortcode_atts(
 		array(
-			'slug'   => get_option( 'artweel_slug', '' ),
+			'slug'   => get_option( 'bookaihub_slug', '' ),
 			'height' => '900',
 		),
 		$atts,
-		'artweel'
+		'bookaihub'
 	);
 
 	$slug = sanitize_title( $atts['slug'] );
@@ -92,13 +92,13 @@ function artweel_render( $atts = array() ) {
 		// set their slug should be told; their customers should not see it.
 		if ( current_user_can( 'edit_posts' ) ) {
 			return '<p><strong>' .
-				esc_html__( 'Artweel: set your studio address in Settings → Artweel Booking, or pass slug="your-studio".', 'artweel-booking' ) .
+				esc_html__( 'BookAIHub: set your studio address in Settings → BookAIHub Booking, or pass slug="your-studio".', 'bookaihub-booking' ) .
 				'</strong></p>';
 		}
 		return '';
 	}
 
-	wp_enqueue_script( 'artweel-embed' );
+	wp_enqueue_script( 'bookaihub-embed' );
 
 	$height = absint( $atts['height'] );
 	if ( $height < 200 || $height > 5000 ) {
@@ -106,12 +106,12 @@ function artweel_render( $atts = array() ) {
 	}
 
 	return sprintf(
-		'<div class="artweel-booking" data-studio="%s" data-height="%d"></div>',
+		'<div class="bookaihub-booking" data-studio="%s" data-height="%d"></div>',
 		esc_attr( $slug ),
 		$height
 	);
 }
-add_shortcode( 'artweel', 'artweel_render' );
+add_shortcode( 'bookaihub', 'bookaihub_render' );
 
 /**
  * The same thing as a block, so the editor is not a hostile place.
@@ -124,28 +124,28 @@ add_shortcode( 'artweel', 'artweel_render' );
  * built entirely from client-side registration, so without `block.js` the
  * block is invisible to the person trying to add it.
  */
-function artweel_register_block() {
+function bookaihub_register_block() {
 	if ( ! function_exists( 'register_block_type' ) ) {
 		return;
 	}
 
 	wp_register_script(
-		'artweel-block',
+		'bookaihub-block',
 		plugins_url( 'block.js', __FILE__ ),
 		array( 'wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n' ),
-		ARTWEEL_VERSION,
+		BOOKAIHUB_VERSION,
 		true
 	);
 
 	register_block_type(
-		'artweel/booking',
+		'bookaihub/booking',
 		array(
 			'api_version'     => 2,
-			'title'           => __( 'Artweel Booking', 'artweel-booking' ),
+			'title'           => __( 'BookAIHub Booking', 'bookaihub-booking' ),
 			'category'        => 'embed',
 			'icon'            => 'calendar-alt',
-			'description'     => __( "Your studio's booking page, embedded.", 'artweel-booking' ),
-			'editor_script'   => 'artweel-block',
+			'description'     => __( "Your studio's booking page, embedded.", 'bookaihub-booking' ),
+			'editor_script'   => 'bookaihub-block',
 			'attributes'      => array(
 				'slug'   => array(
 					'type'    => 'string',
@@ -156,68 +156,68 @@ function artweel_register_block() {
 					'default' => 900,
 				),
 			),
-			'render_callback' => 'artweel_render',
+			'render_callback' => 'bookaihub_render',
 		)
 	);
 }
-add_action( 'init', 'artweel_register_block' );
+add_action( 'init', 'bookaihub_register_block' );
 
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
 
-function artweel_settings_menu() {
+function bookaihub_settings_menu() {
 	add_options_page(
-		__( 'Artweel Booking', 'artweel-booking' ),
-		__( 'Artweel Booking', 'artweel-booking' ),
+		__( 'BookAIHub Booking', 'bookaihub-booking' ),
+		__( 'BookAIHub Booking', 'bookaihub-booking' ),
 		'manage_options',
-		'artweel-booking',
-		'artweel_settings_page'
+		'bookaihub-booking',
+		'bookaihub_settings_page'
 	);
 }
-add_action( 'admin_menu', 'artweel_settings_menu' );
+add_action( 'admin_menu', 'bookaihub_settings_menu' );
 
-function artweel_register_settings() {
+function bookaihub_register_settings() {
 	register_setting(
-		'artweel_booking',
-		'artweel_slug',
+		'bookaihub_booking',
+		'bookaihub_slug',
 		array( 'sanitize_callback' => 'sanitize_title' )
 	);
 	register_setting(
-		'artweel_booking',
-		'artweel_origin',
+		'bookaihub_booking',
+		'bookaihub_origin',
 		array( 'sanitize_callback' => 'esc_url_raw' )
 	);
 }
-add_action( 'admin_init', 'artweel_register_settings' );
+add_action( 'admin_init', 'bookaihub_register_settings' );
 
-function artweel_settings_page() {
+function bookaihub_settings_page() {
 	if ( ! current_user_can( 'manage_options' ) ) {
 		return;
 	}
 
-	$slug = get_option( 'artweel_slug', '' );
+	$slug = get_option( 'bookaihub_slug', '' );
 	?>
 	<div class="wrap">
-		<h1><?php esc_html_e( 'Artweel Booking', 'artweel-booking' ); ?></h1>
+		<h1><?php esc_html_e( 'BookAIHub Booking', 'bookaihub-booking' ); ?></h1>
 
 		<form action="options.php" method="post">
-			<?php settings_fields( 'artweel_booking' ); ?>
+			<?php settings_fields( 'bookaihub_booking' ); ?>
 
 			<table class="form-table" role="presentation">
 				<tr>
 					<th scope="row">
-						<label for="artweel_slug"><?php esc_html_e( 'Studio address', 'artweel-booking' ); ?></label>
+						<label for="bookaihub_slug"><?php esc_html_e( 'Studio address', 'bookaihub-booking' ); ?></label>
 					</th>
 					<td>
-						<input name="artweel_slug" id="artweel_slug" type="text"
+						<input name="bookaihub_slug" id="bookaihub_slug" type="text"
 							value="<?php echo esc_attr( $slug ); ?>" class="regular-text" />
 						<p class="description">
 							<?php
 							printf(
 								/* translators: %s: example booking page URL */
-								esc_html__( 'The last part of your booking page address. If it is %s, enter clay-and-co.', 'artweel-booking' ),
-								'<code>' . esc_html( artweel_origin() ) . '/public/clay-and-co</code>'
+								esc_html__( 'The last part of your booking page address. If it is %s, enter clay-and-co.', 'bookaihub-booking' ),
+								'<code>' . esc_html( bookaihub_origin() ) . '/public/clay-and-co</code>'
 							);
 							?>
 						</p>
@@ -225,14 +225,14 @@ function artweel_settings_page() {
 				</tr>
 				<tr>
 					<th scope="row">
-						<label for="artweel_origin"><?php esc_html_e( 'Artweel address', 'artweel-booking' ); ?></label>
+						<label for="bookaihub_origin"><?php esc_html_e( 'BookAIHub address', 'bookaihub-booking' ); ?></label>
 					</th>
 					<td>
-						<input name="artweel_origin" id="artweel_origin" type="url"
-							value="<?php echo esc_attr( get_option( 'artweel_origin', ARTWEEL_DEFAULT_ORIGIN ) ); ?>"
+						<input name="bookaihub_origin" id="bookaihub_origin" type="url"
+							value="<?php echo esc_attr( get_option( 'bookaihub_origin', BOOKAIHUB_DEFAULT_ORIGIN ) ); ?>"
 							class="regular-text" />
 						<p class="description">
-							<?php esc_html_e( 'Leave this alone unless you were told otherwise.', 'artweel-booking' ); ?>
+							<?php esc_html_e( 'Leave this alone unless you were told otherwise.', 'bookaihub-booking' ); ?>
 						</p>
 					</td>
 				</tr>
@@ -241,11 +241,11 @@ function artweel_settings_page() {
 			<?php submit_button(); ?>
 		</form>
 
-		<h2><?php esc_html_e( 'Putting it on a page', 'artweel-booking' ); ?></h2>
-		<p><?php esc_html_e( 'Add the Artweel Booking block, or paste this shortcode:', 'artweel-booking' ); ?></p>
-		<p><code>[artweel<?php echo $slug ? ' slug="' . esc_html( $slug ) . '"' : ''; ?>]</code></p>
+		<h2><?php esc_html_e( 'Putting it on a page', 'bookaihub-booking' ); ?></h2>
+		<p><?php esc_html_e( 'Add the BookAIHub Booking block, or paste this shortcode:', 'bookaihub-booking' ); ?></p>
+		<p><code>[bookaihub<?php echo $slug ? ' slug="' . esc_html( $slug ) . '"' : ''; ?>]</code></p>
 		<p class="description">
-			<?php esc_html_e( 'Nothing about your bookings is stored in WordPress. The booking page runs on Artweel, so it stays up to date on its own.', 'artweel-booking' ); ?>
+			<?php esc_html_e( 'Nothing about your bookings is stored in WordPress. The booking page runs on BookAIHub, so it stays up to date on its own.', 'bookaihub-booking' ); ?>
 		</p>
 	</div>
 	<?php

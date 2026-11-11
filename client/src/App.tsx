@@ -141,7 +141,7 @@ export default function App() {
    *    conditional can ever leak platform UI to a customer. The admin tree has
    *    its own shell entirely.
    *
-   * 2. An Artweel operator may belong to NO studio, which is the normal case for
+   * 2. An BookAIHub operator may belong to NO studio, which is the normal case for
    *    a staff account. Below this line, zero memberships means the "No studio
    *    yet" dead end — so branching after it would have made /admin unreachable
    *    for exactly the accounts that need it.
@@ -545,7 +545,7 @@ function SetupRoute() {
 }
 
 /**
- * "Somebody from Artweel is looking at your studio."
+ * "Somebody from BookAIHub is looking at your studio."
  *
  * Shown to the STUDIO while it is happening, not to the operator. A support
  * session is somebody reading a studio's customer list and bookings, and the
@@ -568,7 +568,7 @@ function SupportBanner({
     <>
       {sessions.map((session) => (
         <div key={session.id} className="alert warn support-banner" role="status">
-          <strong>Artweel support is viewing your studio.</strong>{' '}
+          <strong>BookAIHub support is viewing your studio.</strong>{' '}
           {session.by} — {session.reason}.{' '}
           {session.readOnly
             ? 'They can look, but cannot change anything.'

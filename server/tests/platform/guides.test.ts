@@ -33,7 +33,7 @@ beforeEach(async () => {
   await resetDb();
   resetRateLimits();
 
-  admin = await signUpStudio(app, { organizationName: 'Artweel HQ' });
+  admin = await signUpStudio(app, { organizationName: 'BookAIHub HQ' });
   owner = await signUpStudio(app, { organizationName: 'Clay Corner' });
   await grantPlatformAdmin({ email: admin.email });
 });

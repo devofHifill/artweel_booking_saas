@@ -795,5 +795,5 @@ function exportCsv(rows: PaymentRow[], timezone: string, range: string) {
 
   // Quoting, the BOM and the download all live in lib/csv now — this was one
   // of the two copies that made a third one worth refusing to write.
-  downloadCsv(`artweel-payments-${range}.csv`, out);
+  downloadCsv(`bookaihub-payments-${range}.csv`, out);
 }

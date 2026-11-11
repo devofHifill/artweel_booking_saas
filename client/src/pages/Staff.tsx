@@ -629,7 +629,7 @@ function NotBookable() {
  * One instructor, as a card.
  *
  * The prototype's card carries a guest rating; this one does not, because
- * Artweel has no reviews — nothing anywhere collects guest feedback, so any
+ * BookAIHub has no reviews — nothing anywhere collects guest feedback, so any
  * number in that slot would be invented and would read as earned. The two
  * tiles hold figures the product can actually stand behind, and the slot is
  * still there if ratings are ever built.

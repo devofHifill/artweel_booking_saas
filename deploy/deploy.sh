@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Deploy Artweel / BookAIHub to a VPS.
+# Deploy BookAIHub / BookAIHub to a VPS.
 #
 # Run it ON the box, from the project directory:
 #

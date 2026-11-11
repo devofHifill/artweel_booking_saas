@@ -83,7 +83,7 @@ export function createApp() {
   // inside this router, so no child module can forget them.
   app.use('/api/organizations/:organizationId', orgScopedRouter);
   /**
-   * Artweel's own operator surface, mounted deliberately OUTSIDE the two
+   * BookAIHub's own operator surface, mounted deliberately OUTSIDE the two
    * organization routers above so that nothing here inherits `withOrganization`.
    * These routes act on platform data and have no tenant to scope to; the
    * capability that does reach inside one studio is a support session, and that

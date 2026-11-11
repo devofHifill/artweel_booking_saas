@@ -71,7 +71,7 @@ describe('the loader script', () => {
 
     // Without this check any script on the host page could drive the iframe.
     expect(res.text).toContain('event.origin !== ORIGIN');
-    expect(res.text).toContain('artweel:height');
+    expect(res.text).toContain('bookaihub:height');
   });
 
   it('does not mount twice when a studio pastes the snippet twice', async () => {
@@ -103,7 +103,7 @@ describe('the booking page can be embedded', () => {
   it('reports its height to the host page so the frame can grow', async () => {
     const res = await request(app).get(`/public/${slug}/book`);
 
-    expect(res.text).toContain('artweel:height');
+    expect(res.text).toContain('bookaihub:height');
     // A fixed-height box with its own scrollbar is the sign of a cheap embed.
     expect(res.text).toContain('MutationObserver');
   });

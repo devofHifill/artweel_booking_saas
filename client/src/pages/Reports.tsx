@@ -842,7 +842,7 @@ function exportCsv(tab: string, data: Report, currency: string) {
     }
   }
 
-  downloadCsv(`artweel-${tab}-${data.range.days}d.csv`, rows);
+  downloadCsv(`bookaihub-${tab}-${data.range.days}d.csv`, rows);
 
   void currency;
 }

@@ -13,7 +13,7 @@ Plain HTML, CSS and vanilla JavaScript. No framework, no build tools, no backend
 
 Open `index.html` in a browser. That is the whole procedure — no npm, no server.
 
-Served from the Artweel host it lives at `/demo/tourflow/`.
+Served from the BookAIHub host it lives at `/demo/tourflow/`.
 
 | Entry point | What it is |
 | --- | --- |

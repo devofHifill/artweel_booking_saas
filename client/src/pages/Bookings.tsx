@@ -247,7 +247,7 @@ export default function Bookings() {
       ]);
     }
 
-    downloadCsv(`artweel-bookings-${todayIn(timezone)}.csv`, rows);
+    downloadCsv(`bookaihub-bookings-${todayIn(timezone)}.csv`, rows);
   }
 
   function clearFilters() {

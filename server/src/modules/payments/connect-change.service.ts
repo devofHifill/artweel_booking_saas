@@ -270,7 +270,7 @@ async function emailOwners(organizationId: string, studioName: string) {
       .send({
         to: user.email,
         subject: `${studioName} is now paid into your new Stripe account`,
-        fromName: 'Artweel',
+        fromName: 'BookAIHub',
         text: [
           `Hi ${user.name || 'there'},`,
           '',

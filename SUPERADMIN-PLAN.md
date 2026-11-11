@@ -1,6 +1,6 @@
 # Superadmin — implementation plan
 
-A platform-level operator surface for Artweel (FDG), so studios can be
+A platform-level operator surface for BookAIHub (FDG), so studios can be
 administered through the product rather than through `psql`.
 
 Scope is fixed the same way Phase 2's was: adjacent requests go to a later
@@ -206,7 +206,7 @@ which leaves two rows for one user, exactly one of them live.
 ## S1 — the platform gate (half a day)
 
 The foundation. Nothing else can be built until there is a way to say "this
-human is Artweel, not a studio".
+human is BookAIHub, not a studio".
 
 **Migration — `platform_admins`**
 
@@ -655,7 +655,7 @@ including a real suspend and unsuspend.
 
 **Branched in `App.tsx` ABOVE everything studio-related, and the reason matters
 more than expected.** Below that line, zero memberships renders the "No studio
-yet" dead end — and an Artweel operator legitimately belongs to no studio, which
+yet" dead end — and an BookAIHub operator legitimately belongs to no studio, which
 is the normal case for a staff account. Branching after the membership check
 would have made `/admin` unreachable for exactly the accounts that need it.
 
@@ -1144,9 +1144,9 @@ scales and that hosted services already do better. Ship logs to one of those.
    keep in view: cancelling the Stripe subscription is a manual step in the Stripe
    dashboard that a human has to remember, and the only thing reminding them is
    the warning on the studio detail screen.
-2. **Transparency.** Silent, notify-after, or owner-approval when Artweel looks
+2. **Transparency.** Silent, notify-after, or owner-approval when BookAIHub looks
    inside a studio? Notify-after — a line in the studio's own activity view,
-   "Artweel support viewed your bookings, reason: ticket #42" — costs almost
+   "BookAIHub support viewed your bookings, reason: ticket #42" — costs almost
    nothing and turns the feature into something you can advertise rather than
    something you would rather not be asked about.
 3. **Is it only ever you?** If yes, S1 stays one flag and one account. If a VA or

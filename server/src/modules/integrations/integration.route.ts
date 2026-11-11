@@ -10,7 +10,7 @@ import { getIntegrationStatus } from './integration.service';
  * needs the same picture for an arbitrary studio and two implementations of
  * "is their Stripe connected" would drift.
  *
- * Deliberately NOT included: worker heartbeats. They are Artweel's
+ * Deliberately NOT included: worker heartbeats. They are BookAIHub's
  * infrastructure, not the studio's integrations, and the platform health
  * endpoint is deliberately invisible to a studio owner — there is a test
  * asserting exactly that. A studio does not care whether our queue drains; it
