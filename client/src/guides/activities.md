@@ -54,7 +54,7 @@ Sign in, or start a new studio.
 **Settings → Localisation** and **Settings → Currency**. ⚠️ Do this **before** creating any activity or schedule.
 
 ### Step 5: Hide the example activities (optional)
-If you added the pottery examples, for each one you don't want: **Activities → open it → Status: Draft → Save**.
+If you added the pottery examples, for each one you don't want: **Activities → open it → Status: Hidden → Save**.
 
 ---
 
@@ -105,6 +105,14 @@ Then a few short steps. **Next** checks each step before moving on, and **Back**
 
 > **Nothing is lost if you close it.** Each step is saved as a draft. Drafts appear at the top of **Activities** with **Continue** and **Discard**. A draft is invisible to customers and doesn't hold anyone's time.
 
+Every activity has one of three statuses, shown on its card and in the table:
+
+| Status | What it means | Customers can book it? |
+|---|---|---|
+| **Draft** | Started in Create activity but not finished. Listed at the top of **Activities** | No |
+| **Hidden** | Saved, but not on your booking page | No |
+| **Published** | On your booking page | Yes |
+
 ### 9.1 An Event: four steps
 
 | Step | What you fill in |
@@ -129,7 +137,7 @@ Only three things are required: a **name**, at least one **weekday**, and an **a
 | **Look** | **Icon** and **Colour** for its card and calendar block |
 | **Policies** | **Cancellation policy**, **Minimum notice (minutes)**, **Bookable up to (days ahead)** |
 | **For customers** | **What is included** (one per line), **Before you come**, **Booking instructions** (sent after booking) |
-| **Review** | How it will look, and **Status**: **Active** or **Hidden**. Press **Publish** (or **Save as hidden**) |
+| **Review** | How it will look, and **Status**: **Published** or **Hidden**. Press **Publish** (or **Save as hidden**) |
 
 What the booking rules mean for a Class, which is booked once for the whole run:
 
@@ -139,7 +147,7 @@ What the booking rules mean for a Class, which is booked once for the whole run:
 | **Minimum guests** | The smallest party one booking can be (e.g. `2` for a parent-and-child class). Not the minimum class size |
 | **Minimum notice** | Booking closes this long before the **first** session. `0`: right up to the start |
 | **Bookable up to** | Booking opens this many days before the first session. **Blank: open as soon as you publish.** Until then the card says *Booking opens …* |
-| **Status: Hidden** | Saved, but not on the booking page and can't be booked. On Solo it doesn't use your one class until you switch it to Active |
+| **Status: Hidden** | Saved, but not on the booking page and can't be booked. On Solo it doesn't use your one class until you switch it to Published |
 
 On **Schedule**, the real dates appear as you type, for example:
 
@@ -186,7 +194,7 @@ On any Class or Event card, live or past, the **Duplicate** button (two sheets) 
 | **Instructor** | Every session still to run moves to them, and their time is blocked instead. Refused, naming the date, if they're already busy |
 | **Location** | Every session still to run moves there, clash-checked |
 | Cancellation policy, minimum notice, bookable up to | Applies from now on |
-| **Status** | Active or Hidden. On Solo, switching a hidden Class on needs your one class place free |
+| **Status** | Published or Hidden. On Solo, switching a hidden Class on needs your one class place free |
 | **Dates and times** | Can change **only while nobody has booked and it hasn't started**. Then the old dates are replaced by the new ones. Once someone has booked, the Schedule (or When) step shows them greyed out with the reason. To call one date off, cancel it from **Scheduled sessions** |
 
 **Type** can't change: a Class stays a Class and an Event stays an Event. Make a new one (or **Duplicate**) instead.
@@ -307,7 +315,7 @@ A course where everyone starts together and builds week on week.
 | Look | 🏺, the terracotta colour |
 | Policies | **Standard** policy, minimum notice `1440` (booking closes a day before), bookable up to blank |
 | For customers | `Clay, tools and glazes` / `Firing for your pieces`; before you come: `Short nails, closed shoes` |
-| Review | Status **Active**, then **Publish** |
+| Review | Status **Published**, then **Publish** |
 
 ### After publishing
 1. Optional, for an Event: **Edit** to add what's included, preparation notes, a deposit or a cancellation policy (Step 12). A Class asked for these in its steps.
@@ -322,7 +330,7 @@ A course where everyone starts together and builds week on week.
 | Action | When it's allowed | Effect |
 |---|---|---|
 | **Delete** | Only if the activity has **never had any booking or session**, whatever its status | Permanently removed. Can't be undone |
-| **Set Status: Draft** | Always | Hidden from the booking page and widget. Existing bookings are kept |
+| **Set Status: Hidden** | Always | Hidden from the booking page and widget. Existing bookings are kept |
 
 - Activities → trash icon → confirm to delete.
 - If it has any history you'll see: *"This service has bookings and cannot be deleted. Deactivate it instead…"*
@@ -363,7 +371,7 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Activity not on the booking page | Status is **Draft** | Set **Status: Active** |
+| Activity not on the booking page | Status is **Hidden**, or it is still a **Draft** at the top of Activities | Set **Status: Published**, or **Continue** the draft and publish it |
 | Activity listed but **no dates** | You have several locations and the sessions have **none** | In **Activities → Scheduled sessions**, each such session is flagged **Not on your booking page**. Pick its location there |
 | Card says **Not bookable: …** | What it names: no dates, nobody teaches it, no hours, or instructors not at that location | Use the button or link on the card |
 | No dates in the next day or two | **Minimum notice** hides them | Expected. Lower the minimum notice if needed |
@@ -378,6 +386,6 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 | "This class has to be paid for when you book it" | Stripe connected and pay on arrival is off | Complete payment, or enable **Allow pay on arrival** |
 | Can't add a second instructor | SOLO plan limit | Edit the existing one, or upgrade |
 | Can't pick a location | No location exists | **Settings → Locations → Add a location** |
-| Can't delete an activity | It has bookings or sessions | Set **Status: Draft** instead |
+| Can't delete an activity | It has bookings or sessions | Set **Status: Hidden** instead |
 | Widget area is blank | Wrong slug in `data-studio` | Copy the snippet again from **Booking Widget** |
 | Widget has a scrollbar / wrong height | Using a plain iframe | Use the snippet (it resizes itself), or raise the iframe height |

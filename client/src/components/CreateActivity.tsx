@@ -784,7 +784,7 @@ export function CreateActivity({
     try {
       if (kind === 'EVENT') {
         await api.post(`${base}/activities/events`, { ...common, date: answers.date });
-        onCreated(`${common.name} is on your booking page for ${shortDate(answers.date)}.`);
+        onCreated(`${common.name} is published: on your booking page for ${shortDate(answers.date)}.`);
       } else {
         await api.post(`${base}/activities/classes`, {
           ...common,
@@ -796,16 +796,20 @@ export function CreateActivity({
         });
         onCreated(
           answers.isActive
-            ? `${common.name} is on your booking page: ${answers.sessionCount} sessions from ${shortDate(
+            ? `${common.name} is published: ${answers.sessionCount} sessions from ${shortDate(
                 schedule?.dates[0] ?? answers.startDate,
               )}.`
-            : `${common.name} is saved as Hidden. Switch it to Active when you want it on your booking page.`,
+            : `${common.name} is saved as Hidden: not on your booking page. Switch it to Published from Activities when you are ready.`,
         );
       }
     } catch (err) {
       // The server's message is the useful one: it knows about clashes, plans
       // and dates that have passed.
-      setServerError(err instanceof Error ? err.message : 'Could not publish.');
+      /* Says what happened to the work, not only why it failed (FB-14): nothing
+         went live, and the answers are still a Draft above Activities. */
+      setServerError(
+        `${err instanceof Error ? err.message : 'Could not publish.'} Nothing was published; your answers are kept as a Draft.`,
+      );
       setBusy(false);
     }
   }
@@ -1607,7 +1611,7 @@ export function CreateActivity({
                 hint={
                   answers.isActive
                     ? 'Bookable on your booking page as soon as you publish.'
-                    : 'Saved but not on your booking page. Switch it to Active from Activities when you are ready.'
+                    : 'Saved but not on your booking page. Switch it to Published from Activities when you are ready.'
                 }
                 htmlFor="actStatus"
               >
@@ -1616,8 +1620,8 @@ export function CreateActivity({
                   value={answers.isActive ? 'active' : 'hidden'}
                   onChange={(e) => set('isActive', e.target.value === 'active')}
                 >
-                  <option value="active">Active</option>
-                  <option value="hidden">Hidden</option>
+                  <option value="active">Published: on your booking page</option>
+                  <option value="hidden">Hidden: saved, not on your page</option>
                 </select>
               </Field>
             )}
