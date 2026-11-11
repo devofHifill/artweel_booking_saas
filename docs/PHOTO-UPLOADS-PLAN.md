@@ -141,7 +141,7 @@ Originally planned:
     step, and the storefront "The team" section.
 14. Widget / embed: same images.
 
-### Phase 5 — crop — **built 2026-11-11, branch `feat/photo-crop`, not deployed**
+### Phase 5 — crop — **built 2026-11-11, deployed to live 2026-11-11 (PR #54)**
 
 As built: choosing a photo opens `CropDialog` (no library) in the shape it is
 shown in — 4:3 for activities, a square with a round mask for portraits.

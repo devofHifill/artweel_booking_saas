@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { FORMATS } from '../lib/booking-format';
 import { api, money, plusDays, todayIn } from '../lib/api';
 import {
   WEEKDAYS,
@@ -845,8 +846,10 @@ export function CreateActivity({
               <Icon name="calendar" size={22} />
             </span>
             <span className="kind-card-title">Class</span>
+            <span className="kind-card-format">Multi-session course</span>
             <span className="kind-card-text">
-              Runs over several weeks. Customers book once and come to every session.
+              Runs over several weeks. Customers book the whole series once and come to
+              every session. One price covers every session.
             </span>
             {classLimit && classLimit.max !== null && (
               <span className="kind-card-note">
@@ -872,8 +875,10 @@ export function CreateActivity({
               <Icon name="today" size={22} />
             </span>
             <span className="kind-card-title">Event</span>
+            <span className="kind-card-format">Single-session experience</span>
             <span className="kind-card-text">
-              One date. A workshop, a date night, a party. Customers book a seat.
+              One date. A workshop, a date night, a party. Customers book a seat on that
+              date, priced per seat.
             </span>
           </button>
         </div>
@@ -1003,15 +1008,22 @@ export function CreateActivity({
                 </Field>
                 <div className="form-row">
                   <Field
-                    label="Type"
-                    hint={
+                    label="Booking format"
+                    hint={`${FORMATS[kind].price}. ${
                       editing
-                        ? 'Set when it was made. A class cannot become an event, or the other way round.'
-                        : 'Chosen at the start. To make an Event instead, go back and pick it.'
-                    }
+                        ? 'Set when it was made: a class cannot become an event, or the other way round.'
+                        : kind === 'CLASS'
+                          ? 'Chosen at the start. To make an Event instead, go back and pick it.'
+                          : 'Chosen at the start. To make a Class instead, go back and pick it.'
+                    }`}
                     htmlFor="actType"
                   >
-                    <input id="actType" value={kind === 'CLASS' ? 'Class' : 'Event'} readOnly disabled />
+                    <input
+                      id="actType"
+                      value={kind === 'CLASS' ? 'Class — multi-session course' : 'Event — single session'}
+                      readOnly
+                      disabled
+                    />
                   </Field>
                   <Field
                     label="Category"
@@ -1525,7 +1537,9 @@ export function CreateActivity({
           <>
             <p className="muted">This is how it appears on your booking page.</p>
             <div className="review-card">
-              <div className="review-card-kind">{kind === 'CLASS' ? 'Class' : 'Event'}</div>
+              <div className="review-card-kind">
+                {kind === 'CLASS' ? 'Class · multi-session course' : 'Event · single session'}
+              </div>
               <h3>
                 {answers.emoji && <span aria-hidden="true">{answers.emoji} </span>}
                 {answers.name.trim()}

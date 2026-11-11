@@ -81,12 +81,12 @@ const MODES = [
   {
     value: 'EVENT',
     label: 'Group class',
-    help: 'Several people book seats on the same session. Wheel throwing, handbuilding.',
+    help: 'Several people book seats on the same session. Wheel throwing, handbuilding. Priced per seat.',
   },
   {
     value: 'APPOINTMENT',
     label: 'One to one',
-    help: 'A single person books time with an instructor. Private lessons.',
+    help: 'A single person books time with an instructor. Private lessons. Priced per booking.',
   },
 ] as const;
 
@@ -590,11 +590,11 @@ export function ServiceForm({
         </div>
 
         <div className="setting setting-stack">
-          <label htmlFor="svcMode">Type</label>
+          <label htmlFor="svcMode">Booking format</label>
           {/* A course's type is not a choice: switching it to a single class
               would strand its cohort and its enrolments. Shown, not offered. */}
           {bookingMode === 'COURSE_SERIES' ? (
-            <input id="svcMode" value="Course" readOnly disabled />
+            <input id="svcMode" value="Class — multi-session course" readOnly disabled />
           ) : (
             <select
               id="svcMode"
@@ -612,7 +612,7 @@ export function ServiceForm({
           )}
           <p className="tiny muted">
             {bookingMode === 'COURSE_SERIES'
-              ? 'Booked once for every week. Set when it was made.'
+              ? 'Customers book the whole series once; one price covers every session. Set when it was made.'
               : MODES.find((m) => m.value === bookingMode)?.help}
           </p>
         </div>
