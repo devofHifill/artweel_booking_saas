@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { api, mediaUrl, type UploadedImage } from '../lib/api';
+import { CropDialog, type CropBox } from './CropDialog';
 
 /**
  * A photo field (FB-11): choose, preview, replace, remove, describe.
@@ -8,6 +9,9 @@ import { api, mediaUrl, type UploadedImage } from '../lib/api';
  * processed photo (turned the right way up, resized) and the form only saves
  * a key. The key is not attached to anything until the form is saved; if the
  * form is abandoned the upload is simply never used.
+ *
+ * Before the upload, the photo opens in a crop dialog with the shape it will
+ * be shown in (phase 5); the server cuts the original with the chosen box.
  *
  * Alt text sits right under the photo and is required whenever there is
  * one — the server refuses a photo without it too.
@@ -35,17 +39,27 @@ export function ImagePicker({
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cropping, setCropping] = useState<File | null>(null);
+  const cancelCrop = useCallback(() => setCropping(null), []);
 
-  async function choose(file: File | undefined) {
+  function choose(file: File | undefined) {
+    if (input.current) input.current.value = '';
     if (!file) return;
     setError(null);
     if (file.size > 8 * 1024 * 1024) {
       setError('That photo is over 8 MB. Please choose a smaller one.');
       return;
     }
+    setCropping(file);
+  }
+
+  async function upload(file: File, crop: CropBox | null) {
+    setCropping(null);
     setBusy(true);
     try {
       const form = new FormData();
+      // Fields before the file, so the server has the crop when the file ends.
+      if (crop) form.append('crop', JSON.stringify(crop));
       form.append('file', file, file.name);
       const res = await api.upload<{ image: UploadedImage }>(`${base}/media`, form);
       onChange({ key: res.image.key, alt: value.alt });
@@ -53,7 +67,6 @@ export function ImagePicker({
       setError(err instanceof Error ? err.message : 'Could not upload that photo.');
     } finally {
       setBusy(false);
-      if (input.current) input.current.value = '';
     }
   }
 
@@ -80,7 +93,7 @@ export function ImagePicker({
             type="file"
             accept="image/jpeg,image/png,image/webp"
             hidden
-            onChange={(e) => void choose(e.target.files?.[0])}
+            onChange={(e) => choose(e.target.files?.[0])}
           />
           <button type="button" className="sm" disabled={busy} onClick={() => input.current?.click()}>
             {busy ? 'Uploading…' : value.key ? 'Replace photo' : 'Add a photo'}
@@ -99,6 +112,15 @@ export function ImagePicker({
       </div>
 
       {error && <p className="tiny err" role="alert">{error}</p>}
+
+      {cropping && (
+        <CropDialog
+          file={cropping}
+          shape={shape}
+          onCancel={cancelCrop}
+          onConfirm={(crop) => void upload(cropping, crop)}
+        />
+      )}
 
       {value.key && (
         <div className="setting setting-stack">

@@ -4,7 +4,7 @@ import { asyncHandler } from '../../lib/async-handler';
 import { AppError } from '../../lib/app-error';
 import { requireAdmin } from '../../middleware/authenticate';
 import { mediaStorage } from '../../lib/media/storage';
-import { MAX_UPLOAD_BYTES, removeImage, storeImage } from './media.service';
+import { MAX_UPLOAD_BYTES, parseCrop, removeImage, storeImage } from './media.service';
 
 /**
  * Mounted under /api/organizations/:organizationId/media, so authentication,
@@ -14,19 +14,20 @@ import { MAX_UPLOAD_BYTES, removeImage, storeImage } from './media.service';
 export const mediaRouter = Router({ mergeParams: true });
 
 /**
- * Reads exactly one file from a multipart body into memory.
+ * Reads exactly one file, plus the small text fields beside it (the crop
+ * box), from a multipart body into memory.
  *
  * Not express.json: that is capped at 100 kb for every other route, and a
  * photo is megabytes. busboy streams, and stops counting at the limit, so a
  * 2 GB upload costs us 8 MB of memory, not 2 GB.
  */
-function readOneFile(req: Request): Promise<Buffer> {
+function readOneFile(req: Request): Promise<{ file: Buffer; fields: Record<string, string> }> {
   return new Promise((resolve, reject) => {
     let parser: busboy.Busboy;
     try {
       parser = busboy({
         headers: req.headers,
-        limits: { files: 1, fileSize: MAX_UPLOAD_BYTES, fields: 5 },
+        limits: { files: 1, fileSize: MAX_UPLOAD_BYTES, fields: 5, fieldSize: 1024 },
       });
     } catch {
       reject(AppError.badRequest('Send the photo as a file upload (multipart/form-data).', 'MEDIA_FORM'));
@@ -35,6 +36,11 @@ function readOneFile(req: Request): Promise<Buffer> {
 
     let file: Buffer | null = null;
     let tooLarge = false;
+    const fields: Record<string, string> = {};
+
+    parser.on('field', (name, value) => {
+      fields[name] = value;
+    });
 
     parser.on('file', (_name, stream) => {
       const chunks: Buffer[] = [];
@@ -53,7 +59,7 @@ function readOneFile(req: Request): Promise<Buffer> {
       } else if (!file) {
         reject(AppError.badRequest('No photo was attached.', 'MEDIA_EMPTY'));
       } else {
-        resolve(file);
+        resolve({ file, fields });
       }
     });
 
@@ -65,8 +71,9 @@ mediaRouter.post(
   '/',
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const data = await readOneFile(req);
-    res.status(201).json({ image: await storeImage(req.tenant!.organizationId, data) });
+    const { file, fields } = await readOneFile(req);
+    const crop = parseCrop(fields.crop);
+    res.status(201).json({ image: await storeImage(req.tenant!.organizationId, file, undefined, crop) });
   }),
 );
 

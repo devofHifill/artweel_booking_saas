@@ -60,10 +60,67 @@ async function imagesIn(organizationId: string, storage: MediaStorage) {
   return new Set(names.map((n) => n.slice(0, 36))).size;
 }
 
+/**
+ * The part of the photo to keep (FB-11, phase 5), in pixels of the photo
+ * as it is SEEN — after its EXIF orientation is applied, which is how a
+ * browser shows it in the crop dialog and how sharp sees it after rotate().
+ */
+export type CropBox = { x: number; y: number; width: number; height: number };
+
+/**
+ * Parses the `crop` form field: JSON `{x, y, width, height}`. Absent → no
+ * crop. Anything else that is not four finite numbers is refused rather than
+ * ignored, so a broken client never silently stores the whole photo.
+ */
+export function parseCrop(raw: string | undefined): CropBox | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    value = null;
+  }
+  const v = value as Record<string, unknown> | null;
+  const keys = ['x', 'y', 'width', 'height'] as const;
+  if (!v || typeof v !== 'object' || !keys.every((k) => typeof v[k] === 'number' && Number.isFinite(v[k]))) {
+    throw AppError.badRequest('The crop could not be read. Please try again.', 'MEDIA_CROP');
+  }
+  return { x: v.x as number, y: v.y as number, width: v.width as number, height: v.height as number };
+}
+
+/**
+ * Turns a crop box into whole pixels inside a `width` × `height` photo.
+ * Rounding from the browser can land a pixel outside the edge, so up to two
+ * pixels over is pulled back in; more than that means the box was meant for
+ * another photo and is refused.
+ */
+export function fitCrop(crop: CropBox, width: number, height: number) {
+  const SLACK = 2;
+  if (
+    crop.width < 1 ||
+    crop.height < 1 ||
+    crop.x < -SLACK ||
+    crop.y < -SLACK ||
+    crop.x + crop.width > width + SLACK ||
+    crop.y + crop.height > height + SLACK
+  ) {
+    throw AppError.badRequest('The crop does not fit this photo. Please try again.', 'MEDIA_CROP');
+  }
+  const left = Math.min(Math.max(0, Math.round(crop.x)), width - 1);
+  const top = Math.min(Math.max(0, Math.round(crop.y)), height - 1);
+  return {
+    left,
+    top,
+    width: Math.max(1, Math.min(Math.round(crop.width), width - left)),
+    height: Math.max(1, Math.min(Math.round(crop.height), height - top)),
+  };
+}
+
 export async function storeImage(
   organizationId: string,
   data: Buffer,
   storage: MediaStorage = mediaStorage,
+  crop?: CropBox,
 ): Promise<StoredImage> {
   if (data.length === 0) throw AppError.badRequest('That file is empty.', 'MEDIA_EMPTY');
   if (data.length > MAX_UPLOAD_BYTES) {
@@ -93,6 +150,12 @@ export async function storeImage(
     );
   }
 
+  // EXIF orientations 5–8 turn the photo a quarter turn, swapping its sides.
+  const turned = (meta.orientation ?? 1) >= 5;
+  const seenWidth = (turned ? meta.height : meta.width) ?? 0;
+  const seenHeight = (turned ? meta.width : meta.height) ?? 0;
+  const region = crop ? fitCrop(crop, seenWidth, seenHeight) : undefined;
+
   const id = randomUUID();
   let width = 0;
   let height = 0;
@@ -100,8 +163,11 @@ export async function storeImage(
   for (const target of WIDTHS) {
     // rotate() with no angle applies the EXIF orientation; sharp drops all
     // metadata on output unless asked to keep it, which is the point.
-    const { data: out, info } = await sharp(data, { failOn: 'error' })
-      .rotate()
+    // Order matters: turn first, so the crop box (taken from the photo as
+    // seen) lands on the same pixels; then cut; then shrink.
+    let pipeline = sharp(data, { failOn: 'error' }).rotate();
+    if (region) pipeline = pipeline.extract(region);
+    const { data: out, info } = await pipeline
       .resize({ width: target, withoutEnlargement: true })
       .webp({ quality: 80 })
       .toBuffer({ resolveWithObject: true });

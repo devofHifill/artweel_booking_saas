@@ -364,3 +364,66 @@ describe('a portrait on a staff member', () => {
     expect(await mediaStorage.list(studio.organizationId)).toEqual([]);
   });
 });
+
+describe('cropping on upload (phase 5)', () => {
+  function uploadCropped(data: Buffer, crop: unknown) {
+    return request(app)
+      .post(`${studio.base}/media`)
+      .set(studio.headers)
+      .field('crop', typeof crop === 'string' ? crop : JSON.stringify(crop))
+      .attach('file', data, 'photo.jpg');
+  }
+
+  async function storedSize(key: string, width: 400 | 1200) {
+    const [, orgId, imageId] = key.split('/');
+    const res = await request(app).get(`/public/_media/org/${orgId}/${imageId}-${width}.webp`).buffer(true)
+      .parse((r, cb) => {
+        const chunks: Buffer[] = [];
+        r.on('data', (c: Buffer) => chunks.push(c));
+        r.on('end', () => cb(null, Buffer.concat(chunks)));
+      });
+    expect(res.status).toBe(200);
+    return sharp(res.body as Buffer).metadata();
+  }
+
+  it('keeps only the chosen part of the photo', async () => {
+    // A 1600×1200 photo cropped to a centred 600×600 square.
+    const res = await uploadCropped(await phonePhoto(), { x: 500, y: 300, width: 600, height: 600 });
+    expect(res.status).toBe(201);
+    expect(res.body.image.width).toBe(600);
+    expect(res.body.image.height).toBe(600);
+    const small = await storedSize(res.body.image.key, 400);
+    expect([small.width, small.height]).toEqual([400, 400]);
+  });
+
+  it('cuts the photo as it is seen, after turning a sideways phone photo upright', async () => {
+    // Stored 1600×1200 with EXIF orientation 6 (turn 90°): seen as 1200×1600.
+    const sideways = await sharp({
+      create: { width: 1600, height: 1200, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toBuffer();
+    const res = await uploadCropped(sideways, { x: 0, y: 400, width: 1200, height: 900 });
+    expect(res.status).toBe(201);
+    expect([res.body.image.width, res.body.image.height]).toEqual([1200, 900]);
+  });
+
+  it('pulls a box that rounds a pixel past the edge back inside', async () => {
+    const res = await uploadCropped(await phonePhoto(), { x: 0.4, y: 0, width: 1600.6, height: 1200.9 });
+    expect(res.status).toBe(201);
+    expect([res.body.image.width, res.body.image.height]).toEqual([1200, 900]);
+  });
+
+  it.each([
+    ['not JSON', 'nope'],
+    ['missing a side', { x: 0, y: 0, width: 100 }],
+    ['outside the photo', { x: 1500, y: 0, width: 400, height: 300 }],
+    ['empty', { x: 0, y: 0, width: 0, height: 10 }],
+  ])('refuses a crop that is %s, and stores nothing', async (_label, crop) => {
+    const res = await uploadCropped(await phonePhoto(), crop);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('MEDIA_CROP');
+    expect(await mediaStorage.list(studio.organizationId)).toEqual([]);
+  });
+});
