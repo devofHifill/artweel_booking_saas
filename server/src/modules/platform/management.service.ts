@@ -228,6 +228,7 @@ export async function getPlansOverview() {
       blurb: plan.blurb,
       maxStaff: plan.maxStaff,
       maxLocations: plan.maxLocations,
+      maxStudios: plan.maxStudios,
       studios: total.get(id) ?? 0,
       payingStudios: payingCount,
       mrrCents: mrrByPlan.get(id) ?? 0,
@@ -274,6 +275,12 @@ export async function getPlansOverview() {
         real: true,
       },
       {
+        boundary: 'Studio limit reached',
+        behaviour:
+          'New studios cannot join the plan (sign-ups for Solo, plan changes onto it); studios already on it stay',
+        real: true,
+      },
+      {
         boundary: 'Trial expired',
         behaviour: 'Suspended: the booking page stops taking new bookings',
         real: true,
@@ -292,7 +299,7 @@ export async function getPlansOverview() {
       },
     ],
     editable: true,
-    editableFields: ['priceCentsMonthly', 'maxStaff', 'maxLocations'],
+    editableFields: ['priceCentsMonthly', 'maxStaff', 'maxLocations', 'maxStudios'],
     /* Features are not editable: a toggle for a flag nothing reads would be a
        control that does nothing. See FEATURE_ENFORCED. */
     featuresEditable: false,
@@ -363,6 +370,7 @@ export type PlanSettingsPatch = {
   priceCentsMonthly?: number;
   maxStaff?: number | null;
   maxLocations?: number | null;
+  maxStudios?: number | null;
 };
 
 /**
@@ -409,6 +417,7 @@ export async function updatePlanSettings(
           ...(patch.maxLocations !== undefined
             ? { maxLocations: patch.maxLocations }
             : {}),
+          ...(patch.maxStudios !== undefined ? { maxStudios: patch.maxStudios } : {}),
         },
       });
 
@@ -418,11 +427,13 @@ export async function updatePlanSettings(
             priceCentsMonthly: before.priceCentsMonthly,
             maxStaff: before.maxStaff,
             maxLocations: before.maxLocations,
+            maxStudios: before.maxStudios,
           },
           after: {
             priceCentsMonthly: after.priceCentsMonthly,
             maxStaff: after.maxStaff,
             maxLocations: after.maxLocations,
+            maxStudios: after.maxStudios,
           },
         },
       });

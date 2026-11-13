@@ -1,5 +1,6 @@
 import { Prisma, type MembershipRole } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { requireStudioRoom } from '../billing/plan';
 import { AppError } from '../../lib/app-error';
 import { config } from '../../config';
 import { TRIAL_DAYS } from '../billing/billing.service';
@@ -51,6 +52,9 @@ export async function createOrganization(
   input: { name: string; timezone?: string; currency?: string },
 ) {
   const slug = await uniqueSlug(slugify(input.name));
+
+  // New studios start on Solo; a full Solo plan (Admin > Plans) takes none.
+  requireStudioRoom('SOLO', await prisma.organization.count({ where: { plan: 'SOLO' } }));
 
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const organization = await tx.organization.create({

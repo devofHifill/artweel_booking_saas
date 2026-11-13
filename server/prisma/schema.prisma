@@ -2845,6 +2845,9 @@ model PlanSetting {
   /// null means unlimited, matching the constant this replaced.
   maxStaff          Int? @map("max_staff")
   maxLocations      Int? @map("max_locations")
+  /// Most studios allowed on the plan; null means unlimited. New arrivals
+  /// only: studios already on it stay when a cap is lowered.
+  maxStudios        Int? @map("max_studios")
 
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

@@ -714,14 +714,17 @@ platformRouter.patch(
         priceCentsMonthly: z.number().int().min(0).max(1_000_000).optional(),
         maxStaff: z.number().int().min(1).max(10_000).nullable().optional(),
         maxLocations: z.number().int().min(1).max(10_000).nullable().optional(),
+        /* 0 closes a plan to new studios; null is unlimited. */
+        maxStudios: z.number().int().min(0).max(1_000_000).nullable().optional(),
         reason: z.string().trim().min(3).max(500),
       })
       .refine(
         (b) =>
           b.priceCentsMonthly !== undefined ||
           b.maxStaff !== undefined ||
-          b.maxLocations !== undefined,
-        'Change at least one of price, instructors or locations.',
+          b.maxLocations !== undefined ||
+          b.maxStudios !== undefined,
+        'Change at least one of price, instructors, locations or studios.',
       ),
   ),
   asyncHandler(async (req, res) => {

@@ -26,6 +26,12 @@ export type PlanDefinition = {
    * A constant, not a `plan_settings` column: refreshPlans() leaves it alone.
    */
   maxClasses: number | null;
+  /**
+   * Most studios allowed on the plan, set on Admin > Plans. null means
+   * unlimited. Only new arrivals are checked (see requireStudioRoom): a cap
+   * lowered below the current count moves nobody off.
+   */
+  maxStudios: number | null;
   mobileBookings: boolean;
   smsReminders: boolean;
   courseSeries: boolean;
@@ -60,6 +66,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     maxStaff: 1,
     maxLocations: 1,
     maxClasses: 1,
+    maxStudios: null,
     mobileBookings: false,
     smsReminders: false,
     courseSeries: false,
@@ -74,6 +81,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     maxStaff: 5,
     maxLocations: 3,
     maxClasses: null,
+    maxStudios: null,
     mobileBookings: true,
     smsReminders: true,
     courseSeries: true,
@@ -89,6 +97,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     maxStaff: null,
     maxLocations: null,
     maxClasses: null,
+    maxStudios: null,
     mobileBookings: true,
     smsReminders: true,
     courseSeries: true,
@@ -185,6 +194,24 @@ export function requireCapacity(
   );
 }
 
+/**
+ * Refuses a studio arriving on a plan that is full (Admin > Plans, "Studios
+ * on plan"). `onPlan` is how many studios are on it now, not counting the one
+ * arriving. Studios already on the plan are never checked, so lowering a cap
+ * moves nobody off.
+ */
+export function requireStudioRoom(plan: PlanId, onPlan: number) {
+  const limit = PLANS[plan].maxStudios;
+  if (limit === null || onPlan < limit) return;
+
+  throw new AppError(
+    `The ${PLANS[plan].name} plan is not taking new studios at the moment. ` +
+      'Choose another plan, or contact us.',
+    409,
+    'PLAN_FULL',
+  );
+}
+
 function nextPlanWithMoreStaff(plan: PlanId): PlanDefinition {
   if (plan === 'SOLO') return PLANS.STUDIO;
   return PLANS.PRO;
@@ -248,6 +275,7 @@ export async function refreshPlans(): Promise<void> {
       plan.priceCentsMonthly = row.priceCentsMonthly;
       plan.maxStaff = row.maxStaff;
       plan.maxLocations = row.maxLocations;
+      plan.maxStudios = row.maxStudios;
     }
   } catch (err) {
     const { logger } = await import('../../lib/logger');

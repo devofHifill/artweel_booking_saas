@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { requireStudioRoom } from '../billing/plan';
 import { AppError } from '../../lib/app-error';
 import { logger } from '../../lib/logger';
 import { hashPassword, needsRehash, verifyPassword } from '../../lib/password';
@@ -84,6 +85,12 @@ export async function register(input: RegisterInput) {
   const slug = input.organizationName
     ? await uniqueSlug(slugify(input.organizationName))
     : null;
+
+  /* New studios start on Solo; a full Solo plan (Admin > Plans) takes no
+     sign-ups. Checked before the user is made, so a refusal leaves nothing. */
+  if (input.organizationName) {
+    requireStudioRoom('SOLO', await prisma.organization.count({ where: { plan: 'SOLO' } }));
+  }
 
   const { user, organization } = await prisma.$transaction(
     async (tx: Prisma.TransactionClient) => {

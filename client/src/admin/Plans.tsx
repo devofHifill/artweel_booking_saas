@@ -11,6 +11,8 @@ type PlanRow = {
   blurb: string;
   maxStaff: number | null;
   maxLocations: number | null;
+  /** Most studios allowed on the plan; null is unlimited. */
+  maxStudios: number | null;
   studios: number;
   payingStudios: number;
   mrrCents: number;
@@ -46,12 +48,13 @@ type PlansOverview = {
 };
 
 /** A card's editable fields, as typed. Empty string means unlimited. */
-type Draft = { price: string; staff: string; locations: string };
+type Draft = { price: string; staff: string; locations: string; studios: string };
 
 const draftOf = (p: PlanRow): Draft => ({
   price: String(p.priceCentsMonthly / 100),
   staff: p.maxStaff === null ? '' : String(p.maxStaff),
   locations: p.maxLocations === null ? '' : String(p.maxLocations),
+  studios: p.maxStudios === null ? '' : String(p.maxStudios),
 });
 
 /**
@@ -103,7 +106,8 @@ export function PlatformPlans() {
     return (
       d.price !== base.price ||
       d.staff !== base.staff ||
-      d.locations !== base.locations
+      d.locations !== base.locations ||
+      d.studios !== base.studios
     );
   });
 
@@ -119,6 +123,7 @@ export function PlatformPlans() {
           priceCentsMonthly: Math.round(Number(d.price) * 100),
           maxStaff: d.staff === '' ? null : Number(d.staff),
           maxLocations: d.locations === '' ? null : Number(d.locations),
+          maxStudios: d.studios === '' ? null : Number(d.studios),
           reason: reason.trim(),
         });
       }
@@ -213,8 +218,30 @@ export function PlatformPlans() {
                     aria-label={`${plan.name} location limit`}
                   />
                 </dd>
+                {/* A cap on new arrivals, with the count beside it: the count
+                    itself only changes as studios join or move. */}
                 <dt>Studios on plan</dt>
-                <dd>{plan.studios}</dd>
+                <dd className="plan-studios">
+                  <input
+                    type="number"
+                    min={0}
+                    value={d.studios}
+                    placeholder="Unlimited"
+                    onChange={(e) => set({ studios: e.target.value })}
+                    aria-label={`${plan.name} most studios allowed`}
+                    title="The most studios allowed on this plan. Blank means unlimited."
+                  />
+                  <span
+                    className={
+                      d.studios !== '' && plan.studios >= Number(d.studios)
+                        ? 'sub plan-full'
+                        : 'sub'
+                    }
+                  >
+                    {plan.studios} now
+                    {d.studios !== '' && plan.studios >= Number(d.studios) ? ' · full' : ''}
+                  </span>
+                </dd>
                 <dt>Paying</dt>
                 <dd>{plan.payingStudios}</dd>
                 <dt>MRR</dt>
@@ -238,7 +265,9 @@ export function PlatformPlans() {
                 ))}
               </ul>
               <p className="sub plan-features-note">
-                A blank limit means unlimited. Features are set in code.
+                A blank limit means unlimited. A full plan takes no new studios
+                {plan.id === 'SOLO' ? ' (new sign-ups start on Solo, so this stops sign-ups)' : ''};
+                studios already on it stay. Features are set in code.
               </p>
             </div>
           );
@@ -378,6 +407,7 @@ function describeChange(changes: unknown): string {
     priceCentsMonthly: 'price',
     maxStaff: 'instructors',
     maxLocations: 'locations',
+    maxStudios: 'studios',
   };
 
   const parts: string[] = [];

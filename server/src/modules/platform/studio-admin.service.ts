@@ -2,7 +2,7 @@ import type { Plan } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
 import { logger } from '../../lib/logger';
-import { PLANS } from '../billing/plan';
+import { PLANS, requireStudioRoom, type PlanId } from '../billing/plan';
 import { withAudit, type AuditEntry } from './audit.service';
 import { getPaymentProvider } from '../payments/provider.registry';
 import { connectStatusUpdate } from '../payments/payment.service';
@@ -135,6 +135,16 @@ export async function setPlan(
   opts: { comp: boolean; reason: string },
 ) {
   await requireStudio(organizationId);
+
+  /* A move onto a full plan is refused (Admin > Plans, "Studios on plan").
+     Re-saving the plan a studio is already on is not a move. */
+  const current = await prisma.organization.findUniqueOrThrow({
+    where: { id: organizationId },
+    select: { plan: true },
+  });
+  if (current.plan !== plan) {
+    requireStudioRoom(plan as PlanId, await prisma.organization.count({ where: { plan } }));
+  }
 
   return withAudit(
     {

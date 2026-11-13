@@ -4532,6 +4532,10 @@ code.path {
 .plan-limits dd input { width: 12ch; text-align: right; border: 1px solid transparent; border-radius: 6px; padding: 1px 5px; background: transparent; color: var(--ink); font: inherit; font-weight: 600; }
 .plan-limits dd input:hover { border-color: var(--line); }
 .plan-limits dd input:focus { border-color: var(--clay); background: var(--card); outline: none; }
+/* Studios on plan: the cap's box with the live count under it. */
+.plan-limits dd.plan-studios { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.plan-limits dd.plan-studios .sub { font-weight: 400; font-size: var(--text-xs); }
+.plan-limits dd.plan-studios .plan-full { color: var(--warn); font-weight: 600; }
 .plan-features-note { margin-top: var(--space-3); font-size: var(--text-xs); }
 
 .plan-save { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-5); flex-wrap: wrap; border-color: var(--clay); }
