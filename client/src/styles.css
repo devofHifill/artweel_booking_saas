@@ -4877,3 +4877,7 @@ button.link.danger-text { color: var(--danger); }
 .cat-head { overflow: hidden; }
 .cat-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cat-head .cat-pins { z-index: 1; }
+
+/* Delete activity dialog: what goes with it. */
+.delete-impact { margin: 4px 0 10px; padding-left: 20px; }
+.delete-impact li { margin: 2px 0; }

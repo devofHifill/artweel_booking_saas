@@ -16,6 +16,7 @@ import {
   StatusPill,
 } from '../components/layout';
 import { Icon } from '../components/Icon';
+import { DeleteActivityDialog } from '../components/DeleteActivityDialog';
 import { EmptyState } from '../components/states';
 import { ServiceForm, type ServiceDraft } from '../components/ServiceForm';
 import {
@@ -326,31 +327,14 @@ export default function Classes() {
   }
 
   /**
-   * Deleting a class, which usually means deactivating it.
-   *
-   * The server refuses to delete anything with a booking or a session against
-   * it and says to deactivate instead — a booking references the service that
-   * produced it, and removing the row would orphan a customer's receipt. That
-   * refusal is the common case, so it is shown as guidance rather than an
-   * error the owner has to decode.
+   * Deleting an activity permanently, with its sessions and past bookings.
+   * DeleteActivityDialog says what goes with it and asks for the name; the
+   * server refuses while anyone has an upcoming booking.
    */
-  async function remove(svc: ServiceOption) {
-    if (
-      !window.confirm(
-        `Delete "${svc.name}"? This cannot be undone. If it has ever been ` +
-          'booked, switch it off instead — its history has to stay.',
-      )
-    ) {
-      return;
-    }
-
-    try {
-      await api.del(`${base}/services/${svc.id}`);
-      await loadServices();
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not delete.');
-    }
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const closeDelete = useCallback(() => setDeletingId(null), []);
+  function remove(svc: ServiceOption) {
+    setDeletingId(svc.id);
   }
 
   /** The catalogue editor — now for EDITING only; creating is CreateActivity. */
@@ -934,6 +918,20 @@ export default function Classes() {
         that said "any refund is yours to issue" and then told nobody. It now
         says what will happen to each of them, and asks about the money.
       */}
+      {deletingId && (
+        <DeleteActivityDialog
+          base={base}
+          serviceId={deletingId}
+          onClose={closeDelete}
+          onDeleted={() => {
+            setDeletingId(null);
+            setError(null);
+            void loadServices();
+            void load();
+          }}
+        />
+      )}
+
       {cancelling && (
         <Modal
           title={`Cancel ${cancelling.serviceType.name}?`}
@@ -1335,7 +1333,7 @@ export default function Classes() {
                               className="icon-btn danger"
                               title={`Delete ${svc.name}`}
                               aria-label={`Delete ${svc.name}`}
-                              onClick={() => void remove(svc)}
+                              onClick={() => remove(svc)}
                             >
                               <Icon name="trash" size={15} />
                             </button>

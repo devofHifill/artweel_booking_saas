@@ -131,6 +131,17 @@ serviceRouter.patch(
   }),
 );
 
+/** What a delete would remove, for the confirm dialog. */
+serviceRouter.get(
+  '/:serviceId/deletion',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    res.json({
+      impact: await service.getDeletionImpact(req.tenant!.organizationId, id(req, 'serviceId')),
+    });
+  }),
+);
+
 serviceRouter.delete(
   '/:serviceId',
   requireAdmin,

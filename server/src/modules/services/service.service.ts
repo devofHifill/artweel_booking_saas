@@ -548,12 +548,55 @@ async function syncClassSeries(serviceTypeId: string, input: Record<string, unkn
   }
 }
 
+/** A booking someone still expects to turn up to. */
+const upcomingBooking = (serviceTypeId: string, now: Date) => ({
+  serviceTypeId,
+  status: { in: ['PENDING', 'CONFIRMED'] as ('PENDING' | 'CONFIRMED')[] },
+  startsAt: { gt: now },
+});
+
 /**
- * Removes a service, but only when it has no history.
+ * What deleting an activity would take with it, for the confirm dialog.
  *
- * Once a single booking exists the record is part of the studio's financial
- * record and must survive. The caller is told to deactivate instead, which is
- * what they almost always meant.
+ * `upcomingBookings` above zero means the delete will be refused: those
+ * customers have to be cancelled (and refunded) through the normal flow first.
+ */
+export async function getDeletionImpact(organizationId: string, id: string) {
+  const service = await prisma.serviceType.findFirst({
+    where: { id, organizationId },
+    select: { id: true, name: true },
+  });
+  if (!service) throw AppError.notFound('Service not found.');
+
+  const now = new Date();
+  const [sessions, bookings, upcomingBookings, enrollments, payments] = await Promise.all([
+    prisma.session.count({ where: { serviceTypeId: id } }),
+    prisma.booking.count({ where: { serviceTypeId: id } }),
+    prisma.booking.count({ where: upcomingBooking(id, now) }),
+    prisma.enrollment.count({ where: { courseSeries: { serviceTypeId: id } } }),
+    prisma.payment.count({
+      where: {
+        OR: [
+          { booking: { serviceTypeId: id } },
+          { enrollment: { courseSeries: { serviceTypeId: id } } },
+        ],
+      },
+    }),
+  ]);
+
+  return { id: service.id, name: service.name, sessions, bookings, upcomingBookings, enrollments, payments };
+}
+
+/**
+ * Permanently removes an activity and everything scheduled under it: its
+ * sessions, bookings, courses and enrollments (the database cascades them).
+ *
+ * Refused while anyone has an upcoming pending or confirmed booking. Those go
+ * through the normal cancel flow first, which tells the customer and refunds
+ * them; deleting would do neither. Past bookings go with the activity.
+ *
+ * Payment rows are kept: their link to the booking is cleared, not the row,
+ * so the studio's money record survives.
  */
 export async function deleteService(organizationId: string, id: string) {
   const service = await prisma.serviceType.findFirst({
@@ -561,18 +604,20 @@ export async function deleteService(organizationId: string, id: string) {
   });
   if (!service) throw AppError.notFound('Service not found.');
 
-  const bookings = await prisma.booking.count({ where: { serviceTypeId: id } });
-  const sessions = await prisma.session.count({ where: { serviceTypeId: id } });
+  await prisma.$transaction(async (tx) => {
+    // Checked in the same transaction as the delete, so a booking made a
+    // moment earlier is still caught.
+    const upcoming = await tx.booking.count({ where: upcomingBooking(id, new Date()) });
+    if (upcoming > 0) {
+      throw AppError.conflict(
+        `"${service.name}" has ${upcoming} upcoming booking${upcoming === 1 ? '' : 's'}. ` +
+          'Cancel them first, so those customers are told and refunded, then delete it.',
+        'ACTIVITY_HAS_UPCOMING_BOOKINGS',
+      );
+    }
+    await tx.serviceType.delete({ where: { id } });
+  });
 
-  if (bookings > 0 || sessions > 0) {
-    throw AppError.conflict(
-      'This service has bookings and cannot be deleted. Deactivate it instead ' +
-        'so it disappears from the booking page but its history is kept.',
-      'SERVICE_IN_USE',
-    );
-  }
-
-  await prisma.serviceType.delete({ where: { id } });
   await releaseImageIfUnused(organizationId, service.imageKey);
   return { deleted: true };
 }
