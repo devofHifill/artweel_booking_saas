@@ -2,7 +2,7 @@ import { prisma } from '../../lib/prisma';
 import { config } from '../../config';
 import { logger } from '../../lib/logger';
 import { AppError } from '../../lib/app-error';
-import { PLANS, canWrite, type PlanId } from './plan';
+import { PLANS, canWrite, requireStudioRoom, type PlanId } from './plan';
 
 /**
  * Our own subscription — what the studio pays us.
@@ -188,6 +188,12 @@ export async function createSubscriptionCheckout(
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
   });
+
+  /* Before Stripe, so nobody pays for a plan that is full (Admin > Plans).
+     Staying on the plan you are on is not a move. */
+  if (org.plan !== planId) {
+    requireStudioRoom(planId, await prisma.organization.count({ where: { plan: planId } }));
+  }
 
   const stripe = await billingStripe();
 
