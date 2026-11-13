@@ -221,9 +221,8 @@ describe('deletion protection', () => {
     expect(res.status).toBe(204);
   });
 
-  it('refuses to delete a service with bookings and suggests deactivating', async () => {
-    // A booking is part of the studio's financial record. Deleting the service
-    // it came from would orphan a customer's receipt.
+  it('deletes a service with sessions but no upcoming bookings, sessions and all', async () => {
+    // The fuller cases (bookings, payments, refusal) are in delete-activity.test.ts.
     const created = await request(app)
       .post(`${studio.base}/services`)
       .set(studio.headers)
@@ -244,9 +243,8 @@ describe('deletion protection', () => {
       .delete(`${studio.base}/services/${created.body.service.id}`)
       .set(studio.headers);
 
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('SERVICE_IN_USE');
-    expect(res.body.error.message).toContain('Deactivate');
+    expect(res.status).toBe(204);
+    expect(await prisma.session.count({ where: { serviceTypeId: created.body.service.id } })).toBe(0);
   });
 });
 
