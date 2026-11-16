@@ -13,7 +13,7 @@ import { resolveLocal, type ResolutionKind } from '../../scheduling/time/zoned';
 import {
   fromRepeatRule,
   groupTimes,
-  planClassDates,
+  planClassRuns,
   repeatMatcher,
   toRepeatRule,
   type RepeatPattern,
@@ -310,17 +310,30 @@ type PlannedSession = {
 type PlannedGroup = {
   startTime: string;
   endTime: string;
-  /** "6:00am", on the cohort as its label when there is more than one group. */
-  label: string;
+  /**
+   * Tells the groups apart on cards, the Manifest and the desk form: the time
+   * ("6:00pm") when there are several times, the run's first date ("23 Nov")
+   * when there are several runs, both ("23 Nov · 6:00pm") when both. Null for
+   * a Class of one run at one time.
+   */
+  label: string | null;
   planned: PlannedSession[];
 };
 
+/** Every session a Class may make across all its groups (runs x times x sessions). */
+const MAX_CLASS_SESSIONS = 600;
+
+/** "23 Nov" for a calendar date. */
+function dayMonth(localDate: string): string {
+  return DateTime.fromISO(localDate, { zone: 'UTC' }).toFormat('d LLL');
+}
+
 /**
- * A Class's sessions as instants, one list per time group: the calendar dates
- * from `planClassDates`, each group's start and end re-resolved against the
- * studio's zone, so 6pm stays 6pm across a daylight-saving change. Every
- * group runs on the same dates (REPEAT-PLAN.md, part 2). Shared by
- * publishing, editing and the preview.
+ * A Class's sessions as instants, one list per group — one group per run and
+ * time: the calendar dates from `planClassRuns` (back-to-back runs over the
+ * range, or one run), each time re-resolved against the studio's zone, so 6pm
+ * stays 6pm across a daylight-saving change. Shared by publishing, editing
+ * and the preview (REPEAT-PLAN.md, parts 2 and 4).
  */
 function classGroups(
   input: Pick<
@@ -336,13 +349,14 @@ function classGroups(
     | 'groups'
     | 'bufferMinutes'
     | 'startTimes'
+    | 'rangeEnd'
   >,
   timezone: string,
 ) {
-  let plan;
+  let runs;
   let times;
   try {
-    plan = planClassDates(input);
+    runs = planClassRuns(input);
     times = groupTimes(input);
   } catch (err) {
     throw AppError.badRequest(
@@ -351,30 +365,57 @@ function classGroups(
     );
   }
 
-  const groups: PlannedGroup[] = times.map((t) => {
-    const startMinute = minutesOf(t.startTime);
-    const endMinute = minutesOf(t.endTime);
-    return {
-      ...t,
-      planned: plan.dates.map((localDate, index) => {
-        const start = resolveLocal(localDate, startMinute, timezone);
-        const end = resolveLocal(localDate, endMinute, timezone);
-        return {
-          seriesIndex: index + 1,
-          localDate,
-          startsAt: start.instant,
-          endsAt: end.instant,
-          resolution: start.kind,
-        };
-      }),
-    };
-  });
+  const several = { runs: runs.runs.length > 1, times: times.length > 1 };
+  if (runs.runs.length * times.length * input.sessionCount > MAX_CLASS_SESSIONS) {
+    throw AppError.badRequest(
+      `That is ${runs.runs.length * times.length * input.sessionCount} sessions in all; a class can have up to ${MAX_CLASS_SESSIONS}. Shorten the dates or remove a time.`,
+      'INVALID_SCHEDULE',
+    );
+  }
+
+  const groups: PlannedGroup[] = runs.runs.flatMap((run) =>
+    times.map((t) => {
+      const startMinute = minutesOf(t.startTime);
+      const endMinute = minutesOf(t.endTime);
+      const day = dayMonth(run.dates[0]!);
+      return {
+        startTime: t.startTime,
+        endTime: t.endTime,
+        label:
+          several.runs && several.times
+            ? `${day} · ${t.label}`
+            : several.runs
+              ? day
+              : several.times
+                ? t.label
+                : null,
+        planned: run.dates.map((localDate, index) => {
+          const start = resolveLocal(localDate, startMinute, timezone);
+          const end = resolveLocal(localDate, endMinute, timezone);
+          return {
+            seriesIndex: index + 1,
+            localDate,
+            startsAt: start.instant,
+            endsAt: end.instant,
+            resolution: start.kind,
+          };
+        }),
+      };
+    }),
+  );
 
   /** Every group's sessions, soonest first: what clash checks and edits compare. */
   const all = groups
     .flatMap((g) => g.planned)
     .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
 
+  const last = runs.runs[runs.runs.length - 1]!;
+  const plan = {
+    skipped: runs.skipped,
+    endDate: last.endDate,
+    leftOver: runs.leftOver,
+    runCount: runs.runs.length,
+  };
   return { plan, groups, all };
 }
 
@@ -457,7 +498,7 @@ export async function createClass(organizationId: string, input: CreateClassInpu
           organizationId,
           serviceTypeId: service.id,
           name: input.name,
-          cohortLabel: groups.length > 1 ? group.label : null,
+          cohortLabel: group.label,
           description: input.description,
           sessionCount: input.sessionCount,
           capacity: input.seats,
@@ -518,6 +559,8 @@ export async function createClass(organizationId: string, input: CreateClassInpu
       groups: made,
       skipped: plan.skipped,
       endDate: plan.endDate,
+      runs: plan.runCount,
+      leftOver: plan.leftOver,
     };
   });
 }
@@ -628,16 +671,25 @@ export async function getActivityAnswers(organizationId: string, id: string) {
     select: { timezone: true },
   });
   const tz = org.timezone;
-  /* With several time groups, the first group's sessions carry the dates and
-     times the steps show; the others follow from the group count and buffer. */
+  /*
+    A Class's groups are its runs x its times (REPEAT-PLAN.md, part 4). The
+    earliest group carries the dates and time the steps show; the other times
+    are its "more times", and the other runs follow from the date range.
+  */
   const ofGroup = (seriesId: string | undefined) =>
     seriesId ? service.sessions.filter((x) => x.courseSeriesId === seriesId) : service.sessions;
-  const firstGroup = ofGroup(series?.id);
+  const groupSessions = (seriesList.length ? seriesList : [null])
+    .map((cohort) => ofGroup(cohort?.id))
+    .filter((xs) => xs.length > 0)
+    .sort((a, b) => a[0]!.startsAt.getTime() - b[0]!.startsAt.getTime());
+  const firstGroup = groupSessions[0] ?? [];
   const first = firstGroup[0];
   const last = firstGroup[firstGroup.length - 1];
-  const secondStart = seriesList[1] ? ofGroup(seriesList[1].id)[0]?.startsAt : undefined;
   const start = first ? localParts(first.startsAt, tz) : null;
   const end = first ? localParts(first.endsAt, tz) : null;
+  /** The cohort whose sessions are the first group's: its rule is the Class's. */
+  const firstCohort =
+    seriesList.find((c) => first && ofGroup(c.id)[0]?.id === first.id) ?? series;
 
   const schedule: Record<string, unknown> = {};
   if (service.kind === 'EVENT') {
@@ -646,42 +698,54 @@ export async function getActivityAnswers(organizationId: string, id: string) {
     const days = firstGroup.map((x) => localParts(x.startsAt, tz));
     /* The stored rule says how it repeats. A Class made before repeat has
        none, and is weekly on the days its sessions fall. */
-    const pattern: RepeatPattern = fromRepeatRule(series?.repeatRule) ?? {
+    const pattern: RepeatPattern = fromRepeatRule(firstCohort?.repeatRule) ?? {
       repeat: 'WEEKLY',
       weekdays: WEEK_ORDER.filter((d) => days.some((x) => x.weekday === d)) as Weekday[],
     };
-    /* Skipped dates: the ones the pattern passes through between the first
-       and last session with no session on them — a holiday the studio
-       unticked, or one it later cancelled. */
+
+    // Runs: the groups' distinct date lists. More than one is a date range.
+    const datesOf = (xs: typeof firstGroup) => xs.map((x) => localParts(x.startsAt, tz).date);
+    const runKeys = [...new Set(groupSessions.map((xs) => datesOf(xs).join(',')))];
+    const allHeld = new Set(groupSessions.flatMap(datesOf));
+    const lastOfAll = [...allHeld].sort().at(-1)!;
+    const rangeEnd = runKeys.length > 1 ? lastOfAll : null;
+
+    /* Skipped dates: the ones the pattern passes through, from the first
+       session to the last of the last run, with no session on them — a
+       holiday the studio unticked, or one it later cancelled. */
     const matches = repeatMatcher(pattern, start.date);
-    const held = new Set(days.map((x) => x.date));
-    const lastDate = localParts(last.startsAt, tz).date;
+    const until = rangeEnd ?? localParts(last.startsAt, tz).date;
     const skipDates: string[] = [];
     for (
       let d = DateTime.fromISO(start.date, { zone: 'UTC' });
-      d.toISODate()! <= lastDate;
+      d.toISODate()! <= until;
       d = d.plus({ days: 1 })
     ) {
       const iso = d.toISODate()!;
-      if (matches(d) && !held.has(iso)) skipDates.push(iso);
+      if (matches(d) && !allHeld.has(iso)) skipDates.push(iso);
     }
+
+    // Times: each group's start, earliest first, without repeats across runs.
+    const startTimes = [
+      ...new Set(groupSessions.map((xs) => localParts(xs[0]!.startsAt, tz).time)),
+    ].sort();
+    const length = (last.endsAt.getTime() - last.startsAt.getTime()) / 60_000;
+    const toMinutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+
     Object.assign(schedule, {
       startDate: start.date,
+      rangeEnd,
       repeat: pattern.repeat ?? 'WEEKLY',
       monthlyBy: pattern.monthlyBy ?? 'WEEKDAY',
       weekdays: pattern.weekdays,
       sessionCount: firstGroup.length,
       skipDates,
-      groups: Math.max(1, seriesList.length),
-      // Each group's start, earliest first: what the steps show as its times.
-      startTimes: (seriesList.length ? seriesList : [null])
-        .map((cohort) => ofGroup(cohort?.id)[0])
-        .filter((x): x is NonNullable<typeof x> => Boolean(x))
-        .map((x) => localParts(x.startsAt, tz).time)
-        .sort(),
+      startTimes,
+      // The older fields, for anything still reading them.
+      groups: startTimes.length,
       bufferMinutes:
-        secondStart && first
-          ? Math.max(0, Math.round((secondStart.getTime() - first.endsAt.getTime()) / 60_000))
+        startTimes.length > 1
+          ? Math.max(0, toMinutes(startTimes[1]!) - toMinutes(startTimes[0]!) - length)
           : 0,
     });
   }
@@ -802,22 +866,74 @@ export async function editActivity(
     planned = made.all;
     groups = made.groups;
   }
-  const datesChanged = !sameDates(planned, service.sessions);
-  if (datesChanged) {
-    if (booked || started) {
-      throw AppError.conflict(
-        booked
-          ? 'People have booked, so the dates and times cannot change. To call one date off, cancel it from Scheduled sessions.'
-          : 'It has started, so the dates and times cannot change.',
-        'DATES_LOCKED',
-      );
+
+  /*
+    A Class is matched group by group (REPEAT-PLAN.md, part 4): a cohort whose
+    sessions are exactly a wanted group's is KEPT as it is; the wanted groups
+    nobody has yet are ADDED; the cohorts no group wants any more are DROPPED.
+    Only a dropped cohort that somebody booked, or that has started, stops
+    the save — so a booked run stays put while runs are added beside it, and
+    an unbooked one can still move. An Event keeps its one-date rule.
+  */
+  const signature = (xs: { startsAt: Date; endsAt: Date }[]) =>
+    xs.map((x) => `${x.startsAt.getTime()}-${x.endsAt.getTime()}`).join(',');
+  const sessionsOf = (seriesId: string) =>
+    service.sessions.filter((x) => x.courseSeriesId === seriesId);
+  const existingBySignature = new Map(seriesList.map((c) => [signature(sessionsOf(c.id)), c]));
+  const kept = new Map<number, (typeof seriesList)[number]>();
+  const added: number[] = [];
+  if (kind === 'CLASS') {
+    groups.forEach((g, i) => {
+      const match = existingBySignature.get(signature(g.planned));
+      if (match && ![...kept.values()].includes(match)) kept.set(i, match);
+      else added.push(i);
+    });
+  }
+  const keptIds = new Set([...kept.values()].map((c) => c.id));
+  const dropped = seriesList.filter((c) => !keptIds.has(c.id));
+
+  const datesChanged =
+    kind === 'EVENT' ? !sameDates(planned, service.sessions) : added.length > 0 || dropped.length > 0;
+
+  if (datesChanged && kind === 'EVENT' && (booked || started)) {
+    throw AppError.conflict(
+      booked
+        ? 'People have booked, so the dates and times cannot change. To call one date off, cancel it from Scheduled sessions.'
+        : 'It has started, so the dates and times cannot change.',
+      'DATES_LOCKED',
+    );
+  }
+  if (kind === 'CLASS' && dropped.length) {
+    const enrolled = new Set(
+      (
+        await prisma.enrollment.findMany({
+          where: { courseSeriesId: { in: dropped.map((c) => c.id) }, status: 'ACTIVE' },
+          select: { courseSeriesId: true },
+        })
+      ).map((e) => e.courseSeriesId),
+    );
+    for (const cohort of dropped) {
+      const own = sessionsOf(cohort.id);
+      const isBooked = enrolled.has(cohort.id) || own.some((x) => x.seatsTaken > 0);
+      const hasStarted = own.some((x) => x.startsAt <= now);
+      if (isBooked || hasStarted) {
+        const from = own[0] ? dayMonth(localParts(own[0].startsAt, tz).date) : 'the first date';
+        throw AppError.conflict(
+          isBooked
+            ? `The run from ${from} has bookings, so its dates and times stay as they are. Add new runs after it instead.`
+            : `The run from ${from} has started, so its dates and times stay as they are.`,
+          'DATES_LOCKED',
+        );
+      }
     }
-    if (planned[0]!.startsAt <= now) {
-      throw AppError.badRequest(
-        'The first date has already passed. Choose a later one.',
-        'DATE_IN_PAST',
-      );
-    }
+  }
+  const newDates =
+    kind === 'EVENT' ? planned : added.flatMap((i) => groups[i]!.planned);
+  if (datesChanged && newDates.some((x) => x.startsAt <= now)) {
+    throw AppError.badRequest(
+      'A new date has already passed. Choose a later one.',
+      'DATE_IN_PAST',
+    );
   }
 
   // --- Seats: never below what is sold on any session still to run --------
@@ -837,23 +953,25 @@ export async function editActivity(
   const slug =
     input.name !== service.name ? await slugFor(organizationId, input.name, id) : service.slug;
 
-  const whoOrWhereChanged = upcoming.some(
+  // The sessions that stay: an Event's when its date holds, a Class's kept runs.
+  const staying =
+    kind === 'EVENT'
+      ? datesChanged
+        ? []
+        : upcoming
+      : upcoming.filter((x) => x.courseSeriesId && keptIds.has(x.courseSeriesId));
+  const whoOrWhereChanged = staying.some(
     (x) => x.staffId !== staffId || x.locationId !== locationId,
   );
-  const firstStart =
-    (datesChanged ? planned[0]!.startsAt : service.sessions[0]?.startsAt) ?? null;
+  const firstStart = (datesChanged ? planned[0]!.startsAt : service.sessions[0]?.startsAt) ?? null;
   const notice = input.minNoticeMinutes ?? 0;
 
   const result = await inTransaction(async (tx) => {
     // Clashes on the dates it will run, ignoring its own sessions.
     if (datesChanged || whoOrWhereChanged) {
-      const dates = datesChanged
-        ? planned
-        : upcoming.map((x) => ({
-            localDate: localParts(x.startsAt, tz).date,
-            startsAt: x.startsAt,
-            endsAt: x.endsAt,
-          }));
+      const dates = (kind === 'EVENT' ? planned : planned.filter((x) => x.startsAt > now)).map(
+        (x) => ({ localDate: x.localDate, startsAt: x.startsAt, endsAt: x.endsAt }),
+      );
       await assertNoClashes(tx, organizationId, tz, dates, {
         staffId,
         locationId,
@@ -900,7 +1018,7 @@ export async function editActivity(
     await tx.staffService.deleteMany({ where: { serviceTypeId: id } });
     if (staffId) await tx.staffService.create({ data: { serviceTypeId: id, staffId } });
 
-    /* Its cohorts (a Class), one per time group: what the booking page and
+    /* Its cohorts (a Class), one per group: what the booking page and
        checkout read. Each group's booking deadline counts from its own first
        session. */
     const cohortData = (firstOfGroup: Date | null | undefined) => ({
@@ -915,112 +1033,132 @@ export async function editActivity(
         notice > 0 && firstOfGroup ? new Date(firstOfGroup.getTime() - notice * 60_000) : null,
     });
 
-    if (datesChanged) {
-      // Nobody has booked: the old dates go, the new ones are made.
-      const old = service.sessions.map((x) => x.id);
-      await tx.staffTimeBlock.deleteMany({ where: { sessionId: { in: old } } });
-      await tx.resourceAllocation.deleteMany({ where: { sessionId: { in: old } } });
-      await tx.session.updateMany({ where: { id: { in: old } }, data: { status: 'CANCELLED' } });
-
-      // An Event's one date, or each group of a Class into its cohort.
-      const runs: { seriesId: string | null; startTime: string; dates: typeof planned }[] =
-        kind === 'EVENT'
-          ? [{ seriesId: null, startTime: input.startTime, dates: planned }]
-          : [];
-      if (kind === 'CLASS') {
-        const answers = input as CreateClassInput;
-        for (const [g, group] of groups.entries()) {
-          /* The cohorts keep their ids where they can (links to a Class's
-             page stay good); a group added gets a new one. */
-          const existing = seriesList[g];
-          const data = {
-            ...cohortData(group.planned[0]?.startsAt),
-            cohortLabel: groups.length > 1 ? group.label : null,
-            sessionCount: group.planned.length,
-          };
-          const seriesId = existing
-            ? (
-                await tx.courseSeries.update({
-                  where: { id: existing.id },
-                  data: { ...data, ...classRepeatUpdate(answers, existing, true) },
-                })
-              ).id
-            : (
-                await tx.courseSeries.create({
-                  data: {
-                    ...data,
-                    organizationId,
-                    serviceTypeId: id,
-                    timezone: tz,
-                    repeatRule: toRepeatRule(answers, answers.startDate),
-                    allowLateEnrollment: answers.repeat !== 'WEEKLY',
-                    status: 'PUBLISHED',
-                  },
-                })
-              ).id;
-          runs.push({ seriesId, startTime: group.startTime, dates: group.planned });
-        }
-        // A group taken away: nobody had booked it, so it simply ends.
-        const extra = seriesList.slice(groups.length).map((x) => x.id);
-        if (extra.length) {
-          await tx.courseSeries.updateMany({
-            where: { id: { in: extra } },
-            data: { status: 'CANCELLED' },
-          });
-        }
+    /** Cancels sessions that are going, freeing the instructor's time. */
+    const cancelSessions = async (ids: string[]) => {
+      if (!ids.length) return;
+      await tx.staffTimeBlock.deleteMany({ where: { sessionId: { in: ids } } });
+      await tx.resourceAllocation.deleteMany({ where: { sessionId: { in: ids } } });
+      await tx.session.updateMany({ where: { id: { in: ids } }, data: { status: 'CANCELLED' } });
+    };
+    const makeSessions = async (
+      seriesId: string | null,
+      startTime: string,
+      dates: { startsAt: Date; endsAt: Date; seriesIndex: number }[],
+    ) => {
+      for (const date of dates) {
+        await insertSession(tx, {
+          organizationId,
+          serviceTypeId: id,
+          ...(seriesId ? { courseSeriesId: seriesId, seriesIndex: date.seriesIndex } : {}),
+          startsAt: date.startsAt,
+          endsAt: date.endsAt,
+          timezone: tz,
+          localStartTime: startTime,
+          capacity: input.seats,
+          staffId,
+          locationId,
+          lat: location?.lat ?? null,
+          lng: location?.lng ?? null,
+        });
       }
+    };
 
-      for (const run of runs) {
-        for (const date of run.dates) {
-          await insertSession(tx, {
-            organizationId,
-            serviceTypeId: id,
-            ...(run.seriesId ? { courseSeriesId: run.seriesId, seriesIndex: date.seriesIndex } : {}),
-            startsAt: date.startsAt,
-            endsAt: date.endsAt,
-            timezone: tz,
-            localStartTime: run.startTime,
-            capacity: input.seats,
-            staffId,
-            locationId,
-            lat: location?.lat ?? null,
-            lng: location?.lng ?? null,
-          });
-        }
+    if (kind === 'EVENT') {
+      if (datesChanged) {
+        // Nobody has booked: the old date goes, the new one is made.
+        await cancelSessions(service.sessions.map((x) => x.id));
+        await makeSessions(null, input.startTime, planned);
       }
     } else {
-      for (const cohort of seriesList) {
-        const firstOfGroup = service.sessions.find((x) => x.courseSeriesId === cohort.id)?.startsAt;
+      const answers = input as CreateClassInput;
+
+      // Kept runs: same dates, so only their details and label follow.
+      for (const [i, cohort] of kept) {
         await tx.courseSeries.update({
           where: { id: cohort.id },
           data: {
-            ...cohortData(firstOfGroup),
-            ...(kind === 'CLASS'
-              ? classRepeatUpdate(input as CreateClassInput, cohort, false)
-              : {}),
+            ...cohortData(groups[i]!.planned[0]?.startsAt),
+            cohortLabel: groups[i]!.label,
+            ...classRepeatUpdate(answers, cohort, false),
           },
         });
       }
-      // Same dates: seats, instructor and place reach every session to come.
-      const ids = upcoming.map((x) => x.id);
+
+      /* Added runs reuse a dropped cohort where there is one (nobody booked
+         it, or the save would have stopped above), so links to a one-run
+         Class's page stay good; otherwise a new cohort is made. */
+      const recycle = [...dropped];
+      for (const i of added) {
+        const group = groups[i]!;
+        const data = {
+          ...cohortData(group.planned[0]?.startsAt),
+          cohortLabel: group.label,
+          sessionCount: group.planned.length,
+        };
+        const reuse = recycle.shift();
+        let seriesId: string;
+        if (reuse) {
+          await cancelSessions(sessionsOf(reuse.id).map((x) => x.id));
+          seriesId = (
+            await tx.courseSeries.update({
+              where: { id: reuse.id },
+              data: { ...data, ...classRepeatUpdate(answers, reuse, true) },
+            })
+          ).id;
+        } else {
+          seriesId = (
+            await tx.courseSeries.create({
+              data: {
+                ...data,
+                organizationId,
+                serviceTypeId: id,
+                timezone: tz,
+                repeatRule: toRepeatRule(answers, answers.startDate),
+                allowLateEnrollment: answers.repeat !== 'WEEKLY',
+                status: 'PUBLISHED',
+              },
+            })
+          ).id;
+        }
+        await makeSessions(seriesId, group.startTime, group.planned);
+      }
+
+      // Runs no longer wanted (and not reused): nobody booked them, so they end.
+      for (const cohort of recycle) {
+        await cancelSessions(sessionsOf(cohort.id).map((x) => x.id));
+        await tx.courseSeries.update({ where: { id: cohort.id }, data: { status: 'CANCELLED' } });
+      }
+    }
+
+    // What stays: seats, instructor and place reach every session to come.
+    const ids = staying.map((x) => x.id);
+    if (ids.length) {
       await tx.session.updateMany({
         where: { id: { in: ids } },
         data: { capacity: input.seats, staffId, locationId },
       });
-      if (whoOrWhereChanged) {
-        await tx.staffTimeBlock.deleteMany({ where: { sessionId: { in: ids } } });
-        if (staffId) {
-          for (const x of upcoming) {
-            await tx.$executeRaw`
-              INSERT INTO staff_time_blocks
-                (id, organization_id, staff_id, session_id, starts_at, ends_at,
-                 lat, lng, source, created_at)
-              VALUES
-                (gen_random_uuid(), ${organizationId}::uuid, ${staffId}::uuid,
-                 ${x.id}::uuid, ${x.startsAt}, ${x.endsAt},
-                 ${location?.lat ?? null}, ${location?.lng ?? null}, 'session', now())
-            `;
-          }
+    }
+    if (kind === 'EVENT' && !datesChanged) {
+      for (const cohort of seriesList) {
+        await tx.courseSeries.update({
+          where: { id: cohort.id },
+          data: cohortData(sessionsOf(cohort.id)[0]?.startsAt),
+        });
+      }
+    }
+    if (whoOrWhereChanged) {
+      await tx.staffTimeBlock.deleteMany({ where: { sessionId: { in: ids } } });
+      if (staffId) {
+        for (const x of staying) {
+          await tx.$executeRaw`
+            INSERT INTO staff_time_blocks
+              (id, organization_id, staff_id, session_id, starts_at, ends_at,
+               lat, lng, source, created_at)
+            VALUES
+              (gen_random_uuid(), ${organizationId}::uuid, ${staffId}::uuid,
+               ${x.id}::uuid, ${x.startsAt}, ${x.endsAt},
+               ${location?.lat ?? null}, ${location?.lng ?? null}, 'session', now())
+          `;
         }
       }
     }

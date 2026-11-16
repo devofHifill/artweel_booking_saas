@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import {
   MAX_GROUPS,
-  MAX_MONTHLY_SESSIONS,
   MONTHLY_BY,
   REPEATS,
   WEEKDAYS,
@@ -121,6 +120,12 @@ const repeatFields = {
    * then ignored.
    */
   startTimes: z.array(localTime).max(MAX_GROUPS).optional(),
+  /**
+   * The end of a date range (REPEAT-PLAN.md, part 4): runs of the same
+   * pattern back to back from the start date, while a full run fits.
+   * Left out: one run.
+   */
+  rangeEnd: localDate.nullish(),
 };
 
 const groupsFitTheDay = (c: {
@@ -150,12 +155,6 @@ const weeklyHasDaysMessage = {
   message: 'Choose at least one day of the week.',
   path: ['weekdays'],
 };
-const monthlyFits = (c: RepeatAnswers) =>
-  c.repeat !== 'MONTHLY' || c.sessionCount <= MAX_MONTHLY_SESSIONS;
-const monthlyFitsMessage = {
-  message: `A monthly class can have up to ${MAX_MONTHLY_SESSIONS} sessions.`,
-  path: ['sessionCount'],
-};
 
 /** Matches the database's CHECK on highlights, which counts newlines exactly. */
 function countLines(value: string | undefined): number {
@@ -173,7 +172,6 @@ export const createClassSchema = z
   })
   .refine(endsAfterStarts, endsAfterStartsMessage)
   .refine(weeklyHasDays, weeklyHasDaysMessage)
-  .refine(monthlyFits, monthlyFitsMessage)
   .refine(groupsFitTheDay, groupsFitTheDayMessage)
   .refine((c) => c.minGuests <= c.seats, {
     message: 'The minimum guests cannot be more than the seats.',
@@ -252,7 +250,6 @@ export const previewSchema = z
   ])
   .refine(endsAfterStarts, endsAfterStartsMessage)
   .refine((c) => c.kind !== 'CLASS' || weeklyHasDays(c), weeklyHasDaysMessage)
-  .refine((c) => c.kind !== 'CLASS' || monthlyFits(c), monthlyFitsMessage)
   .refine((c) => c.kind !== 'CLASS' || groupsFitTheDay(c), groupsFitTheDayMessage);
 
 export type PreviewInput = z.infer<typeof previewSchema>;

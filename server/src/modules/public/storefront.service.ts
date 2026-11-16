@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
 import { listPublicCourses } from './public.service';
+import { clockLabel } from '../activities/class-dates';
 
 /**
  * Everything the public storefront needs, in one read.
@@ -211,9 +212,27 @@ export async function getStorefront(slug: string) {
     [...classRuns].map(([serviceId, list]) => {
       const sorted = [...list].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
       const shown = sorted.find((c) => c.enrollable) ?? sorted[0]!;
-      const groupTimes =
-        sorted.length > 1 ? sorted.map((c) => c.cohortLabel).filter((t): t is string => !!t) : [];
-      return [serviceId, { ...shown, groupTimes }] as const;
+      /* Distinct start times and start days across its groups: a Class can
+         run at several times a day, as several runs over a range, or both
+         (REPEAT-PLAN.md, parts 2 and 4). */
+      const clock = (at: Date) =>
+        new Intl.DateTimeFormat('en-GB', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23',
+          timeZone: organization.timezone,
+        }).format(at);
+      const day = (at: Date) => at.toLocaleDateString('en-CA', { timeZone: organization.timezone });
+      const groupTimes = [...new Set(sorted.map((c) => clockLabel(clock(c.startsAt))))];
+      const runStarts = [...new Set(sorted.map((c) => day(c.startsAt)))];
+      return [
+        serviceId,
+        {
+          ...shown,
+          groupTimes: groupTimes.length > 1 ? groupTimes : [],
+          runCount: runStarts.length,
+        },
+      ] as const;
     }),
   );
 

@@ -39,8 +39,15 @@ export type Repeat = (typeof REPEATS)[number];
 export const MONTHLY_BY = ['DATE', 'WEEKDAY', 'LAST_WEEKDAY'] as const;
 export type MonthlyBy = (typeof MONTHLY_BY)[number];
 
-/** A monthly Class runs two years at most, inside the planner's scan. */
+/**
+ * A monthly Class runs two years at most, inside the planner's scan. It caps
+ * the MONTHS the form asks; with several days a month, the sessions can be
+ * more (two days for 24 months is 48).
+ */
 export const MAX_MONTHLY_SESSIONS = 24;
+
+/** Sessions in one run, whatever the repeat. */
+export const MAX_SESSIONS = 52;
 
 export type RepeatPattern = {
   /** Left out: WEEKLY, which is how every Class before repeat was made. */
@@ -54,6 +61,11 @@ export type RepeatPattern = {
 export type ClassDatesInput = RepeatPattern & {
   /** "YYYY-MM-DD". The first session is the first matching day on or after it. */
   startDate: string;
+  /**
+   * What a monthly pattern counts from ("the fourth Monday", "the 23rd").
+   * Left out: the start date. A later run of a range keeps the first run's.
+   */
+  anchorDate?: string;
   sessionCount: number;
   /** Dates the studio unticked. Matching days are skipped, not counted. */
   skipDates?: string[];
@@ -123,11 +135,11 @@ export function planClassDates(input: ClassDatesInput): ClassDates {
   if (!Number.isInteger(input.sessionCount) || input.sessionCount < 1) {
     throw new Error('A class needs at least one session.');
   }
-  if (input.repeat === 'MONTHLY' && input.sessionCount > MAX_MONTHLY_SESSIONS) {
-    throw new Error(`A monthly class can have up to ${MAX_MONTHLY_SESSIONS} sessions.`);
+  if (input.sessionCount > MAX_SESSIONS) {
+    throw new Error(`A class can have up to ${MAX_SESSIONS} sessions.`);
   }
 
-  const matches = repeatMatcher(input, input.startDate);
+  const matches = repeatMatcher(input, input.anchorDate ?? input.startDate);
   const skip = new Set(input.skipDates ?? []);
 
   const dates: string[] = [];
@@ -291,4 +303,79 @@ export function groupTimes(input: {
     out.push({ startTime, endTime: timeOfMinutes(to), label: clockLabel(startTime) });
   }
   return out;
+}
+
+// --- Runs over a date range (REPEAT-PLAN.md, part 4) -------------------------
+
+/** The longest range a studio may fill with runs: a year. */
+export const MAX_RANGE_DAYS = 366;
+/** Runs in one range, so a range of one-week runs stays a sensible size. */
+export const MAX_RUNS = 52;
+
+export type ClassRuns = {
+  /** Each run's dates, in order; every run has the same session count. */
+  runs: ClassDates[];
+  /** Skipped dates that fell inside a run, in order. */
+  skipped: string[];
+  /** Dates after the last run, before the end, too few for another full run. */
+  leftOver: string[];
+};
+
+/**
+ * The runs of a Class over a date range: the first run from the start date,
+ * each next one straight after the previous one ends (from its next matching
+ * day), for as long as a FULL run still ends by `rangeEnd`. Runs never share
+ * a date, so the same time on two runs can never clash.
+ *
+ * Without `rangeEnd`, one run — a Class as it was before ranges.
+ *
+ * A skipped date pushes its run's end out, and so every later run, exactly
+ * as a skipped date always has: the count is what the price covers.
+ */
+export function planClassRuns(input: ClassDatesInput & { rangeEnd?: string | null }): ClassRuns {
+  const first = planClassDates(input);
+  if (!input.rangeEnd) return { runs: [first], skipped: first.skipped, leftOver: [] };
+
+  const start = DateTime.fromISO(input.startDate, { zone: 'UTC' });
+  const end = DateTime.fromISO(input.rangeEnd, { zone: 'UTC' });
+  if (!end.isValid || !/^\d{4}-\d{2}-\d{2}$/.test(input.rangeEnd)) {
+    throw new Error(`Invalid end date "${input.rangeEnd}".`);
+  }
+  if (end < start) throw new Error('The end date must be after the start date.');
+  if (end.diff(start, 'days').days > MAX_RANGE_DAYS) {
+    throw new Error('Choose dates up to a year apart.');
+  }
+  if (first.endDate > input.rangeEnd) {
+    throw new Error(
+      `One run needs until ${first.endDate}. Move the end date later, or choose fewer weeks.`,
+    );
+  }
+
+  const anchorDate = input.anchorDate ?? input.startDate;
+  const matches = repeatMatcher(input, anchorDate);
+  const skip = new Set(input.skipDates ?? []);
+  const runs = [first];
+  const leftOver: string[] = [];
+
+  while (runs.length < MAX_RUNS) {
+    const from = DateTime.fromISO(runs[runs.length - 1]!.endDate, { zone: 'UTC' }).plus({ days: 1 });
+    if (from > end) break;
+    let next: ClassDates | null = null;
+    try {
+      next = planClassDates({ ...input, startDate: from.toISODate()!, anchorDate });
+    } catch {
+      next = null;
+    }
+    if (!next || next.endDate > input.rangeEnd) {
+      // What is left is too short for a full run: named, not booked.
+      for (let d = from; d <= end; d = d.plus({ days: 1 })) {
+        const iso = d.toISODate()!;
+        if (matches(d) && !skip.has(iso)) leftOver.push(iso);
+      }
+      break;
+    }
+    runs.push(next);
+  }
+
+  return { runs, skipped: runs.flatMap((r) => r.skipped), leftOver };
 }

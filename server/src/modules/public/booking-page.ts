@@ -6,6 +6,7 @@ import { clientScript } from './booking-page.client';
 import { tokensCss } from '../../lib/design-tokens';
 import { brandCss, resolveBrand } from '../../lib/brand';
 import { EMBED_HEIGHT_SCRIPT } from './embed';
+import { clockLabel } from '../activities/class-dates';
 
 /**
  * The public booking page, rendered on the server.
@@ -636,11 +637,21 @@ export function renderBookingPage(
     same class five times. Its card opens a time picker instead, and a
     one-time Class keeps the card it always had.
   */
-  const timeOf = (c: NonNullable<PageData['courses']>[number]) =>
-    c.cohortLabel ??
-    new Date(c.startsAt).toLocaleTimeString('en-US', {
-      hour: 'numeric',
+  /** A run's start on the studio's clock: "6:00pm", and its day: "23 Nov". */
+  const clockOf = (at: Date | string) => {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      hour: '2-digit',
       minute: '2-digit',
+      hourCycle: 'h23',
+      timeZone: organization.timezone,
+    }).formatToParts(new Date(at));
+    const get = (t: string) => parts.find((x) => x.type === t)?.value ?? '00';
+    return clockLabel(`${get('hour')}:${get('minute')}`);
+  };
+  const dayOf = (at: Date | string) =>
+    new Date(at).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
       timeZone: organization.timezone,
     });
   const classGroups = new Map<string, NonNullable<PageData['courses']>>();
@@ -653,7 +664,15 @@ export function renderBookingPage(
     );
     const first = sorted[0]!;
     const open = sorted.some((c) => c.enrollable);
-    const times = sorted.map(timeOf).join(', ');
+    /* Runs (REPEAT-PLAN.md, part 4) are the distinct start days; times the
+       distinct start times. A Class can have several of either, or both. */
+    const days = [...new Set(sorted.map((c) => dayOf(c.startsAt)))];
+    const times = [...new Set(sorted.map((c) => clockOf(c.startsAt)))];
+    const when =
+      days.length > 1
+        ? `${days.length} runs, from ${days[0]}`
+        : dateRange(first.startsAt, first.endsAt, organization.timezone);
+    const at = times.length > 1 ? `${times.length} times: ${times.join(', ')}` : `at ${times[0]}`;
     return `
       <button class="card" data-class="${escapeHtml(first.service.id)}" type="button"${
         open ? '' : ' disabled'
@@ -661,13 +680,11 @@ export function renderBookingPage(
         <span>
           <h3>${escapeHtml(first.name)}</h3>
           ${first.description ? `<p>${escapeHtml(first.description)}</p>` : ''}
-          <span class="meta">${first.sessionCount} sessions &middot; ${dateRange(
-            first.startsAt,
-            first.endsAt,
-            organization.timezone,
-          )}${first.instructor ? ` &middot; ${escapeHtml(first.instructor)}` : ''} &middot; ${
-            sorted.length
-          } times: ${escapeHtml(times)} &middot; ${open ? 'Choose a time' : 'Closed'}</span>
+          <span class="meta">${first.sessionCount} sessions &middot; ${escapeHtml(when)}${
+            first.instructor ? ` &middot; ${escapeHtml(first.instructor)}` : ''
+          } &middot; ${escapeHtml(at)} &middot; ${
+            open ? (days.length > 1 ? 'Choose a date' : 'Choose a time') : 'Closed'
+          }</span>
         </span>
         <span class="price">${money(first.priceCents, organization.currency)}</span>
       </button>`;

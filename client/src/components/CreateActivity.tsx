@@ -10,6 +10,7 @@ import {
   clockTime,
   monthlyOptions,
   planClassDates,
+  planClassRuns,
   repeatSummary,
   shortDate,
   timesFrom,
@@ -59,6 +60,11 @@ export type ActivityAnswers = {
   months: number;
   /** More start times, each the first one's length; each its own group. */
   extraTimes: string[];
+  /**
+   * "Until" (REPEAT-PLAN.md, part 4): runs of the same pattern back to back
+   * from the start date while a full run fits. '' for one run.
+   */
+  rangeEnd: string;
   sessionCount: number;
   skipDates: string[];
   // Both
@@ -282,6 +288,7 @@ function withSchedule(
   if (Array.isArray(a.startTimes)) {
     out.extraTimes = a.startTimes.filter((t) => t !== out.startTime);
   }
+  out.rangeEnd = typeof a.rangeEnd === 'string' ? a.rangeEnd : '';
   return out;
 }
 
@@ -380,6 +387,7 @@ function defaults(timezone: string): ActivityAnswers {
     weeks: 6,
     months: 6,
     extraTimes: [],
+    rangeEnd: '',
     sessionCount: 6,
     skipDates: [],
     startTime: '18:00',
@@ -581,28 +589,40 @@ export function CreateActivity({
     setErrors((e) => ({ ...e, weekdays: undefined, sessionCount: undefined }));
   }
 
+  /** The run pattern, one run's worth: what the range repeats. */
+  const runInput = {
+    startDate: answers.startDate,
+    repeat: answers.repeat,
+    monthlyBy: answers.monthlyBy,
+    weekdays: answers.weekdays,
+    sessionCount: answers.sessionCount,
+    skipDates: answers.skipDates,
+  };
+  /** One run on its own: for the "Until is too early" message. */
+  const firstRun = useMemo(
+    () => (kind === 'CLASS' ? planClassDates(runInput) : null),
+    [kind, answers.startDate, answers.repeat, answers.monthlyBy, answers.weekdays, answers.sessionCount, answers.skipDates],
+  );
+  /**
+   * Every run (REPEAT-PLAN.md, part 4), and the same dates flattened as
+   * `schedule`: what the steps show, check for clashes and publish.
+   */
+  const runPlan = useMemo(
+    () => (kind === 'CLASS' ? planClassRuns({ ...runInput, rangeEnd: answers.rangeEnd || undefined }) : null),
+    [kind, answers.startDate, answers.repeat, answers.monthlyBy, answers.weekdays, answers.sessionCount, answers.skipDates, answers.rangeEnd],
+  );
   const schedule = useMemo(
     () =>
-      kind === 'CLASS'
-        ? planClassDates({
-            startDate: answers.startDate,
-            repeat: answers.repeat,
-            monthlyBy: answers.monthlyBy,
-            weekdays: answers.weekdays,
-            sessionCount: answers.sessionCount,
-            skipDates: answers.skipDates,
-          })
+      runPlan
+        ? {
+            dates: runPlan.runs.flatMap((r) => r.dates),
+            skipped: runPlan.skipped,
+            endDate: runPlan.runs[runPlan.runs.length - 1]!.endDate,
+          }
         : null,
-    [
-      kind,
-      answers.startDate,
-      answers.repeat,
-      answers.monthlyBy,
-      answers.weekdays,
-      answers.sessionCount,
-      answers.skipDates,
-    ],
+    [runPlan],
   );
+  const runCount = runPlan?.runs.length ?? 1;
 
   /** The monthly choices the start date allows ("the 23rd", "the fourth Monday"...). */
   const monthly = useMemo(
@@ -657,6 +677,7 @@ export function CreateActivity({
     ...(answers.extraTimes.length
       ? { startTimes: [answers.startTime, ...answers.extraTimes] }
       : {}),
+    rangeEnd: answers.rangeEnd || null,
   };
 
   /*
@@ -732,6 +753,7 @@ export function CreateActivity({
     answers.sessionCount,
     answers.skipDates,
     answers.extraTimes,
+    answers.rangeEnd,
     answers.startTime,
     answers.endTime,
     answers.locationId,
@@ -772,8 +794,16 @@ export function CreateActivity({
         e.months = `Between 1 and ${MAX_MONTHLY_SESSIONS} months.`;
       else if (answers.sessionCount > 52)
         e.sessionCount = `That is ${answers.sessionCount} sessions; a class can have up to 52. Choose fewer weeks, months or days.`;
-      else if (answers.weekdays.length > 0 && !schedule)
+      else if (answers.weekdays.length > 0 && !firstRun)
         e.sessionCount = 'Those sessions do not fit within two years. Choose fewer, or skip fewer dates.';
+      if (answers.rangeEnd) {
+        if (answers.rangeEnd < answers.startDate) e.rangeEnd = 'Choose a date after the start date.';
+        else if (firstRun && firstRun.endDate > answers.rangeEnd)
+          e.rangeEnd = `One run ends on ${shortDate(firstRun.endDate)}. Choose that date or later, or fewer weeks.`;
+        else if (firstRun && !runPlan) e.rangeEnd = 'Choose dates up to a year apart.';
+      }
+      if (runPlan && runCount * (answers.extraTimes.length + 1) * answers.sessionCount > 600)
+        e.rangeEnd = `That is ${runCount * (answers.extraTimes.length + 1) * answers.sessionCount} sessions in all; up to 600. Choose an earlier Until date or remove a time.`;
       if (answers.extraTimes.some((t) => !t))
         e.extraTimes = 'Fill in each added time, or remove it.';
       else if (new Set([answers.startTime, ...answers.extraTimes]).size !== answers.extraTimes.length + 1)
@@ -967,7 +997,9 @@ export function CreateActivity({
           answers.isActive
             ? `${common.name} is published: ${answers.sessionCount} sessions from ${shortDate(
                 schedule?.dates[0] ?? answers.startDate,
-              )}${answers.extraTimes.length ? `, at ${answers.extraTimes.length + 1} times a day` : ''}.`
+              )}${runCount > 1 ? `, ${runCount} runs` : ''}${
+                answers.extraTimes.length ? `, at ${answers.extraTimes.length + 1} times a day` : ''
+              }.`
             : `${common.name} is saved as Hidden: not on your booking page. Switch it to Published from Activities when you are ready.`,
         );
       }
@@ -1260,17 +1292,40 @@ export function CreateActivity({
         )}
 
         {stepName === 'Schedule' && (
-          <fieldset className="plain-fieldset" disabled={Boolean(locked)}>
-            {locked && <p className="step-locked">{locked}</p>}
-            <Field label="Starts on" error={errors.startDate} htmlFor="actStart">
+          <>
+          {locked && (
+            <p className="step-locked">
+              {locked} You can still add runs after the last one: choose a later Until date.
+            </p>
+          )}
+          <div className="form-row">
+            <fieldset className="plain-fieldset" disabled={Boolean(locked)}>
+              <Field label="Starts on" error={errors.startDate} htmlFor="actStart">
+                <input
+                  id="actStart"
+                  type="date"
+                  min={locked ? undefined : todayIn(timezone)}
+                  value={answers.startDate}
+                  onChange={(e) => set('startDate', e.target.value)}
+                />
+              </Field>
+            </fieldset>
+            <Field
+              label="Until (optional)"
+              error={errors.rangeEnd}
+              htmlFor="actUntil"
+              hint="Leave empty for one run. With a date, the run repeats back to back until then."
+            >
               <input
-                id="actStart"
+                id="actUntil"
                 type="date"
-                min={locked ? undefined : todayIn(timezone)}
-                value={answers.startDate}
-                onChange={(e) => set('startDate', e.target.value)}
+                min={answers.startDate}
+                value={answers.rangeEnd}
+                onChange={(e) => set('rangeEnd', e.target.value)}
               />
             </Field>
+          </div>
+          <fieldset className="plain-fieldset" disabled={Boolean(locked)}>
             <Field label="Days" error={errors.weekdays}>
               <div className="chip-group" role="group" aria-label="Days of the week">
                 {WEEKDAYS.map((day) => (
@@ -1419,40 +1474,58 @@ export function CreateActivity({
             {schedule && (
               <div className="date-list" aria-live="polite">
                 <p className="date-list-head">
+                  {runCount > 1 ? `${runCount} runs of ` : ''}
                   {answers.sessionCount} sessions · {repeatSummary(answers)}{' '}
                   {groupLine ? `· ${answers.extraTimes.length + 1} times a day, the first` : ''}{' '}
                   {clockTime(answers.startTime)}–{clockTime(answers.endTime)} · ends{' '}
                   {shortDate(schedule.endDate)}
                 </p>
-                <ul>
-                  {[...schedule.dates, ...schedule.skipped].sort().map((date) => {
-                    const skipped = schedule.skipped.includes(date);
-                    const here = skipped ? [] : (clashes.get(date) ?? []);
-                    return (
-                      <li
-                        key={date}
-                        className={skipped ? 'skipped' : here.length ? 'clashing' : undefined}
-                      >
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={!skipped}
-                            onChange={() => toggleDate(date)}
-                          />
-                          {shortDate(date)}
-                        </label>
-                        {here.map((c) => (
-                          <span key={c.message} className="date-clash">
-                            {c.message}
-                          </span>
-                        ))}
-                      </li>
-                    );
-                  })}
-                </ul>
+                {runPlan!.runs.map((run, r) => (
+                  <Fragment key={run.dates[0]}>
+                    {runCount > 1 && (
+                      <p className="date-list-head">
+                        Run {r + 1} · {shortDate(run.dates[0]!)} – {shortDate(run.endDate)}
+                      </p>
+                    )}
+                    <ul>
+                      {[...run.dates, ...run.skipped].sort().map((date) => {
+                        const skipped = run.skipped.includes(date);
+                        const here = skipped ? [] : (clashes.get(date) ?? []);
+                        return (
+                          <li
+                            key={date}
+                            className={skipped ? 'skipped' : here.length ? 'clashing' : undefined}
+                          >
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={!skipped}
+                                onChange={() => toggleDate(date)}
+                              />
+                              {shortDate(date)}
+                            </label>
+                            {here.map((c) => (
+                              <span key={c.message} className="date-clash">
+                                {c.message}
+                              </span>
+                            ))}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </Fragment>
+                ))}
+                {runPlan!.leftOver.length > 0 && (
+                  <p className="tiny muted">
+                    {runPlan!.leftOver.map(shortDate).join(', ')}{' '}
+                    {runPlan!.leftOver.length === 1 ? 'is' : 'are'} not enough for another full
+                    run, so {runPlan!.leftOver.length === 1 ? 'it is' : 'they are'} left out.
+                  </p>
+                )}
                 <p className="tiny muted">
-                  Untick a date to skip it, for a holiday. Another is added at the end, so it
-                  stays {answers.sessionCount} sessions.
+                  Untick a date to skip it, for a holiday. Another is added at the end of its
+                  run, so each run stays {answers.sessionCount} sessions
+                  {runCount > 1 ? ' and the later runs move along' : ''}.
                 </p>
                 {errors.clashes && (
                   <p className="field-error" role="alert">
@@ -1462,6 +1535,7 @@ export function CreateActivity({
               </div>
             )}
           </fieldset>
+          </>
         )}
 
         {stepName === 'Where and who' && (
@@ -1838,7 +1912,7 @@ export function CreateActivity({
                   {kind === 'EVENT'
                     ? `${shortDate(answers.date)}, ${clockTime(answers.startTime)}–${clockTime(answers.endTime)}`
                     : schedule
-                      ? `${answers.sessionCount} sessions, ${repeatSummary(answers)}${
+                      ? `${runCount > 1 ? `${runCount} runs of ` : ''}${answers.sessionCount} sessions, ${repeatSummary(answers)}${
                           groupLine ? `, ${answers.extraTimes.length + 1} times a day (${groupLine}), the first` : ''
                         } ${clockTime(answers.startTime)}–${clockTime(
                           answers.endTime,
