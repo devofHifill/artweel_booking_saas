@@ -177,7 +177,7 @@ export function CounterBookingForm({
   */
   const [hiddenCount, setHiddenCount] = useState(0);
   const [courseCohorts, setCourseCohorts] = useState<
-    { id: string; name: string; seatsRemaining: number }[]
+    { id: string; name: string; cohortLabel?: string | null; seatsRemaining: number }[]
   >([]);
   const [loaded, setLoaded] = useState(false);
   const [sessions, setSessions] = useState<SessionOption[]>([]);
@@ -288,7 +288,7 @@ export function CounterBookingForm({
          this fails the form simply says less. */
       try {
         const res = await api.get<{
-          series: { id: string; name: string; seatsRemaining: number }[];
+          series: { id: string; name: string; cohortLabel?: string | null; seatsRemaining: number }[];
         }>(`${base}/courses?status=PUBLISHED`);
         setCourseCohorts(res.series ?? []);
       } catch {
@@ -771,7 +771,11 @@ export function CounterBookingForm({
               {courseCohorts.slice(0, 3).map((c, i) => (
                 <span key={c.id}>
                   {i > 0 ? ', ' : ''}
-                  <Link to={`/courses/${c.id}`}>{c.name}</Link>
+                  <Link to={`/courses/${c.id}`}>
+                    {c.name}
+                    {/* A Class at several times a day: one link per time. */}
+                    {c.cohortLabel ? ` · ${c.cohortLabel}` : ''}
+                  </Link>
                   {c.seatsRemaining === 0 ? ' (full)' : ''}
                 </span>
               ))}

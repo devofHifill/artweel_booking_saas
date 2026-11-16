@@ -97,7 +97,9 @@ describe('Classes on the website', () => {
   it('opens the class from a website link on the booking page', async () => {
     await publishClass();
     const html = await page('/book');
-    // The booking page script finds a Class by its activity id in DATA.courses.
-    expect(html).toContain('c.service.id === wantedId && c.enrollable');
+    // The booking page script finds a Class's runs by its activity id in
+    // DATA.courses: one run opens it, several open the time picker.
+    expect(html).toContain('return c.service.id === wantedId;');
+    expect(html).toContain('if (runs.length > 1) pickClassTime(wantedId);');
   });
 });

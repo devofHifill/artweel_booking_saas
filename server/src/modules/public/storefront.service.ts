@@ -197,10 +197,24 @@ export async function getStorefront(slug: string) {
     yet. A Class with no run there (finished, or its course cancelled) is not
     listed here either.
   */
+  const classRuns = new Map<string, Awaited<ReturnType<typeof listPublicCourses>>>();
+  for (const c of await listPublicCourses(organization.id)) {
+    if (c.service.kind !== 'CLASS') continue;
+    classRuns.set(c.service.id, [...(classRuns.get(c.service.id) ?? []), c]);
+  }
+  /*
+    A Class run at several times a day has one run per time (REPEAT-PLAN.md,
+    part 2). The website shows the first one that can still be booked, and
+    names the times; the customer picks theirs on the booking page.
+  */
   const runs = new Map(
-    (await listPublicCourses(organization.id))
-      .filter((c) => c.service.kind === 'CLASS')
-      .map((c) => [c.service.id, c]),
+    [...classRuns].map(([serviceId, list]) => {
+      const sorted = [...list].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+      const shown = sorted.find((c) => c.enrollable) ?? sorted[0]!;
+      const groupTimes =
+        sorted.length > 1 ? sorted.map((c) => c.cohortLabel).filter((t): t is string => !!t) : [];
+      return [serviceId, { ...shown, groupTimes }] as const;
+    }),
   );
 
   const services = allServices

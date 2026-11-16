@@ -3,11 +3,18 @@ import { FORMATS } from '../lib/booking-format';
 import { CategoryPicker } from './CategoryPicker';
 import { api, money, plusDays, todayIn } from '../lib/api';
 import {
+  MAX_GROUPS,
+  MAX_MONTHLY_SESSIONS,
   WEEKDAYS,
   WEEKDAY_LABELS,
   clockTime,
+  groupTimes,
+  monthlyOptions,
   planClassDates,
+  repeatSummary,
   shortDate,
+  type MonthlyBy,
+  type Repeat,
   type Weekday,
 } from '../lib/class-dates';
 import { Modal } from './layout';
@@ -38,7 +45,14 @@ export type ActivityAnswers = {
   date: string;
   // Class
   startDate: string;
+  /** Daily, Weekly (on `weekdays`) or Monthly (by `monthlyBy`). REPEAT-PLAN.md. */
+  repeat: Repeat;
+  monthlyBy: MonthlyBy;
   weekdays: Weekday[];
+  /** Time groups a day, each its own run (REPEAT-PLAN.md, part 2). 1: a plain Class. */
+  groups: number;
+  /** Minutes between one group ending and the next starting. */
+  bufferMinutes: number;
   sessionCount: number;
   skipDates: string[];
   // Both
@@ -200,6 +214,13 @@ export function duplicateOf(
   };
 }
 
+/** The Repeats choice on the Schedule step. */
+const REPEAT_CHOICES: { value: Repeat; label: string }[] = [
+  { value: 'DAILY', label: 'Daily' },
+  { value: 'WEEKLY', label: 'Weekly' },
+  { value: 'MONTHLY', label: 'Monthly' },
+];
+
 type Location = { id: string; name: string; locationType?: string };
 type Staff = { id: string; name: string };
 
@@ -303,7 +324,11 @@ function defaults(timezone: string): ActivityAnswers {
     shortDescription: '',
     date: nextWeek,
     startDate: nextWeek,
+    repeat: 'WEEKLY',
+    monthlyBy: 'WEEKDAY',
     weekdays: [],
+    groups: 1,
+    bufferMinutes: 0,
     sessionCount: 6,
     skipDates: [],
     startTime: '18:00',
@@ -496,13 +521,65 @@ export function CreateActivity({
       kind === 'CLASS'
         ? planClassDates({
             startDate: answers.startDate,
+            repeat: answers.repeat,
+            monthlyBy: answers.monthlyBy,
             weekdays: answers.weekdays,
             sessionCount: answers.sessionCount,
             skipDates: answers.skipDates,
           })
         : null,
-    [kind, answers.startDate, answers.weekdays, answers.sessionCount, answers.skipDates],
+    [
+      kind,
+      answers.startDate,
+      answers.repeat,
+      answers.monthlyBy,
+      answers.weekdays,
+      answers.sessionCount,
+      answers.skipDates,
+    ],
   );
+
+  /** The monthly choices the start date allows ("the 23rd", "the fourth Monday"...). */
+  const monthly = useMemo(() => monthlyOptions(answers.startDate), [answers.startDate]);
+
+  /*
+    A start date that does not allow the chosen monthly option (the "fifth"
+    or "last" Monday moved to the 9th) falls back to one it does allow,
+    the weekday position first.
+  */
+  useEffect(() => {
+    if (answers.repeat !== 'MONTHLY' || monthly.length === 0) return;
+    if (monthly.some((o) => o.value === answers.monthlyBy)) return;
+    const fallback =
+      monthly.find((o) => o.value === 'WEEKDAY') ??
+      monthly.find((o) => o.value === 'LAST_WEEKDAY') ??
+      monthly[0]!;
+    setAnswers((a) => ({ ...a, monthlyBy: fallback.value }));
+  }, [answers.repeat, answers.monthlyBy, monthly]);
+
+  /** Each group's start and end, or null while the times do not work yet. */
+  const times = useMemo(
+    () =>
+      groupTimes({
+        startTime: answers.startTime,
+        endTime: answers.endTime,
+        groups: answers.groups,
+        bufferMinutes: answers.bufferMinutes,
+      }),
+    [answers.startTime, answers.endTime, answers.groups, answers.bufferMinutes],
+  );
+  /** "6:00pm · 7:15pm · 8:30pm" when there is more than one group. */
+  const groupLine =
+    times && times.length > 1 ? times.map((t) => clockTime(t.startTime)).join(' · ') : null;
+
+  /** What the publish and preview requests say about how it repeats. */
+  const repeatBody = {
+    repeat: answers.repeat,
+    ...(answers.repeat === 'MONTHLY' ? { monthlyBy: answers.monthlyBy } : {}),
+    weekdays: answers.repeat === 'WEEKLY' ? answers.weekdays : [],
+    groups: answers.groups,
+    bufferMinutes: answers.groups > 1 ? answers.bufferMinutes : 0,
+  };
 
   /*
     The live clash check (CLASS-EVENT-PLAN.md, Stage 4). Asked again a moment
@@ -532,7 +609,7 @@ export function CreateActivity({
           ? {
               kind,
               startDate: answers.startDate,
-              weekdays: answers.weekdays,
+              ...repeatBody,
               sessionCount: answers.sessionCount,
               ...(answers.skipDates.length ? { skipDates: answers.skipDates } : {}),
               ...where,
@@ -571,9 +648,13 @@ export function CreateActivity({
     schedule,
     answers.date,
     answers.startDate,
+    answers.repeat,
+    answers.monthlyBy,
     answers.weekdays,
     answers.sessionCount,
     answers.skipDates,
+    answers.groups,
+    answers.bufferMinutes,
     answers.startTime,
     answers.endTime,
     answers.locationId,
@@ -607,10 +688,22 @@ export function CreateActivity({
     if (name === 'Schedule') {
       if (!locked && (!answers.startDate || answers.startDate < today))
         e.startDate = 'Choose a start date that has not passed.';
-      if (answers.weekdays.length === 0) e.weekdays = 'Choose at least one day.';
-      if (!Number.isInteger(answers.sessionCount) || answers.sessionCount < 1 || answers.sessionCount > 52)
-        e.sessionCount = 'Between 1 and 52 sessions.';
-      else if (answers.weekdays.length > 0 && !schedule) e.sessionCount = 'Those sessions do not fit. Skip fewer dates.';
+      const weekly = answers.repeat === 'WEEKLY';
+      const most = answers.repeat === 'MONTHLY' ? MAX_MONTHLY_SESSIONS : 52;
+      if (weekly && answers.weekdays.length === 0) e.weekdays = 'Choose at least one day.';
+      if (!Number.isInteger(answers.sessionCount) || answers.sessionCount < 1 || answers.sessionCount > most)
+        e.sessionCount =
+          answers.repeat === 'MONTHLY'
+            ? `A monthly class can have 1 to ${MAX_MONTHLY_SESSIONS} sessions.`
+            : 'Between 1 and 52 sessions.';
+      else if ((!weekly || answers.weekdays.length > 0) && !schedule)
+        e.sessionCount = 'Those sessions do not fit within two years. Choose fewer, or skip fewer dates.';
+      if (!Number.isInteger(answers.groups) || answers.groups < 1 || answers.groups > MAX_GROUPS)
+        e.groups = `Between 1 and ${MAX_GROUPS} groups.`;
+      else if (answers.groups > 1 && (!Number.isInteger(answers.bufferMinutes) || answers.bufferMinutes < 0 || answers.bufferMinutes > 240))
+        e.bufferMinutes = 'Between 0 and 240 minutes.';
+      else if (answers.endTime > answers.startTime && !times)
+        e.groups = 'The last group would run past midnight. Choose fewer groups or a shorter buffer.';
     }
     if (name === 'Where and who') {
       if (locations.length > 1 && !answers.locationId) e.locationId = 'Choose where it runs.';
@@ -767,7 +860,7 @@ export function CreateActivity({
               ? { date: answers.date }
               : {
                   startDate: answers.startDate,
-                  weekdays: answers.weekdays,
+                  ...repeatBody,
                   sessionCount: answers.sessionCount,
                   ...(answers.skipDates.length ? { skipDates: answers.skipDates } : {}),
                 }),
@@ -789,7 +882,7 @@ export function CreateActivity({
         await api.post(`${base}/activities/classes`, {
           ...common,
           startDate: answers.startDate,
-          weekdays: answers.weekdays,
+          ...repeatBody,
           sessionCount: answers.sessionCount,
           ...(answers.skipDates.length ? { skipDates: answers.skipDates } : {}),
           ...details(),
@@ -798,7 +891,7 @@ export function CreateActivity({
           answers.isActive
             ? `${common.name} is published: ${answers.sessionCount} sessions from ${shortDate(
                 schedule?.dates[0] ?? answers.startDate,
-              )}.`
+              )}${answers.groups > 1 ? `, in ${answers.groups} groups` : ''}.`
             : `${common.name} is saved as Hidden: not on your booking page. Switch it to Published from Activities when you are ready.`,
         );
       }
@@ -1091,21 +1184,56 @@ export function CreateActivity({
                 onChange={(e) => set('startDate', e.target.value)}
               />
             </Field>
-            <Field label="Every" error={errors.weekdays}>
-              <div className="chip-group" role="group" aria-label="Days of the week">
-                {WEEKDAYS.map((day) => (
+            <Field label="Repeats">
+              <div className="chip-group" role="radiogroup" aria-label="Repeats">
+                {REPEAT_CHOICES.map((choice) => (
                   <button
-                    key={day}
+                    key={choice.value}
                     type="button"
-                    className={answers.weekdays.includes(day) ? 'chip on' : 'chip'}
-                    aria-pressed={answers.weekdays.includes(day)}
-                    onClick={() => toggleWeekday(day)}
+                    role="radio"
+                    className={answers.repeat === choice.value ? 'chip on' : 'chip'}
+                    aria-checked={answers.repeat === choice.value}
+                    onClick={() => set('repeat', choice.value)}
                   >
-                    {WEEKDAY_LABELS[day]}
+                    {choice.label}
                   </button>
                 ))}
               </div>
             </Field>
+            {answers.repeat === 'WEEKLY' && (
+              <Field label="Every" error={errors.weekdays}>
+                <div className="chip-group" role="group" aria-label="Days of the week">
+                  {WEEKDAYS.map((day) => (
+                    <button
+                      key={day}
+                      type="button"
+                      className={answers.weekdays.includes(day) ? 'chip on' : 'chip'}
+                      aria-pressed={answers.weekdays.includes(day)}
+                      onClick={() => toggleWeekday(day)}
+                    >
+                      {WEEKDAY_LABELS[day]}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
+            {answers.repeat === 'MONTHLY' && monthly.length > 0 && (
+              <Field label="Each month" hint="Worked out from the start date. Change it to see other days.">
+                <div className="setting setting-stack" role="radiogroup" aria-label="Each month">
+                  {monthly.map((option) => (
+                    <label key={option.value} className="check">
+                      <input
+                        type="radio"
+                        name="monthlyBy"
+                        checked={answers.monthlyBy === option.value}
+                        onChange={() => set('monthlyBy', option.value)}
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </Field>
+            )}
             <TimeFields answers={answers} errors={errors} set={set} />
             <Field
               label="Duration"
@@ -1119,12 +1247,61 @@ export function CreateActivity({
                 disabled
               />
             </Field>
+            <div className="form-row">
+              <Field
+                label="Groups per day"
+                error={errors.groups}
+                htmlFor="actGroups"
+                hint="The same class at several times. Each group has its own customers."
+              >
+                <input
+                  id="actGroups"
+                  type="number"
+                  min={1}
+                  max={MAX_GROUPS}
+                  value={Number.isNaN(answers.groups) ? '' : answers.groups}
+                  onChange={(e) => set('groups', e.target.valueAsNumber)}
+                />
+              </Field>
+              {answers.groups > 1 && (
+                <Field
+                  label="Buffer between groups"
+                  error={errors.bufferMinutes}
+                  htmlFor="actBuffer"
+                  hint="Minutes from one group ending to the next starting."
+                >
+                  <input
+                    id="actBuffer"
+                    type="number"
+                    min={0}
+                    max={240}
+                    step={5}
+                    value={Number.isNaN(answers.bufferMinutes) ? '' : answers.bufferMinutes}
+                    onChange={(e) => set('bufferMinutes', e.target.valueAsNumber)}
+                  />
+                </Field>
+              )}
+            </div>
+            {groupLine ? (
+              <p className="tiny muted" aria-live="polite">
+                Groups start at {groupLine}.
+              </p>
+            ) : (
+              answers.groups > 1 &&
+              Number.isInteger(answers.bufferMinutes) &&
+              answers.endTime > answers.startTime &&
+              !errors.groups && (
+                <p className="field-error" aria-live="polite">
+                  The last group would run past midnight. Choose fewer groups or a shorter buffer.
+                </p>
+              )
+            )}
             <Field label="Sessions" error={errors.sessionCount} htmlFor="actCount" hint="How many times the class meets. The price covers all of them.">
               <input
                 id="actCount"
                 type="number"
                 min={1}
-                max={52}
+                max={answers.repeat === 'MONTHLY' ? MAX_MONTHLY_SESSIONS : 52}
                 value={Number.isNaN(answers.sessionCount) ? '' : answers.sessionCount}
                 onChange={(e) => set('sessionCount', e.target.valueAsNumber)}
               />
@@ -1133,8 +1310,8 @@ export function CreateActivity({
             {schedule && (
               <div className="date-list" aria-live="polite">
                 <p className="date-list-head">
-                  {answers.sessionCount} sessions ·{' '}
-                  {answers.weekdays.map((d) => WEEKDAY_LABELS[d]).join(' & ')}{' '}
+                  {answers.sessionCount} sessions · {repeatSummary(answers)}{' '}
+                  {groupLine ? `· ${answers.groups} groups, the first` : ''}{' '}
                   {clockTime(answers.startTime)}–{clockTime(answers.endTime)} · ends{' '}
                   {shortDate(schedule.endDate)}
                 </p>
@@ -1552,9 +1729,9 @@ export function CreateActivity({
                   {kind === 'EVENT'
                     ? `${shortDate(answers.date)}, ${clockTime(answers.startTime)}–${clockTime(answers.endTime)}`
                     : schedule
-                      ? `${answers.sessionCount} sessions, ${answers.weekdays
-                          .map((d) => WEEKDAY_LABELS[d])
-                          .join(' & ')} ${clockTime(answers.startTime)}–${clockTime(
+                      ? `${answers.sessionCount} sessions, ${repeatSummary(answers)}${
+                          groupLine ? `, ${answers.groups} groups (${groupLine}), the first` : ''
+                        } ${clockTime(answers.startTime)}–${clockTime(
                           answers.endTime,
                         )}, ${shortDate(schedule.dates[0]!)} to ${shortDate(schedule.endDate)}`
                       : ''}
@@ -1664,7 +1841,10 @@ function ClassReviewRows({
       : 'Open as soon as it is published') +
       (answers.minNoticeMinutes > 0
         ? `, closes ${answers.minNoticeMinutes} minutes before it`
-        : ', closes when it starts'),
+        : answers.repeat === 'WEEKLY'
+          ? ', closes when it starts'
+          : // A daily or monthly run takes late joiners (REPEAT-PLAN.md).
+            ', stays open after it starts for late joiners'),
   ]);
   return (
     <>

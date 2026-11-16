@@ -519,7 +519,8 @@ export async function updateService(
  * Applies to new bookings only: an enrolment keeps the total it was sold at.
  */
 async function syncClassSeries(serviceTypeId: string, input: Record<string, unknown>) {
-  const series = await prisma.courseSeries.findFirst({
+  // Every time group's cohort (REPEAT-PLAN.md, part 2), each from its own first session.
+  const cohorts = await prisma.courseSeries.findMany({
     where: { serviceTypeId, status: { not: 'CANCELLED' } },
     select: {
       id: true,
@@ -531,20 +532,21 @@ async function syncClassSeries(serviceTypeId: string, input: Record<string, unkn
       },
     },
   });
-  if (!series) return;
 
-  const data: Prisma.CourseSeriesUpdateInput = {};
-  if (typeof input.priceCents === 'number') data.priceCents = input.priceCents;
-  if (typeof input.childPriceCents === 'number') data.childPriceCents = input.childPriceCents;
-  if (typeof input.minNoticeMinutes === 'number') {
-    const first = series.sessions[0]?.startsAt;
-    data.enrollmentClosesAt =
-      input.minNoticeMinutes > 0 && first
-        ? new Date(first.getTime() - input.minNoticeMinutes * 60_000)
-        : null;
-  }
-  if (Object.keys(data).length) {
-    await prisma.courseSeries.update({ where: { id: series.id }, data });
+  for (const series of cohorts) {
+    const data: Prisma.CourseSeriesUpdateInput = {};
+    if (typeof input.priceCents === 'number') data.priceCents = input.priceCents;
+    if (typeof input.childPriceCents === 'number') data.childPriceCents = input.childPriceCents;
+    if (typeof input.minNoticeMinutes === 'number') {
+      const first = series.sessions[0]?.startsAt;
+      data.enrollmentClosesAt =
+        input.minNoticeMinutes > 0 && first
+          ? new Date(first.getTime() - input.minNoticeMinutes * 60_000)
+          : null;
+    }
+    if (Object.keys(data).length) {
+      await prisma.courseSeries.update({ where: { id: series.id }, data });
+    }
   }
 }
 

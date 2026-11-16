@@ -1413,6 +1413,10 @@ model CourseSeries {
   /// 0 means adults only, and is what every older cohort has.
   childPriceCents Int @default(0) @map("child_price_cents")
 
+  /// How a Class repeats, as RRULE text without COUNT or UNTIL
+  /// (REPEAT-PLAN.md). Null: Weekly, on the days its sessions fall.
+  repeatRule String? @map("repeat_rule")
+
   status CourseSeriesStatus @default(DRAFT)
 
   /// The cohort's wall-clock zone. Sessions are re-resolved against this per

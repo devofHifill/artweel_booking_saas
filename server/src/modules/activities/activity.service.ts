@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { DateTime } from 'luxon';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
 import { uniqueSlug } from '../../lib/slug';
@@ -9,7 +10,15 @@ import { assertAltText, assertOwnImage, releaseImageIfUnused } from '../media/me
 import { insertSession } from '../../scheduling/session.service';
 import { translateSchedulingError } from '../../scheduling/pg-error';
 import { resolveLocal, type ResolutionKind } from '../../scheduling/time/zoned';
-import { planClassDates } from './class-dates';
+import {
+  fromRepeatRule,
+  groupTimes,
+  planClassDates,
+  repeatMatcher,
+  toRepeatRule,
+  type RepeatPattern,
+  type Weekday,
+} from './class-dates';
 import { dayLabel, findClashes, type Clash, type PlannedDate } from './clashes';
 import type {
   CreateClassInput,
@@ -290,18 +299,50 @@ export type PublishedClassSession = {
   resolution: ResolutionKind;
 };
 
+type PlannedSession = {
+  seriesIndex: number;
+  localDate: string;
+  startsAt: Date;
+  endsAt: Date;
+  resolution: ResolutionKind;
+};
+
+type PlannedGroup = {
+  startTime: string;
+  endTime: string;
+  /** "6:00am", on the cohort as its label when there is more than one group. */
+  label: string;
+  planned: PlannedSession[];
+};
+
 /**
- * A Class's sessions as instants: the calendar dates from `planClassDates`,
- * each start and end re-resolved against the studio's zone, so 6pm stays 6pm
- * across a daylight-saving change. Shared by publishing and the preview.
+ * A Class's sessions as instants, one list per time group: the calendar dates
+ * from `planClassDates`, each group's start and end re-resolved against the
+ * studio's zone, so 6pm stays 6pm across a daylight-saving change. Every
+ * group runs on the same dates (REPEAT-PLAN.md, part 2). Shared by
+ * publishing, editing and the preview.
  */
-function classSessions(
-  input: Pick<CreateClassInput, 'startDate' | 'weekdays' | 'sessionCount' | 'skipDates' | 'startTime' | 'endTime'>,
+function classGroups(
+  input: Pick<
+    CreateClassInput,
+    | 'startDate'
+    | 'repeat'
+    | 'monthlyBy'
+    | 'weekdays'
+    | 'sessionCount'
+    | 'skipDates'
+    | 'startTime'
+    | 'endTime'
+    | 'groups'
+    | 'bufferMinutes'
+  >,
   timezone: string,
 ) {
   let plan;
+  let times;
   try {
     plan = planClassDates(input);
+    times = groupTimes(input);
   } catch (err) {
     throw AppError.badRequest(
       err instanceof Error ? err.message : 'Those dates do not work.',
@@ -309,21 +350,31 @@ function classSessions(
     );
   }
 
-  const startMinute = minutesOf(input.startTime);
-  const endMinute = minutesOf(input.endTime);
-  const planned = plan.dates.map((localDate, index) => {
-    const start = resolveLocal(localDate, startMinute, timezone);
-    const end = resolveLocal(localDate, endMinute, timezone);
+  const groups: PlannedGroup[] = times.map((t) => {
+    const startMinute = minutesOf(t.startTime);
+    const endMinute = minutesOf(t.endTime);
     return {
-      seriesIndex: index + 1,
-      localDate,
-      startsAt: start.instant,
-      endsAt: end.instant,
-      resolution: start.kind,
+      ...t,
+      planned: plan.dates.map((localDate, index) => {
+        const start = resolveLocal(localDate, startMinute, timezone);
+        const end = resolveLocal(localDate, endMinute, timezone);
+        return {
+          seriesIndex: index + 1,
+          localDate,
+          startsAt: start.instant,
+          endsAt: end.instant,
+          resolution: start.kind,
+        };
+      }),
     };
   });
 
-  return { plan, planned };
+  /** Every group's sessions, soonest first: what clash checks and edits compare. */
+  const all = groups
+    .flatMap((g) => g.planned)
+    .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+
+  return { plan, groups, all };
 }
 
 export async function createClass(organizationId: string, input: CreateClassInput) {
@@ -343,11 +394,11 @@ export async function createClass(organizationId: string, input: CreateClassInpu
     requireCapacity(org.plan as PlanId, 'maxClasses', await countRunningClasses(organizationId));
   }
 
-  const { plan, planned } = classSessions(input, org.timezone);
+  const { plan, groups, all } = classGroups(input, org.timezone);
   const startMinute = minutesOf(input.startTime);
   const endMinute = minutesOf(input.endTime);
 
-  if (planned[0]!.startsAt.getTime() <= Date.now()) {
+  if (all[0]!.startsAt.getTime() <= Date.now()) {
     throw AppError.badRequest(
       'The first session has already passed. Choose a later start date.',
       'DATE_IN_PAST',
@@ -359,18 +410,9 @@ export async function createClass(organizationId: string, input: CreateClassInpu
   await assertDraftBelongs(organizationId, input.draftId);
   const slug = await slugFor(organizationId, input.name);
 
-  /*
-    "Minimum notice" on a Class closes booking that long before its FIRST
-    session — a Class is booked once, for the whole run. It is written to the
-    cohort's enrolment deadline, which enrolment already enforces.
-  */
-  const enrollmentClosesAt =
-    input.minNoticeMinutes > 0
-      ? new Date(planned[0]!.startsAt.getTime() - input.minNoticeMinutes * 60_000)
-      : null;
-
   return inTransaction(async (tx) => {
-    await assertNoClashes(tx, organizationId, org.timezone, planned, {
+    // Every group's dates at once: one clash anywhere and nothing is made.
+    await assertNoClashes(tx, organizationId, org.timezone, all, {
       staffId,
       locationId: location?.id ?? null,
     });
@@ -398,7 +440,7 @@ export async function createClass(organizationId: string, input: CreateClassInpu
         // session, as an Event's does.
         maxHorizonDays:
           input.maxHorizonDays ??
-          Math.max(120, Math.ceil((planned[0]!.startsAt.getTime() - Date.now()) / 86_400_000) + 1),
+          Math.max(120, Math.ceil((all[0]!.startsAt.getTime() - Date.now()) / 86_400_000) + 1),
         highlights: input.highlights || null,
         preparationNotes: input.preparationNotes || null,
         bookingInstructions: input.bookingInstructions || null,
@@ -406,47 +448,76 @@ export async function createClass(organizationId: string, input: CreateClassInpu
       },
     });
 
-    const series = await tx.courseSeries.create({
-      data: {
-        organizationId,
-        serviceTypeId: service.id,
-        name: input.name,
-        description: input.description,
-        sessionCount: input.sessionCount,
-        capacity: input.seats,
-        priceCents: input.priceCents,
-        childPriceCents: input.childPriceCents,
-        enrollmentClosesAt,
-        timezone: org.timezone,
-        staffId,
-        locationId: location?.id ?? null,
-        // On sale from the moment it is published. Booking closes when the
-        // first session starts: allowLateEnrollment stays at its default, false.
-        status: 'PUBLISHED',
-      },
-    });
-
-    const sessions: PublishedClassSession[] = [];
-    for (const week of planned) {
-      const session = await insertSession(tx, {
-        organizationId,
-        serviceTypeId: service.id,
-        courseSeriesId: series.id,
-        seriesIndex: week.seriesIndex,
-        startsAt: week.startsAt,
-        endsAt: week.endsAt,
-        timezone: org.timezone,
-        localStartTime: input.startTime,
-        capacity: input.seats,
-        staffId,
-        locationId: location?.id ?? null,
-        lat: location?.lat ?? null,
-        lng: location?.lng ?? null,
+    // One cohort per group: each is its own run with its own customers.
+    const made: { series: Awaited<ReturnType<typeof tx.courseSeries.create>>; sessions: PublishedClassSession[] }[] = [];
+    for (const group of groups) {
+      const series = await tx.courseSeries.create({
+        data: {
+          organizationId,
+          serviceTypeId: service.id,
+          name: input.name,
+          cohortLabel: groups.length > 1 ? group.label : null,
+          description: input.description,
+          sessionCount: input.sessionCount,
+          capacity: input.seats,
+          priceCents: input.priceCents,
+          childPriceCents: input.childPriceCents,
+          /*
+            "Minimum notice" on a Class closes booking that long before its
+            FIRST session — a Class is booked once, for the whole run. It is
+            written to the cohort's enrolment deadline, which enrolment
+            already enforces. Each group counts from its own first session.
+          */
+          enrollmentClosesAt:
+            input.minNoticeMinutes > 0
+              ? new Date(group.planned[0]!.startsAt.getTime() - input.minNoticeMinutes * 60_000)
+              : null,
+          timezone: org.timezone,
+          staffId,
+          locationId: location?.id ?? null,
+          repeatRule: toRepeatRule(input, input.startDate),
+          /*
+            On sale from the moment it is published. A weekly course closes when
+            its first session starts, as before. A daily or monthly run is long
+            enough that turning people away after day one would empty it, so
+            those take late joiners (REPEAT-PLAN.md).
+          */
+          allowLateEnrollment: input.repeat !== 'WEEKLY',
+          status: 'PUBLISHED',
+        },
       });
-      sessions.push({ id: session.id, ...week });
+
+      const sessions: PublishedClassSession[] = [];
+      for (const week of group.planned) {
+        const session = await insertSession(tx, {
+          organizationId,
+          serviceTypeId: service.id,
+          courseSeriesId: series.id,
+          seriesIndex: week.seriesIndex,
+          startsAt: week.startsAt,
+          endsAt: week.endsAt,
+          timezone: org.timezone,
+          localStartTime: group.startTime,
+          capacity: input.seats,
+          staffId,
+          locationId: location?.id ?? null,
+          lat: location?.lat ?? null,
+          lng: location?.lng ?? null,
+        });
+        sessions.push({ id: session.id, ...week });
+      }
+      made.push({ series, sessions });
     }
 
-    return { service, series, sessions, skipped: plan.skipped, endDate: plan.endDate };
+    return {
+      service,
+      // The first group, as a one-group Class has always answered.
+      series: made[0]!.series,
+      sessions: made[0]!.sessions,
+      groups: made,
+      skipped: plan.skipped,
+      endDate: plan.endDate,
+    };
   });
 }
 
@@ -510,7 +581,8 @@ async function loadActivity(organizationId: string, id: string) {
   const service = await prisma.serviceType.findFirst({
     where: { id, organizationId, kind: { in: ['CLASS', 'EVENT'] } },
     include: {
-      courseSeries: { where: { status: { not: 'CANCELLED' } }, take: 1 },
+      // Every group's cohort, in the order they were made (earliest time first).
+      courseSeries: { where: { status: { not: 'CANCELLED' } }, orderBy: { createdAt: 'asc' } },
       serviceLocations: { select: { locationId: true }, take: 1 },
       staffServices: { select: { staffId: true }, take: 1 },
       sessions: {
@@ -523,6 +595,7 @@ async function loadActivity(organizationId: string, id: string) {
           seatsTaken: true,
           staffId: true,
           locationId: true,
+          courseSeriesId: true,
         },
       },
     },
@@ -530,16 +603,17 @@ async function loadActivity(organizationId: string, id: string) {
   if (!service) throw AppError.notFound('Class or event not found.');
 
   const now = new Date();
-  const series = service.courseSeries[0] ?? null;
+  const seriesList = service.courseSeries;
+  const series = seriesList[0] ?? null;
   const booked =
     service.sessions.some((x) => x.seatsTaken > 0) ||
-    (series
+    (seriesList.length
       ? (await prisma.enrollment.count({
-          where: { courseSeriesId: series.id, status: 'ACTIVE' },
+          where: { courseSeriesId: { in: seriesList.map((x) => x.id) }, status: 'ACTIVE' },
         })) > 0
       : false);
   const started = service.sessions.some((x) => x.startsAt <= now);
-  return { service, series, booked, started };
+  return { service, series, seriesList, booked, started };
 }
 
 /**
@@ -547,14 +621,20 @@ async function loadActivity(organizationId: string, id: string) {
  * Edit. `datesLocked` says why its dates cannot change, when they cannot.
  */
 export async function getActivityAnswers(organizationId: string, id: string) {
-  const { service, series, booked, started } = await loadActivity(organizationId, id);
+  const { service, series, seriesList, booked, started } = await loadActivity(organizationId, id);
   const org = await prisma.organization.findUniqueOrThrow({
     where: { id: organizationId },
     select: { timezone: true },
   });
   const tz = org.timezone;
-  const first = service.sessions[0];
-  const last = service.sessions[service.sessions.length - 1];
+  /* With several time groups, the first group's sessions carry the dates and
+     times the steps show; the others follow from the group count and buffer. */
+  const ofGroup = (seriesId: string | undefined) =>
+    seriesId ? service.sessions.filter((x) => x.courseSeriesId === seriesId) : service.sessions;
+  const firstGroup = ofGroup(series?.id);
+  const first = firstGroup[0];
+  const last = firstGroup[firstGroup.length - 1];
+  const secondStart = seriesList[1] ? ofGroup(seriesList[1].id)[0]?.startsAt : undefined;
   const start = first ? localParts(first.startsAt, tz) : null;
   const end = first ? localParts(first.endsAt, tz) : null;
 
@@ -562,28 +642,40 @@ export async function getActivityAnswers(organizationId: string, id: string) {
   if (service.kind === 'EVENT') {
     if (start) schedule.date = start.date;
   } else if (start && last) {
-    const days = service.sessions.map((x) => localParts(x.startsAt, tz));
-    const weekdays = WEEK_ORDER.filter((d) => days.some((x) => x.weekday === d));
-    /* Skipped dates: the ones the weekly pattern passes through between the
-       first and last session with no session on them — a holiday the studio
+    const days = firstGroup.map((x) => localParts(x.startsAt, tz));
+    /* The stored rule says how it repeats. A Class made before repeat has
+       none, and is weekly on the days its sessions fall. */
+    const pattern: RepeatPattern = fromRepeatRule(series?.repeatRule) ?? {
+      repeat: 'WEEKLY',
+      weekdays: WEEK_ORDER.filter((d) => days.some((x) => x.weekday === d)) as Weekday[],
+    };
+    /* Skipped dates: the ones the pattern passes through between the first
+       and last session with no session on them — a holiday the studio
        unticked, or one it later cancelled. */
+    const matches = repeatMatcher(pattern, start.date);
     const held = new Set(days.map((x) => x.date));
     const lastDate = localParts(last.startsAt, tz).date;
     const skipDates: string[] = [];
     for (
-      let d = new Date(`${start.date}T00:00:00Z`);
-      d.toISOString().slice(0, 10) <= lastDate;
-      d.setUTCDate(d.getUTCDate() + 1)
+      let d = DateTime.fromISO(start.date, { zone: 'UTC' });
+      d.toISODate()! <= lastDate;
+      d = d.plus({ days: 1 })
     ) {
-      const iso = d.toISOString().slice(0, 10);
-      const wd = WEEK_ORDER[(d.getUTCDay() + 6) % 7]!;
-      if (weekdays.includes(wd) && !held.has(iso)) skipDates.push(iso);
+      const iso = d.toISODate()!;
+      if (matches(d) && !held.has(iso)) skipDates.push(iso);
     }
     Object.assign(schedule, {
       startDate: start.date,
-      weekdays,
-      sessionCount: service.sessions.length,
+      repeat: pattern.repeat ?? 'WEEKLY',
+      monthlyBy: pattern.monthlyBy ?? 'WEEKDAY',
+      weekdays: pattern.weekdays,
+      sessionCount: firstGroup.length,
       skipDates,
+      groups: Math.max(1, seriesList.length),
+      bufferMinutes:
+        secondStart && first
+          ? Math.max(0, Math.round((secondStart.getTime() - first.endsAt.getTime()) / 60_000))
+          : 0,
     });
   }
 
@@ -629,6 +721,26 @@ export async function getActivityAnswers(organizationId: string, id: string) {
   };
 }
 
+/**
+ * A Class's stored rule follows its answers. Late joining follows the repeat
+ * only when the dates are being remade (nobody has booked yet), so a switch a
+ * studio changed by hand on a running class is left alone.
+ */
+function classRepeatUpdate(
+  input: CreateClassInput,
+  series: { repeatRule: string | null },
+  datesChanged: boolean,
+) {
+  const rule = toRepeatRule(input, input.startDate);
+  const was = fromRepeatRule(series.repeatRule)?.repeat ?? 'WEEKLY';
+  return {
+    repeatRule: rule,
+    ...(datesChanged && was !== input.repeat
+      ? { allowLateEnrollment: input.repeat !== 'WEEKLY' }
+      : {}),
+  };
+}
+
 /** Same instants, in the same order? Then the dates did not change. */
 function sameDates(
   a: { startsAt: Date; endsAt: Date }[],
@@ -654,7 +766,7 @@ export async function editActivity(
   kind: 'CLASS' | 'EVENT',
   input: (CreateClassInput | EditEventInput) & Partial<Details>,
 ) {
-  const { service, series, booked, started } = await loadActivity(organizationId, id);
+  const { service, seriesList, booked, started } = await loadActivity(organizationId, id);
   if (service.kind !== kind) {
     throw AppError.badRequest(kind === 'CLASS' ? 'This is not a class.' : 'This is not an event.');
   }
@@ -672,13 +784,16 @@ export async function editActivity(
 
   // --- The dates wanted, and whether they moved ---------------------------
   let planned: { localDate: string; startsAt: Date; endsAt: Date; seriesIndex: number }[];
+  let groups: PlannedGroup[] = [];
   if (kind === 'EVENT') {
     const e = input as EditEventInput;
     const start = resolveLocal(e.date, minutesOf(e.startTime), tz);
     const end = resolveLocal(e.date, minutesOf(e.endTime), tz);
     planned = [{ localDate: e.date, startsAt: start.instant, endsAt: end.instant, seriesIndex: 1 }];
   } else {
-    planned = classSessions(input as CreateClassInput, tz).planned;
+    const made = classGroups(input as CreateClassInput, tz);
+    planned = made.all;
+    groups = made.groups;
   }
   const datesChanged = !sameDates(planned, service.sessions);
   if (datesChanged) {
@@ -778,24 +893,20 @@ export async function editActivity(
     await tx.staffService.deleteMany({ where: { serviceTypeId: id } });
     if (staffId) await tx.staffService.create({ data: { serviceTypeId: id, staffId } });
 
-    // Its cohort (a Class): what the booking page and checkout read.
-    if (series) {
-      await tx.courseSeries.update({
-        where: { id: series.id },
-        data: {
-          name: input.name,
-          description: input.description || null,
-          priceCents: input.priceCents,
-          childPriceCents: input.childPriceCents ?? 0,
-          capacity: input.seats,
-          staffId,
-          locationId,
-          sessionCount: datesChanged ? planned.length : series.sessionCount,
-          enrollmentClosesAt:
-            notice > 0 && firstStart ? new Date(firstStart.getTime() - notice * 60_000) : null,
-        },
-      });
-    }
+    /* Its cohorts (a Class), one per time group: what the booking page and
+       checkout read. Each group's booking deadline counts from its own first
+       session. */
+    const cohortData = (firstOfGroup: Date | null | undefined) => ({
+      name: input.name,
+      description: input.description || null,
+      priceCents: input.priceCents,
+      childPriceCents: input.childPriceCents ?? 0,
+      capacity: input.seats,
+      staffId,
+      locationId,
+      enrollmentClosesAt:
+        notice > 0 && firstOfGroup ? new Date(firstOfGroup.getTime() - notice * 60_000) : null,
+    });
 
     if (datesChanged) {
       // Nobody has booked: the old dates go, the new ones are made.
@@ -803,23 +914,86 @@ export async function editActivity(
       await tx.staffTimeBlock.deleteMany({ where: { sessionId: { in: old } } });
       await tx.resourceAllocation.deleteMany({ where: { sessionId: { in: old } } });
       await tx.session.updateMany({ where: { id: { in: old } }, data: { status: 'CANCELLED' } });
-      for (const date of planned) {
-        await insertSession(tx, {
-          organizationId,
-          serviceTypeId: id,
-          ...(series ? { courseSeriesId: series.id, seriesIndex: date.seriesIndex } : {}),
-          startsAt: date.startsAt,
-          endsAt: date.endsAt,
-          timezone: tz,
-          localStartTime: input.startTime,
-          capacity: input.seats,
-          staffId,
-          locationId,
-          lat: location?.lat ?? null,
-          lng: location?.lng ?? null,
-        });
+
+      // An Event's one date, or each group of a Class into its cohort.
+      const runs: { seriesId: string | null; startTime: string; dates: typeof planned }[] =
+        kind === 'EVENT'
+          ? [{ seriesId: null, startTime: input.startTime, dates: planned }]
+          : [];
+      if (kind === 'CLASS') {
+        const answers = input as CreateClassInput;
+        for (const [g, group] of groups.entries()) {
+          /* The cohorts keep their ids where they can (links to a Class's
+             page stay good); a group added gets a new one. */
+          const existing = seriesList[g];
+          const data = {
+            ...cohortData(group.planned[0]?.startsAt),
+            cohortLabel: groups.length > 1 ? group.label : null,
+            sessionCount: group.planned.length,
+          };
+          const seriesId = existing
+            ? (
+                await tx.courseSeries.update({
+                  where: { id: existing.id },
+                  data: { ...data, ...classRepeatUpdate(answers, existing, true) },
+                })
+              ).id
+            : (
+                await tx.courseSeries.create({
+                  data: {
+                    ...data,
+                    organizationId,
+                    serviceTypeId: id,
+                    timezone: tz,
+                    repeatRule: toRepeatRule(answers, answers.startDate),
+                    allowLateEnrollment: answers.repeat !== 'WEEKLY',
+                    status: 'PUBLISHED',
+                  },
+                })
+              ).id;
+          runs.push({ seriesId, startTime: group.startTime, dates: group.planned });
+        }
+        // A group taken away: nobody had booked it, so it simply ends.
+        const extra = seriesList.slice(groups.length).map((x) => x.id);
+        if (extra.length) {
+          await tx.courseSeries.updateMany({
+            where: { id: { in: extra } },
+            data: { status: 'CANCELLED' },
+          });
+        }
+      }
+
+      for (const run of runs) {
+        for (const date of run.dates) {
+          await insertSession(tx, {
+            organizationId,
+            serviceTypeId: id,
+            ...(run.seriesId ? { courseSeriesId: run.seriesId, seriesIndex: date.seriesIndex } : {}),
+            startsAt: date.startsAt,
+            endsAt: date.endsAt,
+            timezone: tz,
+            localStartTime: run.startTime,
+            capacity: input.seats,
+            staffId,
+            locationId,
+            lat: location?.lat ?? null,
+            lng: location?.lng ?? null,
+          });
+        }
       }
     } else {
+      for (const cohort of seriesList) {
+        const firstOfGroup = service.sessions.find((x) => x.courseSeriesId === cohort.id)?.startsAt;
+        await tx.courseSeries.update({
+          where: { id: cohort.id },
+          data: {
+            ...cohortData(firstOfGroup),
+            ...(kind === 'CLASS'
+              ? classRepeatUpdate(input as CreateClassInput, cohort, false)
+              : {}),
+          },
+        });
+      }
       // Same dates: seats, instructor and place reach every session to come.
       const ids = upcoming.map((x) => x.id);
       await tx.session.updateMany({
@@ -884,8 +1058,9 @@ export async function previewActivity(organizationId: string, input: PreviewInpu
     const end = resolveLocal(input.date, minutesOf(input.endTime), org.timezone);
     dates = [{ localDate: input.date, startsAt: start.instant, endsAt: end.instant }];
   } else {
-    const { plan, planned } = classSessions(input, org.timezone);
-    dates = planned;
+    // Every group's dates: a clash at 7:15 matters as much as one at 6:00.
+    const { plan, all } = classGroups(input, org.timezone);
+    dates = all;
     skipped = plan.skipped;
   }
 
