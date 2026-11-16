@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { MAX_MONTHLY_SESSIONS, MONTHLY_BY, REPEATS, WEEKDAYS } from './class-dates';
+import {
+  MAX_GROUPS,
+  MAX_MONTHLY_SESSIONS,
+  MONTHLY_BY,
+  REPEATS,
+  WEEKDAYS,
+  groupTimes,
+} from './class-dates';
 
 /**
  * What the Class and Event step flows send when the studio presses Publish.
@@ -101,6 +108,32 @@ const repeatFields = {
     .default([]),
   /** Same ceiling as a course cohort (`createSeriesSchema`); Monthly is lower. */
   sessionCount: z.number().int().min(1).max(52),
+  /**
+   * Time groups a day (REPEAT-PLAN.md, part 2): the same class at several
+   * times, each its own run with its own customers. 1 is a plain Class.
+   */
+  groups: z.number().int().min(1).max(MAX_GROUPS).default(1),
+  /** Minutes between one group ending and the next starting. */
+  bufferMinutes: z.number().int().min(0).max(240).default(0),
+};
+
+const groupsFitTheDay = (c: {
+  startTime: string;
+  endTime: string;
+  groups: number;
+  bufferMinutes: number;
+}) => {
+  if (c.endTime <= c.startTime) return true; // reported by endsAfterStarts
+  try {
+    groupTimes(c);
+    return true;
+  } catch {
+    return false;
+  }
+};
+const groupsFitTheDayMessage = {
+  message: 'The last group would run past midnight. Choose fewer groups or a shorter buffer.',
+  path: ['groups'],
 };
 
 type RepeatAnswers = { repeat: string; weekdays: string[]; sessionCount: number };
@@ -134,6 +167,7 @@ export const createClassSchema = z
   .refine(endsAfterStarts, endsAfterStartsMessage)
   .refine(weeklyHasDays, weeklyHasDaysMessage)
   .refine(monthlyFits, monthlyFitsMessage)
+  .refine(groupsFitTheDay, groupsFitTheDayMessage)
   .refine((c) => c.minGuests <= c.seats, {
     message: 'The minimum guests cannot be more than the seats.',
     path: ['minGuests'],
@@ -211,7 +245,8 @@ export const previewSchema = z
   ])
   .refine(endsAfterStarts, endsAfterStartsMessage)
   .refine((c) => c.kind !== 'CLASS' || weeklyHasDays(c), weeklyHasDaysMessage)
-  .refine((c) => c.kind !== 'CLASS' || monthlyFits(c), monthlyFitsMessage);
+  .refine((c) => c.kind !== 'CLASS' || monthlyFits(c), monthlyFitsMessage)
+  .refine((c) => c.kind !== 'CLASS' || groupsFitTheDay(c), groupsFitTheDayMessage);
 
 export type PreviewInput = z.infer<typeof previewSchema>;
 

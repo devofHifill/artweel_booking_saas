@@ -630,7 +630,51 @@ export function renderBookingPage(
       </button>`;
   };
   const courseCards = courses.map(courseCard).join('');
-  const classCards = courses.filter((c) => c.service.kind === 'CLASS').map(courseCard).join('');
+  /*
+    One card per Class (REPEAT-PLAN.md, part 2). A Class run at several times
+    a day is one run per time; listing each as its own card would show the
+    same class five times. Its card opens a time picker instead, and a
+    one-time Class keeps the card it always had.
+  */
+  const timeOf = (c: NonNullable<PageData['courses']>[number]) =>
+    c.cohortLabel ??
+    new Date(c.startsAt).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: organization.timezone,
+    });
+  const classGroups = new Map<string, NonNullable<PageData['courses']>>();
+  for (const c of courses.filter((x) => x.service.kind === 'CLASS')) {
+    classGroups.set(c.service.id, [...(classGroups.get(c.service.id) ?? []), c]);
+  }
+  const classGroupCard = (runs: NonNullable<PageData['courses']>): string => {
+    const sorted = [...runs].sort(
+      (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+    );
+    const first = sorted[0]!;
+    const open = sorted.some((c) => c.enrollable);
+    const times = sorted.map(timeOf).join(', ');
+    return `
+      <button class="card" data-class="${escapeHtml(first.service.id)}" type="button"${
+        open ? '' : ' disabled'
+      }>
+        <span>
+          <h3>${escapeHtml(first.name)}</h3>
+          ${first.description ? `<p>${escapeHtml(first.description)}</p>` : ''}
+          <span class="meta">${first.sessionCount} sessions &middot; ${dateRange(
+            first.startsAt,
+            first.endsAt,
+            organization.timezone,
+          )}${first.instructor ? ` &middot; ${escapeHtml(first.instructor)}` : ''} &middot; ${
+            sorted.length
+          } times: ${escapeHtml(times)} &middot; ${open ? 'Choose a time' : 'Closed'}</span>
+        </span>
+        <span class="price">${money(first.priceCents, organization.currency)}</span>
+      </button>`;
+  };
+  const classCards = [...classGroups.values()]
+    .map((runs) => (runs.length > 1 ? classGroupCard(runs) : courseCard(runs[0]!)))
+    .join('');
   const olderCourseCards = courses
     .filter((c) => c.service.kind !== 'CLASS')
     .map(courseCard)

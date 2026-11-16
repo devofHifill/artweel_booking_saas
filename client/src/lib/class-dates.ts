@@ -172,3 +172,42 @@ export function repeatSummary(input: {
   const option = monthlyOptions(input.startDate).find((o) => o.value === (input.monthlyBy ?? 'WEEKDAY'));
   return option ? `Monthly, ${option.label.replace(/^On /, '').replace(/ of each month$/, '')}` : 'Monthly';
 }
+
+/** How many time groups a Class may run a day. Same as the server. */
+export const MAX_GROUPS = 12;
+
+export type GroupTime = { startTime: string; endTime: string };
+
+/**
+ * Each group's times: the first as asked, each next one after the previous
+ * ends plus the buffer — the server's `groupTimes`, which MUST agree. Null when
+ * the times do not work yet, or the last group would run past midnight.
+ */
+export function groupTimes(input: {
+  startTime: string;
+  endTime: string;
+  groups: number;
+  bufferMinutes: number;
+}): GroupTime[] | null {
+  const toMinutes = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h! * 60 + m!;
+  };
+  const toTime = (n: number) =>
+    `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
+  const start = toMinutes(input.startTime);
+  const length = toMinutes(input.endTime) - start;
+  const { groups, bufferMinutes } = input;
+  if (!(length > 0)) return null;
+  if (!Number.isInteger(groups) || groups < 1 || groups > MAX_GROUPS) return null;
+  if (!Number.isInteger(bufferMinutes) || bufferMinutes < 0 || bufferMinutes > 240) return null;
+
+  const out: GroupTime[] = [];
+  for (let g = 0; g < groups; g++) {
+    const from = start + g * (length + bufferMinutes);
+    const to = from + length;
+    if (to > 24 * 60 - 1) return null;
+    out.push({ startTime: toTime(from), endTime: toTime(to) });
+  }
+  return out;
+}

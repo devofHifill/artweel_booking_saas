@@ -1,6 +1,6 @@
 # Repeat plan — Daily, Weekly, Monthly and time groups for Classes
 
-**Status:** agreed with Suren 2026-11-16. **Part 1 built (local, uncommitted) 2026-11-16**: Daily / Weekly / Monthly, stored rule, Schedule step, editor round-trip; 19 tests in `tests/admin/class-repeat.test.ts`, all 99 Class tests pass; clicked through in the browser. Part 2 not started.
+**Status:** agreed with Suren 2026-11-16. **Part 1 built (local, uncommitted) 2026-11-16**: Daily / Weekly / Monthly, stored rule, Schedule step, editor round-trip; 19 tests in `tests/admin/class-repeat.test.ts`, all 99 Class tests pass; clicked through in the browser. Committed `c6c7202`. **Part 2 built (local, uncommitted) 2026-11-16**: groups per day with buffer, one card per Class on the booking page with a calendar time picker, website pages name the times, desk form links each time; 15 tests in `tests/admin/class-groups.test.ts`; clicked through locally (edit to 3 groups, booking page, time picker, Back, website link, phone).
 **Branch:** `feat/class-repeat`.
 
 ## Decisions
@@ -62,7 +62,8 @@ Class "Wheel Basics", Weekly, Mon, 3 sessions, starts on 20 Nov 2026, 6:00–7:0
 - **Dates:** `planClassDates` takes the repeat and keeps working in calendar dates, re-resolving each time in the studio zone (DST-safe, as now). Shared by preview and publish.
 - **Schema:** `createClassSchema` / `previewSchema` gain the repeat; weekday chips required for Weekly only. Old drafts without a repeat load as Weekly.
 - **Groups:** one `course_series` per group under the same activity (the model already allows several). All created in one transaction; one clash and nothing is created.
-- **Buffer vs padding:** the activity's padding blocks the instructor before/after a session. When groups are on, the buffer is used as the padding so an instructor's own groups never clash with each other.
+- **Buffer vs padding (as built):** the buffer only spaces the group times; padding is unchanged. An instructor's own groups cannot clash: Class sessions carry no padding and instructor time blocks are half-open (`[)`), so 7:00 ending and 7:00 starting do not overlap — tested with a 0-minute buffer.
+- **Group times (as built):** worked out from the first time, the group count and the buffer, shown as "Groups start at 6:00pm · 7:15pm · 8:30pm", not editable one by one (kept simple). Each run's `cohort_label` is its time ("7:15pm"), which the Manifest, the booking page and the desk form already show.
 - **Screens that assume one run per Class and must handle several:** editing (`getActivityAnswers`, `editActivity`), Duplicate, Delete activity, the dashboard Class page (`/courses/:id`, desk "Add someone"), the Activities list's schedule line, Daily Manifest and reports (label as "Wheel Basics · 7:15").
 - **Editing:** a group's dates lock once it has bookings (`DATES_LOCKED`, as today). Groups with no bookings can be moved or removed.
 

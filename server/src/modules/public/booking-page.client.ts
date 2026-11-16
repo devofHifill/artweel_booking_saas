@@ -244,6 +244,124 @@ export const clientScript = String.raw`
     showCourseDetails();
   }
 
+  /*
+    A Class that runs at several times a day (REPEAT-PLAN.md, part 2): each
+    time is its own run, booked once for all its sessions. The customer picks
+    the time on the same calendar the drop-in classes use, then goes on to
+    that run exactly as a one-time Class does.
+
+    A run is offered on the day it starts. One that has started and takes late
+    joiners is offered on its next session instead, said as joining in
+    progress: the earlier dates are gone, and the customer should see that.
+  */
+  var classPick = null;
+
+  function backFromCourse() {
+    course = null;
+    if (classPick) paintClassTimes();
+    else start();
+  }
+
+  function joinPoint(run) {
+    if (!run.enrollable) return null;
+    var now = Date.now();
+    if (new Date(run.startsAt).getTime() > now) {
+      return { at: run.startsAt, late: false, left: run.sessionCount };
+    }
+    var rest = (run.dates || []).filter(function (d) {
+      return new Date(d.startsAt).getTime() > now;
+    });
+    return rest.length ? { at: rest[0].startsAt, late: true, left: rest.length } : null;
+  }
+
+  function pickClassTime(serviceId) {
+    var runs = (DATA.courses || []).filter(function (c) { return c.service.id === serviceId; });
+    if (!runs.length) return;
+    if (runs.length === 1) { classPick = null; pickCourse(runs[0].id); return; }
+
+    var options = [];
+    runs.forEach(function (run) {
+      var join = joinPoint(run);
+      if (join) {
+        options.push({ sessionId: run.id, startsAt: join.at, late: join.late, left: join.left,
+                       seatsAvailable: run.seatsRemaining, capacity: run.seatsRemaining,
+                       timezone: run.timezone, run: run });
+      }
+    });
+    options.sort(function (a, b) {
+      return new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime();
+    });
+    classPick = { name: runs[0].name, sessionCount: runs[0].sessionCount };
+    // The drop-in calendar reads times; a run's join point is its "session".
+    times = { mode: 'SESSIONS', slots: [], sessions: options, tz: DATA.timezone,
+              month: null, day: null };
+    paintClassTimes();
+  }
+
+  function paintClassTimes() {
+    course = null;
+    drawSteps('Class');
+    var html = back() + '<h2>' + esc(classPick.name) + '</h2>' +
+      '<p class="hint">' + plural(classPick.sessionCount, 'session', 'sessions') +
+      ', booked once. Pick the time you will come to: you stay in that group for ' +
+      'every session.</p><h3>Pick a time</h3>';
+
+    if (!times.sessions.length) {
+      app.innerHTML = html + '<p class="empty">No times can be booked right now.</p>';
+      wireBack(function () { classPick = null; start(); });
+      return;
+    }
+
+    html += calendar();
+
+    var tz = times.tz;
+    html += times.sessions.filter(function (o) {
+      var key = ymdIn(o.startsAt, zoneOf(o));
+      if (times.day) return key === times.day;
+      return !times.month || key.slice(0, 7) === times.month;
+    }).map(function (o) {
+      var z = zoneOf(o);
+      return '<button class="card" type="button" data-run="' + esc(o.sessionId) + '">' +
+        '<span class="swatch" style="background:var(--clay)"></span><span class="card-body">' +
+        '<h3>' + esc(dayIn(o.startsAt, z)) + ' at ' + timeWithZone(o.startsAt, z) + '</h3>' +
+        '<p>' + (o.late
+          ? 'Joins in progress &middot; ' + plural(o.left, 'session', 'sessions') + ' left'
+          : plural(o.left, 'session', 'sessions')) +
+        ' &middot; ' + plural(o.seatsAvailable, 'place', 'places') + ' left</p>' +
+        '</span><span class="card-side"><span class="go" aria-hidden="true">Select &rarr;</span></span>' +
+        '</button>';
+    }).join('');
+
+    app.innerHTML = html;
+    wireBack(function () { classPick = null; start(); });
+
+    function months() {
+      var list = times.sessions.map(function (o) { return ymdIn(o.startsAt, zoneOf(o)).slice(0, 7); });
+      return list.filter(function (m, i) { return list.indexOf(m) === i; }).sort();
+    }
+    function step(by) {
+      var list = months();
+      var at = list.indexOf(times.month);
+      if (list[at + by]) { times.month = list[at + by]; times.day = null; paintClassTimes(); }
+    }
+    var prev = document.getElementById('calPrev');
+    if (prev) prev.addEventListener('click', function () { step(-1); });
+    var next = document.getElementById('calNext');
+    if (next) next.addEventListener('click', function () { step(1); });
+    var all = document.getElementById('calAll');
+    if (all) all.addEventListener('click', function () { times.day = null; paintClassTimes(); });
+    app.querySelectorAll('[data-day]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var key = el.getAttribute('data-day');
+        times.day = times.day === key ? null : key;
+        paintClassTimes();
+      });
+    });
+    app.querySelectorAll('[data-run]').forEach(function (el) {
+      el.addEventListener('click', function () { pickCourse(el.getAttribute('data-run')); });
+    });
+  }
+
   function showCourseDetails() {
     drawSteps('Details');
 
@@ -271,7 +389,7 @@ export const clientScript = String.raw`
         '<div class="err">This course has to be paid for online, and the ' +
         'studio has not finished setting up online payments yet. Please get ' +
         'in touch with them directly to take a place.</div>';
-      wireBack(function () { course = null; start(); });
+      wireBack(backFromCourse);
       return;
     }
 
@@ -307,7 +425,7 @@ export const clientScript = String.raw`
       '<div id="summary"></div>' +
       '<button class="primary" id="confirm" type="button">Confirm booking</button>';
 
-    wireBack(function () { course = null; start(); });
+    wireBack(backFromCourse);
     paintSummary();
 
     var seatsInput = document.getElementById('seats');
@@ -1461,6 +1579,11 @@ export const clientScript = String.raw`
         pickCourse(el.getAttribute('data-course'));
       });
     });
+    document.querySelectorAll('[data-class]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        pickClassTime(el.getAttribute('data-class'));
+      });
+    });
 
     /* Every storefront "Book now" links here with ?service=<id>. Asking the
        customer to pick the class they just clicked is a wasted step, so go
@@ -1474,10 +1597,11 @@ export const clientScript = String.raw`
       } else {
         /* A Class is listed on the website by its activity, but booked as its
            course: open the course that activity runs. */
-        var run = (DATA.courses || []).filter(function (c) {
-          return c.service.id === wantedId && c.enrollable;
-        })[0];
-        if (run) pickCourse(run.id);
+        var runs = (DATA.courses || []).filter(function (c) {
+          return c.service.id === wantedId;
+        });
+        if (runs.length > 1) pickClassTime(wantedId);
+        else if (runs[0] && runs[0].enrollable) pickCourse(runs[0].id);
       }
     }
   }

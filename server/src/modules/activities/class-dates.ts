@@ -191,3 +191,70 @@ export function fromRepeatRule(rule: string | null | undefined): RepeatPattern |
   }
   return null;
 }
+
+// --- Groups per day ----------------------------------------------------------
+
+/** How many time groups a Class may run a day (REPEAT-PLAN.md, part 2). */
+export const MAX_GROUPS = 12;
+
+export type GroupTime = {
+  /** "HH:mm", wall clock. */
+  startTime: string;
+  endTime: string;
+  /** "6:00am": tells the groups apart on cards, the Manifest and the calendar. */
+  label: string;
+};
+
+function minutesOfTime(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return h! * 60 + m!;
+}
+
+function timeOfMinutes(total: number): string {
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** "6:00am" from a minute of the day. Matches the dashboard's `clockTime`. */
+export function clockLabel(time: string): string {
+  const [h, m] = time.split(':').map(Number);
+  const suffix = h! >= 12 ? 'pm' : 'am';
+  const hour = h! % 12 === 0 ? 12 : h! % 12;
+  return `${hour}:${String(m).padStart(2, '0')}${suffix}`;
+}
+
+/**
+ * The start and end of each group: the first at the times asked, each next
+ * one after the previous ends plus the buffer. 6:00–7:00, 3 groups, 15 min:
+ * 6:00–7:00 · 7:15–8:15 · 8:30–9:30.
+ *
+ * Back to back (buffer 0) is fine for one instructor: time blocks are
+ * half-open, so 7:00 ending and 7:00 starting do not overlap. Throws when the
+ * last group would run past midnight.
+ */
+export function groupTimes(input: {
+  startTime: string;
+  endTime: string;
+  groups?: number;
+  bufferMinutes?: number;
+}): GroupTime[] {
+  const groups = input.groups ?? 1;
+  const buffer = input.bufferMinutes ?? 0;
+  const start = minutesOfTime(input.startTime);
+  const length = minutesOfTime(input.endTime) - start;
+  if (length <= 0) throw new Error('The end time must be after the start time.');
+  if (!Number.isInteger(groups) || groups < 1 || groups > MAX_GROUPS) {
+    throw new Error(`Between 1 and ${MAX_GROUPS} groups a day.`);
+  }
+
+  const out: GroupTime[] = [];
+  for (let g = 0; g < groups; g++) {
+    const from = start + g * (length + buffer);
+    const to = from + length;
+    if (to > 24 * 60 - 1) {
+      throw new Error('The last group would run past midnight. Choose fewer groups or a shorter buffer.');
+    }
+    const startTime = timeOfMinutes(from);
+    out.push({ startTime, endTime: timeOfMinutes(to), label: clockLabel(startTime) });
+  }
+  return out;
+}

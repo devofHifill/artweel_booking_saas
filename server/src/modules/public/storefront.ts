@@ -277,7 +277,9 @@ function runLine(s: Service, tz: string): string {
     : run.bookingOpensAt
       ? `<span class="sf-muted">Booking opens ${dateShort(new Date(run.bookingOpensAt), tz)}</span>`
       : `<span class="sf-muted">${run.seatsRemaining <= 0 ? 'Full' : 'Booking closed'}</span>`;
-  return `<span>${when}</span>${state}`;
+  // Several times a day: say so here, and pick the time when booking.
+  const times = run.groupTimes.length > 1 ? `<span>${run.groupTimes.length} times a day</span>` : '';
+  return `<span>${when}</span>${times}${state}`;
 }
 
 function serviceCard(store: Storefront, s: Service): string {
@@ -602,7 +604,13 @@ export function renderActivity(store: Storefront, s: Service): string {
                     )}</span></li>`,
                 )
                 .join('')}</ul>
-               <p class="sf-fine">${runLine(s, tz)}</p>`
+               <p class="sf-fine">${runLine(s, tz)}</p>${
+                 s.run.groupTimes.length > 1
+                   ? `<p class="sf-fine">Runs at ${escapeHtml(
+                       s.run.groupTimes.join(', '),
+                     )}. You pick your time when you book, and keep it for every session.</p>`
+                   : ''
+               }`
             : s.sessions.length > 0
             ? `<ul class="sf-slots">${s.sessions
                 .map((session) => {
