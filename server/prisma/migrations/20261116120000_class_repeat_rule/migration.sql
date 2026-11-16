@@ -1,0 +1,11 @@
+-- How a Class repeats (REPEAT-PLAN.md): Daily, Weekly or Monthly, stored as
+-- RRULE text such as FREQ=WEEKLY;BYDAY=MO or FREQ=MONTHLY;BYDAY=-1FR.
+--
+-- Needed because the editor rebuilds a Class's schedule from its session
+-- dates, and that only works for Weekly: three monthly dates look the same
+-- as a weekly pattern with weeks skipped. Never COUNT or UNTIL — the cohort's
+-- session_count says how many.
+--
+-- Null on every existing cohort, and null means Weekly on the days its
+-- sessions fall, which is how every Class so far was made. No backfill.
+ALTER TABLE "course_series" ADD COLUMN "repeat_rule" TEXT;

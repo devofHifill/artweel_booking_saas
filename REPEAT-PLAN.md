@@ -1,6 +1,6 @@
 # Repeat plan — Daily, Weekly, Monthly and time groups for Classes
 
-**Status:** planned, not started. Agreed with Suren 2026-11-16.
+**Status:** agreed with Suren 2026-11-16. **Part 1 built (local, uncommitted) 2026-11-16**: Daily / Weekly / Monthly, stored rule, Schedule step, editor round-trip; 19 tests in `tests/admin/class-repeat.test.ts`, all 99 Class tests pass; clicked through in the browser. Part 2 not started.
 **Branch:** `feat/class-repeat`.
 
 ## Decisions
@@ -58,7 +58,7 @@ Class "Wheel Basics", Weekly, Mon, 3 sessions, starts on 20 Nov 2026, 6:00–7:0
 
 - **Store the repeat as RRULE text** on the run (`course_series.repeat_rule`), e.g. `FREQ=WEEKLY;BYDAY=MO`, `FREQ=DAILY`, `FREQ=MONTHLY;BYMONTHDAY=7`, `FREQ=MONTHLY;BYDAY=1MO`, `FREQ=MONTHLY;BYDAY=-1FR`. No COUNT/UNTIL — `sessionCount` governs, as in `expandLocalDates`.
   - Why: the editor today rebuilds the pattern from the session dates (`activity.service.ts:562`), which only works for Weekly. Monthly dates look like a weekly pattern with skipped weeks.
-  - One migration; existing Classes are back-filled with their weekly rule.
+  - One migration (`20261116120000_class_repeat_rule`). No backfill: null means Weekly on the days its sessions fall, which is how every earlier Class was made, and the editor reads it that way.
 - **Dates:** `planClassDates` takes the repeat and keeps working in calendar dates, re-resolving each time in the studio zone (DST-safe, as now). Shared by preview and publish.
 - **Schema:** `createClassSchema` / `previewSchema` gain the repeat; weekday chips required for Weekly only. Old drafts without a repeat load as Weekly.
 - **Groups:** one `course_series` per group under the same activity (the model already allows several). All created in one transaction; one clash and nothing is created.

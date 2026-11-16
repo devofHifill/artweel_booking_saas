@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { DateTime } from 'luxon';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../lib/app-error';
 import { uniqueSlug } from '../../lib/slug';
@@ -9,7 +10,14 @@ import { assertAltText, assertOwnImage, releaseImageIfUnused } from '../media/me
 import { insertSession } from '../../scheduling/session.service';
 import { translateSchedulingError } from '../../scheduling/pg-error';
 import { resolveLocal, type ResolutionKind } from '../../scheduling/time/zoned';
-import { planClassDates } from './class-dates';
+import {
+  fromRepeatRule,
+  planClassDates,
+  repeatMatcher,
+  toRepeatRule,
+  type RepeatPattern,
+  type Weekday,
+} from './class-dates';
 import { dayLabel, findClashes, type Clash, type PlannedDate } from './clashes';
 import type {
   CreateClassInput,
@@ -296,7 +304,17 @@ export type PublishedClassSession = {
  * across a daylight-saving change. Shared by publishing and the preview.
  */
 function classSessions(
-  input: Pick<CreateClassInput, 'startDate' | 'weekdays' | 'sessionCount' | 'skipDates' | 'startTime' | 'endTime'>,
+  input: Pick<
+    CreateClassInput,
+    | 'startDate'
+    | 'repeat'
+    | 'monthlyBy'
+    | 'weekdays'
+    | 'sessionCount'
+    | 'skipDates'
+    | 'startTime'
+    | 'endTime'
+  >,
   timezone: string,
 ) {
   let plan;
@@ -420,8 +438,14 @@ export async function createClass(organizationId: string, input: CreateClassInpu
         timezone: org.timezone,
         staffId,
         locationId: location?.id ?? null,
-        // On sale from the moment it is published. Booking closes when the
-        // first session starts: allowLateEnrollment stays at its default, false.
+        repeatRule: toRepeatRule(input, input.startDate),
+        /*
+          On sale from the moment it is published. A weekly course closes when
+          its first session starts, as before. A daily or monthly run is long
+          enough that turning people away after day one would empty it, so
+          those take late joiners (REPEAT-PLAN.md).
+        */
+        allowLateEnrollment: input.repeat !== 'WEEKLY',
         status: 'PUBLISHED',
       },
     });
@@ -563,25 +587,32 @@ export async function getActivityAnswers(organizationId: string, id: string) {
     if (start) schedule.date = start.date;
   } else if (start && last) {
     const days = service.sessions.map((x) => localParts(x.startsAt, tz));
-    const weekdays = WEEK_ORDER.filter((d) => days.some((x) => x.weekday === d));
-    /* Skipped dates: the ones the weekly pattern passes through between the
-       first and last session with no session on them — a holiday the studio
+    /* The stored rule says how it repeats. A Class made before repeat has
+       none, and is weekly on the days its sessions fall. */
+    const pattern: RepeatPattern = fromRepeatRule(series?.repeatRule) ?? {
+      repeat: 'WEEKLY',
+      weekdays: WEEK_ORDER.filter((d) => days.some((x) => x.weekday === d)) as Weekday[],
+    };
+    /* Skipped dates: the ones the pattern passes through between the first
+       and last session with no session on them — a holiday the studio
        unticked, or one it later cancelled. */
+    const matches = repeatMatcher(pattern, start.date);
     const held = new Set(days.map((x) => x.date));
     const lastDate = localParts(last.startsAt, tz).date;
     const skipDates: string[] = [];
     for (
-      let d = new Date(`${start.date}T00:00:00Z`);
-      d.toISOString().slice(0, 10) <= lastDate;
-      d.setUTCDate(d.getUTCDate() + 1)
+      let d = DateTime.fromISO(start.date, { zone: 'UTC' });
+      d.toISODate()! <= lastDate;
+      d = d.plus({ days: 1 })
     ) {
-      const iso = d.toISOString().slice(0, 10);
-      const wd = WEEK_ORDER[(d.getUTCDay() + 6) % 7]!;
-      if (weekdays.includes(wd) && !held.has(iso)) skipDates.push(iso);
+      const iso = d.toISODate()!;
+      if (matches(d) && !held.has(iso)) skipDates.push(iso);
     }
     Object.assign(schedule, {
       startDate: start.date,
-      weekdays,
+      repeat: pattern.repeat ?? 'WEEKLY',
+      monthlyBy: pattern.monthlyBy ?? 'WEEKDAY',
+      weekdays: pattern.weekdays,
       sessionCount: service.sessions.length,
       skipDates,
     });
@@ -626,6 +657,26 @@ export async function getActivityAnswers(organizationId: string, id: string) {
       : started
         ? 'It has started, so the dates and times stay as they are.'
         : null,
+  };
+}
+
+/**
+ * A Class's stored rule follows its answers. Late joining follows the repeat
+ * only when the dates are being remade (nobody has booked yet), so a switch a
+ * studio changed by hand on a running class is left alone.
+ */
+function classRepeatUpdate(
+  input: CreateClassInput,
+  series: { repeatRule: string | null },
+  datesChanged: boolean,
+) {
+  const rule = toRepeatRule(input, input.startDate);
+  const was = fromRepeatRule(series.repeatRule)?.repeat ?? 'WEEKLY';
+  return {
+    repeatRule: rule,
+    ...(datesChanged && was !== input.repeat
+      ? { allowLateEnrollment: input.repeat !== 'WEEKLY' }
+      : {}),
   };
 }
 
@@ -791,6 +842,7 @@ export async function editActivity(
           staffId,
           locationId,
           sessionCount: datesChanged ? planned.length : series.sessionCount,
+          ...(kind === 'CLASS' ? classRepeatUpdate(input as CreateClassInput, series, datesChanged) : {}),
           enrollmentClosesAt:
             notice > 0 && firstStart ? new Date(firstStart.getTime() - notice * 60_000) : null,
         },
