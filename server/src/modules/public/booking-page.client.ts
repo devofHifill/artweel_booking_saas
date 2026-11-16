@@ -303,8 +303,8 @@ export const clientScript = String.raw`
     drawSteps('Class');
     var html = back() + '<h2>' + esc(classPick.name) + '</h2>' +
       '<p class="hint">' + plural(classPick.sessionCount, 'session', 'sessions') +
-      ', booked once. Pick the time you will come to: you stay in that group for ' +
-      'every session.</p><h3>Pick a time</h3>';
+      ', booked once. Pick when you start: you stay in that group for ' +
+      'every session.</p><h3>Pick a date and time</h3>';
 
     if (!times.sessions.length) {
       app.innerHTML = html + '<p class="empty">No times can be booked right now.</p>';

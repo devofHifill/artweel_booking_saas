@@ -150,10 +150,24 @@ describe('the dates a repeating class runs on', () => {
     expect(plan.dates).toEqual(['2027-03-01', '2027-04-05']);
   });
 
-  it('refuses more than 24 monthly sessions', () => {
+  it('two days a month for 13 months: 26 sessions, past the old 24 cap', () => {
+    const plan = planClassDates({
+      startDate: '2027-03-01',
+      repeat: 'MONTHLY',
+      monthlyBy: 'WEEKDAY',
+      weekdays: ['MO', 'WE'],
+      sessionCount: 26,
+    });
+    expect(plan.dates).toHaveLength(26);
+  });
+
+  it('refuses more than 52 sessions in a run, and months beyond two years', () => {
+    expect(() =>
+      planClassDates({ startDate: '2027-03-01', weekdays: ['MO', 'TU'], sessionCount: 53 }),
+    ).toThrow(/up to 52/);
     expect(() =>
       planClassDates({ startDate: '2027-03-01', repeat: 'MONTHLY', weekdays: [], sessionCount: 25 }),
-    ).toThrow(/up to 24/);
+    ).toThrow(/within two years/);
   });
 
   it('24 monthly sessions fit, even by the last weekday', () => {
@@ -238,8 +252,8 @@ describe('publishing a repeating class', () => {
     expect(JSON.stringify(noDays.body)).toMatch(/day of the week/);
 
     const tooMany = await publish({ repeat: 'MONTHLY', weekdays: [], sessionCount: 25 });
-    expect(tooMany.status).toBe(422);
-    expect(JSON.stringify(tooMany.body)).toMatch(/up to 24/);
+    expect(tooMany.status).toBe(400);
+    expect(JSON.stringify(tooMany.body)).toMatch(/within two years/);
   });
 
   it('a request without `repeat` is Weekly, as older drafts send', async () => {

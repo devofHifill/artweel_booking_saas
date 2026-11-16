@@ -277,9 +277,10 @@ function runLine(s: Service, tz: string): string {
     : run.bookingOpensAt
       ? `<span class="sf-muted">Booking opens ${dateShort(new Date(run.bookingOpensAt), tz)}</span>`
       : `<span class="sf-muted">${run.seatsRemaining <= 0 ? 'Full' : 'Booking closed'}</span>`;
-  // Several times a day: say so here, and pick the time when booking.
+  // Several times a day, or several runs: say so here, and pick when booking.
   const times = run.groupTimes.length > 1 ? `<span>${run.groupTimes.length} times a day</span>` : '';
-  return `<span>${when}</span>${times}${state}`;
+  const runs = run.runCount > 1 ? `<span>${run.runCount} runs to choose from</span>` : '';
+  return `<span>${when}</span>${runs}${times}${state}`;
 }
 
 function serviceCard(store: Storefront, s: Service): string {

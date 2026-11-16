@@ -97,6 +97,20 @@ Replaces the Daily / Weekly / Monthly tabs and "Groups per day + buffer" on the 
 
 Under the hood: the request carries `startTimes` (all starts, the first included) instead of `groups`/`bufferMinutes` (still accepted); monthly rules carry each day (`FREQ=MONTHLY;BYDAY=4MO,4WE`). No migration. Classes made with the earlier form reopen in the new one: Daily as all seven days, groups as a list of times, and the session count is kept exactly, so saving an unchanged class never moves its dates.
 
+## Part 4 — Runs over a date range (agreed with Suren 2026-11-16)
+
+The same Class again on other dates, without duplicating it.
+
+- **Until (optional)** beside "Starts on". Empty: one run, as before. With a date: the pattern (days, repeat, weeks or months, times) runs **back to back** from the start date — each next run starts straight after the previous one ends — while a FULL run still ends by Until. What is left is named in the form ("25 Jan, 26 Jan are not enough for another full run") and not made.
+- Runs never share a date, so they cannot clash with each other; times keep their own rule (each the first one's length, all different). Every run has the same session count (one price covers it). Neither repeat ticked: one-week runs.
+- **Each run × time is its own group** (course_series), labelled "23 Nov · 6:00pm" (just "23 Nov" with one time, just "6:00pm" with one run). Still one Class on the plan.
+- **Lock per run:** a run somebody booked, or that has started, keeps its dates; the others can move or go. On a booked Class the Schedule step stays greyed out except **Until**, so runs can be added after the last one. Editing matches runs on their dates: kept as they are, unbooked ones reused or ended, new ones made.
+- A skipped date lengthens its run and moves later runs along. Monthly runs keep the first run's week of the month.
+- Limits: Until up to a year after the start; up to 52 runs; up to 600 sessions in all (runs × times × sessions).
+- Booking page: one card ("3 runs, from 23 Nov · 2 times: 6:00pm, 8:00pm · Choose a date"); the calendar offers each run's start date with its times. Website: "3 runs to choose from".
+- No migration. Edit reopens a range with Until set to the last run's last date. Request field: `rangeEnd`.
+- Also fixed here: Monthly on two days for more than 12 months was refused (a 24-session cap meant for months); a run's cap is now 52 sessions, months stay up to 24.
+
 ## Not in scope
 
 - Per-date booking of a Class (that is the Event / older drop-in model).

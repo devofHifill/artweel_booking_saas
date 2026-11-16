@@ -31,7 +31,10 @@ export type Repeat = 'DAILY' | 'WEEKLY' | 'MONTHLY';
 /** Monthly by the same date, the same weekday position, or the last such weekday. */
 export type MonthlyBy = 'DATE' | 'WEEKDAY' | 'LAST_WEEKDAY';
 
+/** Months a monthly Class may run (the form's limit). Same as the server. */
 export const MAX_MONTHLY_SESSIONS = 24;
+/** Sessions in one run. Same as the server. */
+export const MAX_SESSIONS = 52;
 
 const MAX_DAYS_SCANNED = 731;
 
@@ -73,6 +76,8 @@ function repeatMatcher(
 /** Null while the input cannot make a schedule yet — the step shows why. */
 export function planClassDates(input: {
   startDate: string;
+  /** What a monthly pattern counts from; a later run keeps the first run's. */
+  anchorDate?: string;
   repeat?: Repeat;
   monthlyBy?: MonthlyBy;
   weekdays: Weekday[];
@@ -82,14 +87,15 @@ export function planClassDates(input: {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.startDate)) return null;
   if (!Number.isInteger(input.sessionCount) || input.sessionCount < 1) return null;
   const repeat = input.repeat ?? 'WEEKLY';
-  if (repeat === 'MONTHLY' && input.sessionCount > MAX_MONTHLY_SESSIONS) return null;
+  if (input.sessionCount > MAX_SESSIONS) return null;
 
   const start = new Date(`${input.startDate}T00:00:00Z`);
   if (Number.isNaN(start.getTime())) return null;
+  const anchor = new Date(`${input.anchorDate ?? input.startDate}T00:00:00Z`);
 
   const matches = repeatMatcher(
     { repeat, monthlyBy: input.monthlyBy ?? 'WEEKDAY', weekdays: input.weekdays },
-    start,
+    anchor,
   );
   if (!matches) return null;
   const skip = new Set(input.skipDates);
@@ -254,4 +260,59 @@ export function timesFrom(input: {
   if (new Set(starts).size !== starts.length || starts.length > MAX_GROUPS) return null;
   const out = starts.sort().map((t) => ({ startTime: t, endTime: toTime(toMinutes(t) + length) }));
   return out.every((t) => toMinutes(t.startTime) + length <= 24 * 60 - 1) ? out : null;
+}
+
+/** Runs in one date range, and how far apart its dates may be. Same as the server. */
+export const MAX_RUNS = 52;
+export const MAX_RANGE_DAYS = 366;
+
+export type ClassRuns = { runs: ClassDates[]; skipped: string[]; leftOver: string[] };
+
+/**
+ * The runs over a date range: the first from the start date, each next one
+ * straight after the previous one ends, while a full run still ends by
+ * `rangeEnd` — the server's `planClassRuns`, which MUST agree. No end date:
+ * one run. Null while the answers cannot make one run yet.
+ */
+export function planClassRuns(input: Parameters<typeof planClassDates>[0] & { rangeEnd?: string }): ClassRuns | null {
+  const first = planClassDates(input);
+  if (!first) return null;
+  if (!input.rangeEnd) return { runs: [first], skipped: first.skipped, leftOver: [] };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.rangeEnd) || input.rangeEnd < input.startDate) return null;
+  const startMs = Date.parse(`${input.startDate}T00:00:00Z`);
+  const endMs = Date.parse(`${input.rangeEnd}T00:00:00Z`);
+  if ((endMs - startMs) / 86_400_000 > MAX_RANGE_DAYS) return null;
+  if (first.endDate > input.rangeEnd) return null;
+
+  const plusDay = (iso: string) => {
+    const d = new Date(`${iso}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+  };
+  const anchorDate = input.anchorDate ?? input.startDate;
+  const runs = [first];
+  const leftOver: string[] = [];
+  while (runs.length < MAX_RUNS) {
+    const from = plusDay(runs[runs.length - 1]!.endDate);
+    if (from > input.rangeEnd) break;
+    const next = planClassDates({ ...input, startDate: from, anchorDate });
+    if (!next || next.endDate > input.rangeEnd) {
+      // Too short for a full run: the dates are named, not booked.
+      const matches = repeatMatcher(
+        {
+          repeat: input.repeat ?? 'WEEKLY',
+          monthlyBy: input.monthlyBy ?? 'WEEKDAY',
+          weekdays: input.weekdays,
+        },
+        new Date(`${anchorDate}T00:00:00Z`),
+      );
+      const skip = new Set(input.skipDates);
+      for (let d = from; d <= input.rangeEnd; d = plusDay(d)) {
+        if (matches?.(new Date(`${d}T00:00:00Z`)) && !skip.has(d)) leftOver.push(d);
+      }
+      break;
+    }
+    runs.push(next);
+  }
+  return { runs, skipped: runs.flatMap((r) => r.skipped), leftOver };
 }
