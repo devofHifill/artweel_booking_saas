@@ -85,6 +85,18 @@ Each part: server tests, then a click-through in the browser locally (no client 
 - Plan limit: 5 groups count as 1 Class.
 - Editing with and without bookings; old drafts load as Weekly; back-fill of existing Classes.
 
+## Part 3 — Schedule step redesign (agreed with Suren 2026-11-16)
+
+Replaces the Daily / Weekly / Monthly tabs and "Groups per day + buffer" on the Schedule step. Nothing about how a Class is sold changes.
+
+- **Days:** the Mon–Sun chips are always shown. All seven ticked is what Daily was.
+- **Times:** first start and end, then **+ Add another time** asks for a start only; every time keeps the first one's length. Each time is its own run, as before. No buffer field.
+- **Repeat:** two checkboxes. **Repeat weekly → How many weeks**, **Repeat monthly → How many months**, then the "Each month" radio choices. Ticking one unticks the other. **Neither ticked = one week** on the ticked days.
+- **Monthly on several days:** the week of the month comes from the start date, applied to every ticked day ("the fourth Monday and Wednesday"; "the last Monday and Wednesday"). "On the 23rd" is offered only with one day ticked.
+- **Sessions** is no longer asked: days × weeks, or days × months (× 1 for "the 23rd"). Up to 52 per time.
+
+Under the hood: the request carries `startTimes` (all starts, the first included) instead of `groups`/`bufferMinutes` (still accepted); monthly rules carry each day (`FREQ=MONTHLY;BYDAY=4MO,4WE`). No migration. Classes made with the earlier form reopen in the new one: Daily as all seven days, groups as a list of times, and the session count is kept exactly, so saving an unchanged class never moves its dates.
+
 ## Not in scope
 
 - Per-date booking of a Class (that is the Event / older drop-in model).

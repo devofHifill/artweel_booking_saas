@@ -8,11 +8,11 @@ import {
   WEEKDAYS,
   WEEKDAY_LABELS,
   clockTime,
-  groupTimes,
   monthlyOptions,
   planClassDates,
   repeatSummary,
   shortDate,
+  timesFrom,
   type MonthlyBy,
   type Repeat,
   type Weekday,
@@ -49,10 +49,16 @@ export type ActivityAnswers = {
   repeat: Repeat;
   monthlyBy: MonthlyBy;
   weekdays: Weekday[];
-  /** Time groups a day, each its own run (REPEAT-PLAN.md, part 2). 1: a plain Class. */
-  groups: number;
-  /** Minutes between one group ending and the next starting. */
-  bufferMinutes: number;
+  /**
+    How the Schedule step asks it (REPEAT-PLAN.md): the days ticked, then
+    "Repeat weekly" for N weeks, "Repeat monthly" for N months, or neither
+    (one week). `repeat` and `sessionCount` follow from these.
+  */
+  repeatEvery: 'NONE' | 'WEEKLY' | 'MONTHLY';
+  weeks: number;
+  months: number;
+  /** More start times, each the first one's length; each its own group. */
+  extraTimes: string[];
   sessionCount: number;
   skipDates: string[];
   // Both
@@ -214,13 +220,6 @@ export function duplicateOf(
   };
 }
 
-/** The Repeats choice on the Schedule step. */
-const REPEAT_CHOICES: { value: Repeat; label: string }[] = [
-  { value: 'DAILY', label: 'Daily' },
-  { value: 'WEEKLY', label: 'Weekly' },
-  { value: 'MONTHLY', label: 'Monthly' },
-];
-
 type Location = { id: string; name: string; locationType?: string };
 type Staff = { id: string; name: string };
 
@@ -235,6 +234,56 @@ export type EditingActivity = {
   answers: Record<string, unknown>;
   datesLocked: string | null;
 };
+
+/** The weekday of a "YYYY-MM-DD" date, as a chip. */
+function weekdayOf(date: string): Weekday | null {
+  const d = new Date(`${date}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : WEEKDAYS[(d.getUTCDay() + 6) % 7]!;
+}
+
+/** How many sessions the days and the weeks or months make. */
+function countFor(a: ActivityAnswers): number {
+  const days = Math.max(1, a.weekdays.length);
+  if (a.repeatEvery === 'MONTHLY') return (a.monthlyBy === 'DATE' ? 1 : days) * a.months;
+  if (a.repeatEvery === 'WEEKLY') return days * a.weeks;
+  return days;
+}
+
+/**
+ * Answers saved or published before the Schedule step asked "Repeat weekly /
+ * monthly" (a Daily class, a weekday count, groups and a buffer) in the shape
+ * it asks now. The session count is kept exactly as it was, so saving an
+ * unchanged class never moves its dates.
+ */
+function withSchedule(
+  base: ActivityAnswers,
+  source: Partial<ActivityAnswers> & { startTimes?: string[] },
+): ActivityAnswers {
+  const a = { ...base, ...source } as ActivityAnswers & { startTimes?: string[] };
+  const out: ActivityAnswers = { ...a };
+  if ((a.repeat as string) === 'DAILY') {
+    out.weekdays = [...WEEKDAYS];
+    out.repeat = 'WEEKLY';
+  }
+  if (out.repeat === 'MONTHLY' && out.weekdays.length === 0) {
+    const day = weekdayOf(out.startDate);
+    if (day) out.weekdays = [day];
+  }
+  const days = Math.max(1, out.weekdays.length);
+  const count = Number.isInteger(out.sessionCount) && out.sessionCount > 0 ? out.sessionCount : 6;
+  if (out.repeat === 'MONTHLY') {
+    out.repeatEvery = 'MONTHLY';
+    out.months = Math.ceil(count / (out.monthlyBy === 'DATE' ? 1 : days));
+  } else if (!source.repeatEvery || (a.repeat as string) === 'DAILY') {
+    // Not asked this way when it was saved: work the weeks out from the count.
+    out.weeks = Math.max(1, Math.ceil(count / days));
+    out.repeatEvery = out.weekdays.length && count <= out.weekdays.length ? 'NONE' : 'WEEKLY';
+  }
+  if (Array.isArray(a.startTimes)) {
+    out.extraTimes = a.startTimes.filter((t) => t !== out.startTime);
+  }
+  return out;
+}
 
 /** The server's answers (cents, numbers) as the form holds them (typed text). */
 function fromServer(a: Record<string, unknown>): Partial<ActivityAnswers> {
@@ -327,8 +376,10 @@ function defaults(timezone: string): ActivityAnswers {
     repeat: 'WEEKLY',
     monthlyBy: 'WEEKDAY',
     weekdays: [],
-    groups: 1,
-    bufferMinutes: 0,
+    repeatEvery: 'WEEKLY',
+    weeks: 6,
+    months: 6,
+    extraTimes: [],
     sessionCount: 6,
     skipDates: [],
     startTime: '18:00',
@@ -403,9 +454,9 @@ export function CreateActivity({
     editing ? 99 : (resume?.data.reached ?? resume?.data.step ?? 0),
   );
   const [answers, setAnswers] = useState<ActivityAnswers>(() => {
-    if (editing) return { ...defaults(timezone), ...fromServer(editing.answers) };
+    if (editing) return withSchedule(defaults(timezone), fromServer(editing.answers));
     const { step: _step, reached: _reached, ...saved } = resume?.data ?? {};
-    return { ...defaults(timezone), ...saved };
+    return resume ? withSchedule(defaults(timezone), saved) : defaults(timezone);
   });
   /** Every field a Class asks: a Class, or any activity being edited. */
   const full = kind === 'CLASS' || Boolean(editing);
@@ -516,6 +567,20 @@ export function CreateActivity({
     setErrors((e) => ({ ...e, [key]: undefined }));
   }
 
+  /** A change to the days or how it repeats: the session count follows. */
+  function setSchedule(
+    patch: Partial<ActivityAnswers> | ((a: ActivityAnswers) => Partial<ActivityAnswers>),
+  ) {
+    setAnswers((a) => {
+      // A function reads the latest answers, so quick taps never undo each other.
+      const next = { ...a, ...(typeof patch === 'function' ? patch(a) : patch) };
+      next.repeat = next.repeatEvery === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY';
+      next.sessionCount = countFor(next);
+      return next;
+    });
+    setErrors((e) => ({ ...e, weekdays: undefined, sessionCount: undefined }));
+  }
+
   const schedule = useMemo(
     () =>
       kind === 'CLASS'
@@ -540,7 +605,10 @@ export function CreateActivity({
   );
 
   /** The monthly choices the start date allows ("the 23rd", "the fourth Monday"...). */
-  const monthly = useMemo(() => monthlyOptions(answers.startDate), [answers.startDate]);
+  const monthly = useMemo(
+    () => monthlyOptions(answers.startDate, answers.weekdays),
+    [answers.startDate, answers.weekdays],
+  );
 
   /*
     A start date that does not allow the chosen monthly option (the "fifth"
@@ -554,20 +622,29 @@ export function CreateActivity({
       monthly.find((o) => o.value === 'WEEKDAY') ??
       monthly.find((o) => o.value === 'LAST_WEEKDAY') ??
       monthly[0]!;
-    setAnswers((a) => ({ ...a, monthlyBy: fallback.value }));
+    setAnswers((a) => {
+      const next = { ...a, monthlyBy: fallback.value };
+      next.sessionCount = countFor(next);
+      return next;
+    });
   }, [answers.repeat, answers.monthlyBy, monthly]);
 
-  /** Each group's start and end, or null while the times do not work yet. */
+  /** Each time's start and end, or null while the times do not work yet. */
   const times = useMemo(
     () =>
-      groupTimes({
+      timesFrom({
         startTime: answers.startTime,
         endTime: answers.endTime,
-        groups: answers.groups,
-        bufferMinutes: answers.bufferMinutes,
+        extraTimes: answers.extraTimes,
       }),
-    [answers.startTime, answers.endTime, answers.groups, answers.bufferMinutes],
+    [answers.startTime, answers.endTime, answers.extraTimes],
   );
+  /** Minutes from start to end: every time is this long. */
+  const classLength = (() => {
+    const [sh, sm] = answers.startTime.split(':').map(Number);
+    const [eh, em] = answers.endTime.split(':').map(Number);
+    return eh! * 60 + em! - (sh! * 60 + sm!);
+  })();
   /** "6:00pm · 7:15pm · 8:30pm" when there is more than one group. */
   const groupLine =
     times && times.length > 1 ? times.map((t) => clockTime(t.startTime)).join(' · ') : null;
@@ -576,9 +653,10 @@ export function CreateActivity({
   const repeatBody = {
     repeat: answers.repeat,
     ...(answers.repeat === 'MONTHLY' ? { monthlyBy: answers.monthlyBy } : {}),
-    weekdays: answers.repeat === 'WEEKLY' ? answers.weekdays : [],
-    groups: answers.groups,
-    bufferMinutes: answers.groups > 1 ? answers.bufferMinutes : 0,
+    weekdays: answers.weekdays,
+    ...(answers.extraTimes.length
+      ? { startTimes: [answers.startTime, ...answers.extraTimes] }
+      : {}),
   };
 
   /*
@@ -653,8 +731,7 @@ export function CreateActivity({
     answers.weekdays,
     answers.sessionCount,
     answers.skipDates,
-    answers.groups,
-    answers.bufferMinutes,
+    answers.extraTimes,
     answers.startTime,
     answers.endTime,
     answers.locationId,
@@ -688,22 +765,21 @@ export function CreateActivity({
     if (name === 'Schedule') {
       if (!locked && (!answers.startDate || answers.startDate < today))
         e.startDate = 'Choose a start date that has not passed.';
-      const weekly = answers.repeat === 'WEEKLY';
-      const most = answers.repeat === 'MONTHLY' ? MAX_MONTHLY_SESSIONS : 52;
-      if (weekly && answers.weekdays.length === 0) e.weekdays = 'Choose at least one day.';
-      if (!Number.isInteger(answers.sessionCount) || answers.sessionCount < 1 || answers.sessionCount > most)
-        e.sessionCount =
-          answers.repeat === 'MONTHLY'
-            ? `A monthly class can have 1 to ${MAX_MONTHLY_SESSIONS} sessions.`
-            : 'Between 1 and 52 sessions.';
-      else if ((!weekly || answers.weekdays.length > 0) && !schedule)
+      if (answers.weekdays.length === 0) e.weekdays = 'Choose at least one day.';
+      if (answers.repeatEvery === 'WEEKLY' && !(Number.isInteger(answers.weeks) && answers.weeks >= 1 && answers.weeks <= 52))
+        e.weeks = 'Between 1 and 52 weeks.';
+      else if (answers.repeatEvery === 'MONTHLY' && !(Number.isInteger(answers.months) && answers.months >= 1 && answers.months <= MAX_MONTHLY_SESSIONS))
+        e.months = `Between 1 and ${MAX_MONTHLY_SESSIONS} months.`;
+      else if (answers.sessionCount > 52)
+        e.sessionCount = `That is ${answers.sessionCount} sessions; a class can have up to 52. Choose fewer weeks, months or days.`;
+      else if (answers.weekdays.length > 0 && !schedule)
         e.sessionCount = 'Those sessions do not fit within two years. Choose fewer, or skip fewer dates.';
-      if (!Number.isInteger(answers.groups) || answers.groups < 1 || answers.groups > MAX_GROUPS)
-        e.groups = `Between 1 and ${MAX_GROUPS} groups.`;
-      else if (answers.groups > 1 && (!Number.isInteger(answers.bufferMinutes) || answers.bufferMinutes < 0 || answers.bufferMinutes > 240))
-        e.bufferMinutes = 'Between 0 and 240 minutes.';
+      if (answers.extraTimes.some((t) => !t))
+        e.extraTimes = 'Fill in each added time, or remove it.';
+      else if (new Set([answers.startTime, ...answers.extraTimes]).size !== answers.extraTimes.length + 1)
+        e.extraTimes = 'Each time can only be added once.';
       else if (answers.endTime > answers.startTime && !times)
-        e.groups = 'The last group would run past midnight. Choose fewer groups or a shorter buffer.';
+        e.extraTimes = 'A class time would run past midnight. Choose an earlier time.';
     }
     if (name === 'Where and who') {
       if (locations.length > 1 && !answers.locationId) e.locationId = 'Choose where it runs.';
@@ -891,7 +967,7 @@ export function CreateActivity({
           answers.isActive
             ? `${common.name} is published: ${answers.sessionCount} sessions from ${shortDate(
                 schedule?.dates[0] ?? answers.startDate,
-              )}${answers.groups > 1 ? `, in ${answers.groups} groups` : ''}.`
+              )}${answers.extraTimes.length ? `, at ${answers.extraTimes.length + 1} times a day` : ''}.`
             : `${common.name} is saved as Hidden: not on your booking page. Switch it to Published from Activities when you are ready.`,
         );
       }
@@ -908,11 +984,22 @@ export function CreateActivity({
   }
 
   function toggleWeekday(day: Weekday) {
+    setSchedule((a) => ({
+      weekdays: a.weekdays.includes(day)
+        ? a.weekdays.filter((d) => d !== day)
+        : WEEKDAYS.filter((d) => d === day || a.weekdays.includes(d)),
+    }));
+  }
+
+  /** Ticking one repeat unticks the other; unticking leaves one week. */
+  function toggleRepeat(every: 'WEEKLY' | 'MONTHLY') {
+    setSchedule((a) => ({ repeatEvery: a.repeatEvery === every ? 'NONE' : every }));
+  }
+
+  function setExtraTime(index: number, value: string) {
     set(
-      'weekdays',
-      answers.weekdays.includes(day)
-        ? answers.weekdays.filter((d) => d !== day)
-        : WEEKDAYS.filter((d) => d === day || answers.weekdays.includes(d)),
+      'extraTimes',
+      answers.extraTimes.map((t, i) => (i === index ? value : t)),
     );
   }
 
@@ -1184,56 +1271,21 @@ export function CreateActivity({
                 onChange={(e) => set('startDate', e.target.value)}
               />
             </Field>
-            <Field label="Repeats">
-              <div className="chip-group" role="radiogroup" aria-label="Repeats">
-                {REPEAT_CHOICES.map((choice) => (
+            <Field label="Days" error={errors.weekdays}>
+              <div className="chip-group" role="group" aria-label="Days of the week">
+                {WEEKDAYS.map((day) => (
                   <button
-                    key={choice.value}
+                    key={day}
                     type="button"
-                    role="radio"
-                    className={answers.repeat === choice.value ? 'chip on' : 'chip'}
-                    aria-checked={answers.repeat === choice.value}
-                    onClick={() => set('repeat', choice.value)}
+                    className={answers.weekdays.includes(day) ? 'chip on' : 'chip'}
+                    aria-pressed={answers.weekdays.includes(day)}
+                    onClick={() => toggleWeekday(day)}
                   >
-                    {choice.label}
+                    {WEEKDAY_LABELS[day]}
                   </button>
                 ))}
               </div>
             </Field>
-            {answers.repeat === 'WEEKLY' && (
-              <Field label="Every" error={errors.weekdays}>
-                <div className="chip-group" role="group" aria-label="Days of the week">
-                  {WEEKDAYS.map((day) => (
-                    <button
-                      key={day}
-                      type="button"
-                      className={answers.weekdays.includes(day) ? 'chip on' : 'chip'}
-                      aria-pressed={answers.weekdays.includes(day)}
-                      onClick={() => toggleWeekday(day)}
-                    >
-                      {WEEKDAY_LABELS[day]}
-                    </button>
-                  ))}
-                </div>
-              </Field>
-            )}
-            {answers.repeat === 'MONTHLY' && monthly.length > 0 && (
-              <Field label="Each month" hint="Worked out from the start date. Change it to see other days.">
-                <div className="setting setting-stack" role="radiogroup" aria-label="Each month">
-                  {monthly.map((option) => (
-                    <label key={option.value} className="check">
-                      <input
-                        type="radio"
-                        name="monthlyBy"
-                        checked={answers.monthlyBy === option.value}
-                        onChange={() => set('monthlyBy', option.value)}
-                      />
-                      {option.label}
-                    </label>
-                  ))}
-                </div>
-              </Field>
-            )}
             <TimeFields answers={answers} errors={errors} set={set} />
             <Field
               label="Duration"
@@ -1247,71 +1299,128 @@ export function CreateActivity({
                 disabled
               />
             </Field>
-            <div className="form-row">
-              <Field
-                label="Groups per day"
-                error={errors.groups}
-                htmlFor="actGroups"
-                hint="The same class at several times. Each group has its own customers."
-              >
-                <input
-                  id="actGroups"
-                  type="number"
-                  min={1}
-                  max={MAX_GROUPS}
-                  value={Number.isNaN(answers.groups) ? '' : answers.groups}
-                  onChange={(e) => set('groups', e.target.valueAsNumber)}
-                />
-              </Field>
-              {answers.groups > 1 && (
-                <Field
-                  label="Buffer between groups"
-                  error={errors.bufferMinutes}
-                  htmlFor="actBuffer"
-                  hint="Minutes from one group ending to the next starting."
-                >
-                  <input
-                    id="actBuffer"
-                    type="number"
-                    min={0}
-                    max={240}
-                    step={5}
-                    value={Number.isNaN(answers.bufferMinutes) ? '' : answers.bufferMinutes}
-                    onChange={(e) => set('bufferMinutes', e.target.valueAsNumber)}
-                  />
-                </Field>
-              )}
-            </div>
-            {groupLine ? (
-              <p className="tiny muted" aria-live="polite">
-                Groups start at {groupLine}.
-              </p>
-            ) : (
-              answers.groups > 1 &&
-              Number.isInteger(answers.bufferMinutes) &&
-              answers.endTime > answers.startTime &&
-              !errors.groups && (
-                <p className="field-error" aria-live="polite">
-                  The last group would run past midnight. Choose fewer groups or a shorter buffer.
-                </p>
-              )
-            )}
-            <Field label="Sessions" error={errors.sessionCount} htmlFor="actCount" hint="How many times the class meets. The price covers all of them.">
-              <input
-                id="actCount"
-                type="number"
-                min={1}
-                max={answers.repeat === 'MONTHLY' ? MAX_MONTHLY_SESSIONS : 52}
-                value={Number.isNaN(answers.sessionCount) ? '' : answers.sessionCount}
-                onChange={(e) => set('sessionCount', e.target.valueAsNumber)}
-              />
+            <Field
+              label="More times"
+              error={errors.extraTimes}
+              hint="The same class again that day, the same length. Each time has its own customers."
+            >
+              <div className="setting setting-stack">
+                {answers.extraTimes.map((t, i) => (
+                  <div key={i} className="check">
+                    <input
+                      type="time"
+                      aria-label={`Time ${i + 2} starts at`}
+                      value={t}
+                      onChange={(e) => setExtraTime(i, e.target.value)}
+                    />
+                    <span className="tiny muted">
+                      {t && classLength > 0 ? `to ${clockTime(addMinutes(t, classLength))}` : ''}
+                    </span>
+                    <button
+                      type="button"
+                      className="link danger-text"
+                      onClick={() => set('extraTimes', answers.extraTimes.filter((_, j) => j !== i))}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {answers.extraTimes.length + 1 < MAX_GROUPS && (
+                  <div>
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() =>
+                        set('extraTimes', [
+                          ...answers.extraTimes,
+                          // Starts when the latest one ends, as a first guess.
+                          times ? times[times.length - 1]!.endTime : answers.endTime,
+                        ])
+                      }
+                    >
+                      + Add another time
+                    </button>
+                  </div>
+                )}
+              </div>
             </Field>
+            <Field label="Repeat">
+              <div className="setting setting-stack">
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={answers.repeatEvery === 'WEEKLY'}
+                    onChange={() => toggleRepeat('WEEKLY')}
+                  />
+                  Repeat weekly
+                </label>
+                {answers.repeatEvery === 'WEEKLY' && (
+                  <Field label="How many weeks" error={errors.weeks} htmlFor="actWeeks">
+                    <input
+                      id="actWeeks"
+                      type="number"
+                      min={1}
+                      max={52}
+                      value={Number.isNaN(answers.weeks) ? '' : answers.weeks}
+                      onChange={(e) => setSchedule({ weeks: e.target.valueAsNumber })}
+                    />
+                  </Field>
+                )}
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={answers.repeatEvery === 'MONTHLY'}
+                    onChange={() => toggleRepeat('MONTHLY')}
+                  />
+                  Repeat monthly
+                </label>
+                {answers.repeatEvery === 'MONTHLY' && (
+                  <>
+                    <Field label="How many months" error={errors.months} htmlFor="actMonths">
+                      <input
+                        id="actMonths"
+                        type="number"
+                        min={1}
+                        max={MAX_MONTHLY_SESSIONS}
+                        value={Number.isNaN(answers.months) ? '' : answers.months}
+                        onChange={(e) => setSchedule({ months: e.target.valueAsNumber })}
+                      />
+                    </Field>
+                    {Number.isInteger(answers.months) && answers.months > 0 && monthly.length > 0 && (
+                      <Field label="Each month" hint="Worked out from the start date and the days ticked.">
+                        <div className="setting setting-stack" role="radiogroup" aria-label="Each month">
+                          {monthly.map((option) => (
+                            <label key={option.value} className="check">
+                              <input
+                                type="radio"
+                                name="monthlyBy"
+                                checked={answers.monthlyBy === option.value}
+                                onChange={() => setSchedule({ monthlyBy: option.value })}
+                              />
+                              {option.label}
+                            </label>
+                          ))}
+                        </div>
+                      </Field>
+                    )}
+                  </>
+                )}
+                {answers.repeatEvery === 'NONE' && (
+                  <p className="tiny muted">Neither ticked: one week, on the days above.</p>
+                )}
+              </div>
+            </Field>
+            {errors.sessionCount && (
+              <p className="field-error" role="alert">
+                {errors.sessionCount}
+              </p>
+            )}
 
             {schedule && (
               <div className="date-list" aria-live="polite">
                 <p className="date-list-head">
                   {answers.sessionCount} sessions · {repeatSummary(answers)}{' '}
-                  {groupLine ? `· ${answers.groups} groups, the first` : ''}{' '}
+                  {groupLine ? `· ${answers.extraTimes.length + 1} times a day, the first` : ''}{' '}
                   {clockTime(answers.startTime)}–{clockTime(answers.endTime)} · ends{' '}
                   {shortDate(schedule.endDate)}
                 </p>
@@ -1730,7 +1839,7 @@ export function CreateActivity({
                     ? `${shortDate(answers.date)}, ${clockTime(answers.startTime)}–${clockTime(answers.endTime)}`
                     : schedule
                       ? `${answers.sessionCount} sessions, ${repeatSummary(answers)}${
-                          groupLine ? `, ${answers.groups} groups (${groupLine}), the first` : ''
+                          groupLine ? `, ${answers.extraTimes.length + 1} times a day (${groupLine}), the first` : ''
                         } ${clockTime(answers.startTime)}–${clockTime(
                           answers.endTime,
                         )}, ${shortDate(schedule.dates[0]!)} to ${shortDate(schedule.endDate)}`

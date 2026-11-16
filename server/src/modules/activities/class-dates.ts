@@ -19,8 +19,10 @@ import { DateTime } from 'luxon';
  *   MONTHLY  anchored on the start date itself, by one of:
  *            DATE          the same day of the month ("the 7th"); a month
  *                          without that day (the 31st) is passed over;
- *            WEEKDAY       the same weekday position ("the first Monday");
- *            LAST_WEEKDAY  the last such weekday of the month ("the last
+ *            WEEKDAY       the start date's week of the month, on each
+ *                          chosen weekday ("the fourth Monday and
+ *                          Wednesday"); no days chosen: the start date's;
+ *            LAST_WEEKDAY  the last such weekdays of the month ("the last
  *                          Friday").
  *
  * Works in calendar dates only. Times are resolved per date against the
@@ -89,10 +91,11 @@ export function repeatMatcher(
     const by = pattern.monthlyBy ?? 'WEEKDAY';
     if (by === 'DATE') return (day) => day.day === anchor.day;
     const nth = Math.ceil(anchor.day / 7);
+    const days = monthlyWeekdays(pattern, anchor);
     if (by === 'WEEKDAY') {
-      return (day) => day.weekday === anchor.weekday && Math.ceil(day.day / 7) === nth;
+      return (day) => days.has(day.weekday) && Math.ceil(day.day / 7) === nth;
     }
-    return (day) => day.weekday === anchor.weekday && day.day + 7 > day.daysInMonth!;
+    return (day) => days.has(day.weekday) && day.day + 7 > day.daysInMonth!;
   }
 
   if (pattern.weekdays.length === 0) {
@@ -101,6 +104,15 @@ export function repeatMatcher(
   // Luxon numbers Monday 1 … Sunday 7, the same order as WEEKDAYS.
   const wanted = new Set(pattern.weekdays.map((d) => WEEKDAYS.indexOf(d) + 1));
   return (day) => wanted.has(day.weekday);
+}
+
+/** Monthly by weekday: the chosen days, or the start date's when none were. */
+function monthlyWeekdays(pattern: RepeatPattern, anchor: DateTime): Set<number> {
+  return new Set(
+    pattern.weekdays.length
+      ? pattern.weekdays.map((d) => WEEKDAYS.indexOf(d) + 1)
+      : [anchor.weekday],
+  );
 }
 
 export function planClassDates(input: ClassDatesInput): ClassDates {
@@ -156,9 +168,9 @@ export function toRepeatRule(pattern: RepeatPattern, startDate: string): string 
   const anchor = DateTime.fromISO(startDate, { zone: 'UTC' });
   const by = pattern.monthlyBy ?? 'WEEKDAY';
   if (by === 'DATE') return `FREQ=MONTHLY;BYMONTHDAY=${anchor.day}`;
-  const weekday = WEEKDAYS[anchor.weekday - 1]!;
   const nth = by === 'LAST_WEEKDAY' ? NTH_LAST : Math.ceil(anchor.day / 7);
-  return `FREQ=MONTHLY;BYDAY=${nth}${weekday}`;
+  const days = [...monthlyWeekdays(pattern, anchor)].sort().map((n) => WEEKDAYS[n - 1]!);
+  return `FREQ=MONTHLY;BYDAY=${days.map((d) => `${nth}${d}`).join(',')}`;
 }
 
 /**
@@ -180,12 +192,15 @@ export function fromRepeatRule(rule: string | null | undefined): RepeatPattern |
   }
   if (parts.FREQ === 'MONTHLY') {
     if (parts.BYMONTHDAY) return { repeat: 'MONTHLY', monthlyBy: 'DATE', weekdays: [] };
-    const match = /^(-?\d)([A-Z]{2})$/.exec(parts.BYDAY ?? '');
-    if (match) {
+    // "4MO" or "4MO,4WE": one week of the month, on one or more days.
+    const matches = (parts.BYDAY ?? '').split(',').map((d) => /^(-?\d)([A-Z]{2})$/.exec(d));
+    if (matches.length && matches.every(Boolean)) {
       return {
         repeat: 'MONTHLY',
-        monthlyBy: Number(match[1]) === NTH_LAST ? 'LAST_WEEKDAY' : 'WEEKDAY',
-        weekdays: [],
+        monthlyBy: Number(matches[0]![1]) === NTH_LAST ? 'LAST_WEEKDAY' : 'WEEKDAY',
+        weekdays: matches
+          .map((m) => m![2])
+          .filter((d): d is Weekday => (WEEKDAYS as readonly string[]).includes(d!)),
       };
     }
   }
@@ -234,14 +249,33 @@ export function clockLabel(time: string): string {
 export function groupTimes(input: {
   startTime: string;
   endTime: string;
+  /**
+   * The studio's own start times, the first included: every group keeps the
+   * first one's length. Wins over `groups` and `bufferMinutes`, which remain
+   * for requests made before the times could be typed.
+   */
+  startTimes?: string[];
   groups?: number;
   bufferMinutes?: number;
 }): GroupTime[] {
-  const groups = input.groups ?? 1;
-  const buffer = input.bufferMinutes ?? 0;
   const start = minutesOfTime(input.startTime);
   const length = minutesOfTime(input.endTime) - start;
   if (length <= 0) throw new Error('The end time must be after the start time.');
+
+  if (input.startTimes?.length) {
+    const starts = [...new Set([input.startTime, ...input.startTimes])].sort();
+    if (starts.length > MAX_GROUPS) throw new Error(`Up to ${MAX_GROUPS} times a day.`);
+    return starts.map((from) => {
+      const to = minutesOfTime(from) + length;
+      if (to > 24 * 60 - 1) {
+        throw new Error(`A class starting at ${clockLabel(from)} would run past midnight.`);
+      }
+      return { startTime: from, endTime: timeOfMinutes(to), label: clockLabel(from) };
+    });
+  }
+
+  const groups = input.groups ?? 1;
+  const buffer = input.bufferMinutes ?? 0;
   if (!Number.isInteger(groups) || groups < 1 || groups > MAX_GROUPS) {
     throw new Error(`Between 1 and ${MAX_GROUPS} groups a day.`);
   }

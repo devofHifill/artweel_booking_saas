@@ -335,6 +335,7 @@ function classGroups(
     | 'endTime'
     | 'groups'
     | 'bufferMinutes'
+    | 'startTimes'
   >,
   timezone: string,
 ) {
@@ -672,6 +673,12 @@ export async function getActivityAnswers(organizationId: string, id: string) {
       sessionCount: firstGroup.length,
       skipDates,
       groups: Math.max(1, seriesList.length),
+      // Each group's start, earliest first: what the steps show as its times.
+      startTimes: (seriesList.length ? seriesList : [null])
+        .map((cohort) => ofGroup(cohort?.id)[0])
+        .filter((x): x is NonNullable<typeof x> => Boolean(x))
+        .map((x) => localParts(x.startsAt, tz).time)
+        .sort(),
       bufferMinutes:
         secondStart && first
           ? Math.max(0, Math.round((secondStart.getTime() - first.endsAt.getTime()) / 60_000))
