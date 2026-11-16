@@ -52,13 +52,18 @@ function repeatMatcher(
   if (input.repeat === 'DAILY') return () => true;
   if (input.repeat === 'MONTHLY') {
     const dom = anchor.getUTCDate();
-    const weekday = isoWeekday(anchor);
     if (input.monthlyBy === 'DATE') return (day) => day.getUTCDate() === dom;
+    // The chosen days, or the start date's when none were (as the server).
+    const days = new Set(
+      input.weekdays.length
+        ? input.weekdays.map((d) => WEEKDAYS.indexOf(d) + 1)
+        : [isoWeekday(anchor)],
+    );
     if (input.monthlyBy === 'WEEKDAY') {
       const nth = Math.ceil(dom / 7);
-      return (day) => isoWeekday(day) === weekday && Math.ceil(day.getUTCDate() / 7) === nth;
+      return (day) => days.has(isoWeekday(day)) && Math.ceil(day.getUTCDate() / 7) === nth;
     }
-    return (day) => isoWeekday(day) === weekday && day.getUTCDate() + 7 > daysInMonth(day);
+    return (day) => days.has(isoWeekday(day)) && day.getUTCDate() + 7 > daysInMonth(day);
   }
   if (input.weekdays.length === 0) return null;
   const wanted = new Set(input.weekdays.map((d) => WEEKDAYS.indexOf(d) + 1));
@@ -128,21 +133,29 @@ const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth'];
 const LONG_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 /**
- * The monthly choices a start date allows, with their labels:
- * "On the 23rd", "On the fourth Monday", "On the last Monday".
- * A fifth weekday is only offered as "last", since a fifth Monday is missing
- * from most months; "last" is only offered in a month's last seven days.
+ * The monthly choices a start date and the chosen days allow, with labels:
+ * "On the 23rd", "On the fourth Monday and Wednesday", "On the last Monday".
+ * The week of the month comes from the start date. A fifth weekday is only
+ * offered as "last", since a fifth Monday is missing from most months; "last"
+ * is only offered in a month's last seven days; and "the 23rd" only with one
+ * day chosen, since a date cannot fall on two weekdays.
  */
-export function monthlyOptions(startDate: string): { value: MonthlyBy; label: string }[] {
+export function monthlyOptions(
+  startDate: string,
+  weekdays: Weekday[] = [],
+): { value: MonthlyBy; label: string }[] {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return [];
   const d = new Date(`${startDate}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return [];
   const dom = d.getUTCDate();
-  const day = LONG_DAYS[isoWeekday(d) - 1]!;
+  const names = weekdays.length
+    ? WEEKDAYS.filter((w) => weekdays.includes(w)).map((w) => LONG_DAYS[WEEKDAYS.indexOf(w)]!)
+    : [LONG_DAYS[isoWeekday(d) - 1]!];
+  const day =
+    names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]!;
   const nth = Math.ceil(dom / 7);
-  const options: { value: MonthlyBy; label: string }[] = [
-    { value: 'DATE', label: `On the ${ordinalDay(dom)} of each month` },
-  ];
+  const options: { value: MonthlyBy; label: string }[] =
+    weekdays.length <= 1 ? [{ value: 'DATE', label: `On the ${ordinalDay(dom)} of each month` }] : [];
   if (nth <= 4) {
     options.push({ value: 'WEEKDAY', label: `On the ${ORDINALS[nth - 1]} ${day} of each month` });
   }
@@ -159,7 +172,7 @@ function ordinalDay(n: number): string {
   return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
 }
 
-/** A short line for the schedule: "Daily", "Mon & Wed", "Monthly, first Monday". */
+/** A short line for the schedule: "Daily", "Mon & Wed", "Monthly, the first Monday". */
 export function repeatSummary(input: {
   startDate: string;
   repeat?: Repeat;
@@ -168,8 +181,14 @@ export function repeatSummary(input: {
 }): string {
   const repeat = input.repeat ?? 'WEEKLY';
   if (repeat === 'DAILY') return 'Daily';
-  if (repeat === 'WEEKLY') return input.weekdays.map((d) => WEEKDAY_LABELS[d]).join(' & ');
-  const option = monthlyOptions(input.startDate).find((o) => o.value === (input.monthlyBy ?? 'WEEKDAY'));
+  if (repeat === 'WEEKLY') {
+    return input.weekdays.length === 7
+      ? 'Every day'
+      : input.weekdays.map((d) => WEEKDAY_LABELS[d]).join(' & ');
+  }
+  const option = monthlyOptions(input.startDate, input.weekdays).find(
+    (o) => o.value === (input.monthlyBy ?? 'WEEKDAY'),
+  );
   return option ? `Monthly, ${option.label.replace(/^On /, '').replace(/ of each month$/, '')}` : 'Monthly';
 }
 
@@ -210,4 +229,29 @@ export function groupTimes(input: {
     out.push({ startTime: toTime(from), endTime: toTime(to) });
   }
   return out;
+}
+
+/**
+ * Each time's start and end from the first time and the extra start times
+ * the studio typed, earliest first; every one keeps the first one's length.
+ * Null while a time is missing, repeated, or would run past midnight.
+ */
+export function timesFrom(input: {
+  startTime: string;
+  endTime: string;
+  extraTimes: string[];
+}): GroupTime[] | null {
+  const toMinutes = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h! * 60 + m!;
+  };
+  const toTime = (n: number) =>
+    `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
+  const length = toMinutes(input.endTime) - toMinutes(input.startTime);
+  if (!(length > 0)) return null;
+  const starts = [input.startTime, ...input.extraTimes];
+  if (starts.some((t) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(t))) return null;
+  if (new Set(starts).size !== starts.length || starts.length > MAX_GROUPS) return null;
+  const out = starts.sort().map((t) => ({ startTime: t, endTime: toTime(toMinutes(t) + length) }));
+  return out.every((t) => toMinutes(t.startTime) + length <= 24 * 60 - 1) ? out : null;
 }

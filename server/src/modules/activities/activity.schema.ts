@@ -115,6 +115,12 @@ const repeatFields = {
   groups: z.number().int().min(1).max(MAX_GROUPS).default(1),
   /** Minutes between one group ending and the next starting. */
   bufferMinutes: z.number().int().min(0).max(240).default(0),
+  /**
+   * The studio's own start times, the first included (each keeps the first
+   * one's length). When sent, these are the groups; groups and buffer are
+   * then ignored.
+   */
+  startTimes: z.array(localTime).max(MAX_GROUPS).optional(),
 };
 
 const groupsFitTheDay = (c: {
@@ -122,6 +128,7 @@ const groupsFitTheDay = (c: {
   endTime: string;
   groups: number;
   bufferMinutes: number;
+  startTimes?: string[];
 }) => {
   if (c.endTime <= c.startTime) return true; // reported by endsAfterStarts
   try {
@@ -132,7 +139,7 @@ const groupsFitTheDay = (c: {
   }
 };
 const groupsFitTheDayMessage = {
-  message: 'The last group would run past midnight. Choose fewer groups or a shorter buffer.',
+  message: 'A class time would run past midnight. Choose an earlier time.',
   path: ['groups'],
 };
 

@@ -117,11 +117,34 @@ describe('the dates a repeating class runs on', () => {
     expect(plan.dates).toEqual(['2027-03-29', '2027-04-26', '2027-05-31']);
   });
 
-  it('Monthly ignores weekday chips left over from Weekly', () => {
+  it('Monthly on the days ticked: the first Monday and first Wednesday', () => {
     const plan = planClassDates({
       startDate: '2027-03-01',
       repeat: 'MONTHLY',
-      weekdays: ['FR'],
+      monthlyBy: 'WEEKDAY',
+      weekdays: ['MO', 'WE'],
+      sessionCount: 4,
+    });
+    expect(plan.dates).toEqual(['2027-03-01', '2027-03-03', '2027-04-05', '2027-04-07']);
+  });
+
+  it('Monthly by last weekday on two days', () => {
+    const plan = planClassDates({
+      startDate: '2027-03-29',
+      repeat: 'MONTHLY',
+      monthlyBy: 'LAST_WEEKDAY',
+      weekdays: ['MO', 'WE'],
+      sessionCount: 4,
+    });
+    // March: last Mon 29, last Wed 31. April: last Mon 26, last Wed 28.
+    expect(plan.dates).toEqual(['2027-03-29', '2027-03-31', '2027-04-26', '2027-04-28']);
+  });
+
+  it('Monthly with no days ticked uses the start date weekday', () => {
+    const plan = planClassDates({
+      startDate: '2027-03-01',
+      repeat: 'MONTHLY',
+      weekdays: [],
       sessionCount: 2,
     });
     expect(plan.dates).toEqual(['2027-03-01', '2027-04-05']);
@@ -161,6 +184,14 @@ describe('the stored rule', () => {
       expect(back.repeat).toBe(pattern.repeat);
       if (pattern.repeat === 'MONTHLY') expect(back.monthlyBy).toBe(pattern.monthlyBy);
     }
+    expect(toRepeatRule({ repeat: 'MONTHLY', monthlyBy: 'WEEKDAY', weekdays: ['WE', 'MO'] }, '2027-03-22')).toBe(
+      'FREQ=MONTHLY;BYDAY=4MO,4WE',
+    );
+    expect(fromRepeatRule('FREQ=MONTHLY;BYDAY=4MO,4WE')).toEqual({
+      repeat: 'MONTHLY',
+      monthlyBy: 'WEEKDAY',
+      weekdays: ['MO', 'WE'],
+    });
     expect(fromRepeatRule(null)).toBeNull();
     expect(fromRepeatRule('FREQ=YEARLY')).toBeNull();
   });
@@ -253,7 +284,7 @@ describe('editing a repeating class', () => {
       startDate: '2027-03-29',
       repeat: 'MONTHLY',
       monthlyBy: 'LAST_WEEKDAY',
-      weekdays: [],
+      weekdays: ['MO'],
       sessionCount: 3,
       skipDates: ['2027-04-26'],
     });

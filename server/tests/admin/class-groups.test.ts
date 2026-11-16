@@ -83,6 +83,19 @@ describe('the times of each group', () => {
     ]);
   });
 
+  it('typed start times: each keeps the length of the first, earliest first', () => {
+    expect(
+      groupTimes({ startTime: '06:00', endTime: '07:00', startTimes: ['09:30', '06:00', '07:30'] }),
+    ).toEqual([
+      { startTime: '06:00', endTime: '07:00', label: '6:00am' },
+      { startTime: '07:30', endTime: '08:30', label: '7:30am' },
+      { startTime: '09:30', endTime: '10:30', label: '9:30am' },
+    ]);
+    expect(() =>
+      groupTimes({ startTime: '18:00', endTime: '20:00', startTimes: ['18:00', '22:30'] }),
+    ).toThrow(/past midnight/);
+  });
+
   it('one group is a plain Class', () => {
     expect(groupTimes({ startTime: '18:00', endTime: '20:00' })).toHaveLength(1);
   });
@@ -151,6 +164,47 @@ describe('publishing a class with time groups', () => {
     const res = await publish({ startTime: '21:00', endTime: '22:00', groups: 3, bufferMinutes: 30 });
     expect(res.status).toBe(422);
     expect(JSON.stringify(res.body)).toMatch(/past midnight/);
+  });
+
+  it('typed start times make one run per time', async () => {
+    const res = await publish({
+      groups: undefined,
+      bufferMinutes: undefined,
+      startTimes: ['18:00', '20:00'],
+      weekdays: ['MO', 'WE'],
+      sessionCount: 4,
+    });
+    expect(res.status).toBe(201);
+    const cohorts = await cohortsOf(res.body.service.id);
+    expect(cohorts.map((c) => c.cohortLabel)).toEqual(['6:00pm', '8:00pm']);
+    expect(cohorts.every((c) => c.sessions.length === 4)).toBe(true);
+
+    const answers = await request(app)
+      .get(`${studio.base}/activities/${res.body.service.id}/answers`)
+      .set(studio.headers);
+    expect(answers.body.answers).toMatchObject({ startTimes: ['18:00', '20:00'], weekdays: ['MO', 'WE'] });
+  });
+
+  it('a monthly class on two days reopens with both days', async () => {
+    const res = await publish({
+      groups: 1,
+      repeat: 'MONTHLY',
+      monthlyBy: 'WEEKDAY',
+      weekdays: ['MO', 'WE'],
+      sessionCount: 4,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.series.repeatRule).toBe('FREQ=MONTHLY;BYDAY=1MO,1WE');
+    const answers = await request(app)
+      .get(`${studio.base}/activities/${res.body.service.id}/answers`)
+      .set(studio.headers);
+    expect(answers.body.answers).toMatchObject({
+      repeat: 'MONTHLY',
+      monthlyBy: 'WEEKDAY',
+      weekdays: ['MO', 'WE'],
+      sessionCount: 4,
+      skipDates: [],
+    });
   });
 
   it('a request without groups is one group, unlabelled, as before', async () => {
