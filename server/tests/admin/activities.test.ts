@@ -451,11 +451,14 @@ describe('drafts', () => {
       .send({ data: { name: 'Mine now' } });
     expect(update.status).toBe(404);
 
+    // Publishing with their draft id neither reads nor deletes it: the draft
+    // is only ever deleted within the publishing studio. (It used to be
+    // refused with a 404; a draft that is gone no longer blocks publishing.)
     const publish = await request(app)
       .post(`${studio.base}/activities/events`)
       .set(studio.headers)
       .send(event({ draftId: theirs.body.draft.id }));
-    expect(publish.status).toBe(404);
+    expect(publish.status).toBe(201);
     expect(await prisma.activityDraft.count()).toBe(1);
   });
 });

@@ -116,15 +116,6 @@ async function resolveWhereAndWho(
   return { location, staffId: input.staffId ?? null };
 }
 
-async function assertDraftBelongs(organizationId: string, draftId?: string) {
-  if (!draftId) return;
-  const draft = await prisma.activityDraft.findFirst({
-    where: { id: draftId, organizationId },
-    select: { id: true },
-  });
-  if (!draft) throw AppError.notFound('Draft not found.', 'DRAFT_NOT_FOUND');
-}
-
 /** The rows both kinds write before their dates. */
 async function insertActivity(
   tx: Tx,
@@ -177,6 +168,13 @@ async function insertActivity(
     });
   }
 
+  /*
+    The draft it was built in goes with publishing. One already discarded —
+    from Activities in another tab while this one was open — is simply gone:
+    the answers being published are all here, so refusing to save them over a
+    missing draft would only lose the studio's work. Scoped to the studio, so
+    another studio's draft id deletes nothing.
+  */
   if (input.draftId) {
     await tx.activityDraft.deleteMany({ where: { id: input.draftId, organizationId } });
   }
@@ -240,7 +238,6 @@ export async function createEvent(organizationId: string, input: CreateEventInpu
   }
 
   const { location, staffId } = await resolveWhereAndWho(organizationId, input);
-  await assertDraftBelongs(organizationId, input.draftId);
   const slug = await slugFor(organizationId, input.name);
 
   /*
@@ -449,7 +446,6 @@ export async function createClass(organizationId: string, input: CreateClassInpu
 
   const { location, staffId } = await resolveWhereAndWho(organizationId, input);
   await assertReferencesBelong(organizationId, input);
-  await assertDraftBelongs(organizationId, input.draftId);
   const slug = await slugFor(organizationId, input.name);
 
   return inTransaction(async (tx) => {

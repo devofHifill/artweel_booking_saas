@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { FORMATS } from '../lib/booking-format';
 import { CategoryPicker } from './CategoryPicker';
-import { api, money, plusDays, todayIn } from '../lib/api';
+import { ApiError, api, money, plusDays, todayIn } from '../lib/api';
 import {
   MAX_GROUPS,
   MAX_MONTHLY_SESSIONS,
@@ -867,15 +867,25 @@ export function CreateActivity({
   async function saveDraft(nextStep: number) {
     if (!kind || editing) return;
     const data = { ...answers, step: nextStep, reached: Math.max(reached, nextStep) };
+    const create = async () => {
+      const res = await api.post<{ draft: { id: string } }>(`${base}/activities/drafts`, {
+        kind,
+        data,
+      });
+      draftId.current = res.draft.id;
+    };
     try {
       if (draftId.current) {
-        await api.put(`${base}/activities/drafts/${draftId.current}`, { data });
+        try {
+          await api.put(`${base}/activities/drafts/${draftId.current}`, { data });
+        } catch (err) {
+          /* Discarded from Activities in another tab: start a fresh draft so
+             the answers are still kept, rather than saving into nothing. */
+          if (err instanceof ApiError && err.code === 'DRAFT_NOT_FOUND') await create();
+          else throw err;
+        }
       } else {
-        const res = await api.post<{ draft: { id: string } }>(`${base}/activities/drafts`, {
-          kind,
-          data,
-        });
-        draftId.current = res.draft.id;
+        await create();
       }
     } catch {
       /* Left unsaved; the flow carries on. */
