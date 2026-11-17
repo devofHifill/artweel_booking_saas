@@ -221,6 +221,10 @@ Per studio: **Admin → Studios → (studio)**.
 4. Every studio has to connect again. Accounts created in test mode do not
    exist in live mode — they show as "can't be reached". The owner's **Finish
    Stripe setup** replaces them automatically; or reset them from A8 first.
+   Test-mode plan subscriptions don't carry over either: a studio that
+   subscribed in test mode chooses its plan again (its old test customer is
+   forgotten automatically, see Confirmed behaviour), or is given the plan
+   from A8.
 5. Run one real low-value booking end to end and refund it.
 
 ### A10. Troubleshooting
@@ -363,14 +367,20 @@ these never work in live mode.
 
 ## Known gaps (not yet built)
 
-- **Changing plan while subscribed** starts a second Checkout, which would
-  create a second subscription. Until plan changes update the existing
-  subscription, change plans for paying studios by hand (cancel the old one in
-  Stripe → Customers) and avoid pressing a different plan's button.
 - The app has no "Open Stripe dashboard" button for studios; they use the
   Express login link in B6.
 
 ## Confirmed behaviour
+
+- **Changing plan while subscribed** changes the existing subscription in
+  place (the difference is charged or credited at once); it no longer starts a
+  second Checkout.
+- **After switching keys** (test mode to live, or to another Stripe account), a
+  studio's saved billing customer can't be found. The first time it chooses a
+  plan, bookaihub forgets that customer and its subscription id and starts
+  afresh with a new customer and a normal Checkout; **Manage billing** says
+  "No subscription to manage yet" until then. Only Stripe's own "not found"
+  does this; any other Stripe error leaves the record untouched.
 
 - Stripe **does** send the v1 `account.updated` event for accounts created
   through Accounts v2; it reaches the connect destination and is processed

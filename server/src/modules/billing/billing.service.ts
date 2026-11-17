@@ -226,12 +226,12 @@ export async function createSubscriptionCheckout(
     return { url: `${config.APP_URL}/billing?activated=1`, simulated: true };
   }
 
-  if (org.billingCustomerId) {
-    const live = await findLiveSubscription(stripe, org);
+  let customerId = await reachableCustomerId(stripe, org);
+
+  if (customerId) {
+    const live = await findLiveSubscription(stripe, { ...org, billingCustomerId: customerId });
     if (live) return changePlan(stripe, org.id, live, planId);
   }
-
-  let customerId = org.billingCustomerId;
 
   if (!customerId) {
     const customer = await stripe.customers.create({
@@ -273,6 +273,42 @@ export async function createSubscriptionCheckout(
   });
 
   return { url: session.url!, simulated: false };
+}
+
+/**
+ * The studio's saved Stripe customer, if the platform's key can still reach it.
+ *
+ * A customer made in test mode does not exist in live mode (nor one made under
+ * another Stripe account, nor one deleted in the dashboard). Left in place, it
+ * made every plan checkout fail on "No such customer" after the switch to live
+ * keys. So an unreachable customer is forgotten, with its subscription id, and
+ * the studio starts afresh: a new customer and a normal Checkout.
+ *
+ * Only Stripe's own "not found" counts. Any other error (network, outage) is
+ * thrown as before, so a hiccup never wipes a paying studio's billing record.
+ */
+async function reachableCustomerId(
+  stripe: BillingStripe,
+  org: { id: string; billingCustomerId: string | null },
+): Promise<string | null> {
+  if (!org.billingCustomerId) return null;
+
+  try {
+    const customer = await stripe.customers.retrieve(org.billingCustomerId);
+    if (!('deleted' in customer && customer.deleted)) return org.billingCustomerId;
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'resource_missing') throw err;
+  }
+
+  logger.warn(
+    { organizationId: org.id, customerId: org.billingCustomerId },
+    'Billing customer not reachable with this Stripe key; starting afresh',
+  );
+  await prisma.organization.update({
+    where: { id: org.id },
+    data: { billingCustomerId: null, billingSubscriptionId: null },
+  });
+  return null;
 }
 
 /**
@@ -398,7 +434,8 @@ export async function createBillingPortalSession(organizationId: string) {
   });
 
   const stripe = await billingStripe();
-  if (!org.billingCustomerId || !stripe) {
+  const customerId = stripe ? await reachableCustomerId(stripe, org) : null;
+  if (!customerId || !stripe) {
     throw AppError.badRequest(
       'No subscription to manage yet.',
       'NO_SUBSCRIPTION',
@@ -406,7 +443,7 @@ export async function createBillingPortalSession(organizationId: string) {
   }
 
   const session = await stripe.billingPortal.sessions.create({
-    customer: org.billingCustomerId,
+    customer: customerId,
     return_url: `${config.APP_URL}/billing`,
   });
 

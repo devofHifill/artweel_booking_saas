@@ -547,6 +547,10 @@ describe('changing plan while subscribed', () => {
   let subs: Sub[];
   let calls: { method: string; args: unknown[] }[];
   let declineNext: boolean;
+  /** Customers this key can see. A test-mode customer is missing under live keys. */
+  let customers: string[];
+  let deletedCustomer: boolean;
+  let customerFails: Error | null;
 
   const fakeStripe = () => ({
     subscriptions: {
@@ -576,9 +580,24 @@ describe('changing plan while subscribed', () => {
       },
     },
     customers: {
+      async retrieve(id: string) {
+        if (customerFails) throw customerFails;
+        if (!customers.includes(id)) {
+          throw Object.assign(new Error(`No such customer: '${id}'`), { code: 'resource_missing' });
+        }
+        return { id, deleted: deletedCustomer || undefined };
+      },
       async create() {
         calls.push({ method: 'customers.create', args: [] });
         return { id: 'cus_new' };
+      },
+    },
+    billingPortal: {
+      sessions: {
+        async create(params: { customer: string }) {
+          calls.push({ method: 'billingPortal.sessions.create', args: [params] });
+          return { url: 'https://billing.stripe.test/portal' };
+        },
       },
     },
     checkout: {
@@ -595,6 +614,9 @@ describe('changing plan while subscribed', () => {
     subs = [];
     calls = [];
     declineNext = false;
+    customers = ['cus_paying'];
+    deletedCustomer = false;
+    customerFails = null;
     setBillingStripe(fakeStripe());
     await prisma.organization.update({
       where: { id: studio.organizationId },
@@ -681,6 +703,86 @@ describe('changing plan while subscribed', () => {
     expect(res.status).toBe(200);
     expect(res.body.url).toContain('checkout.stripe.test');
     expect(calls.map((c) => c.method)).toContain('checkout.sessions.create');
+  });
+
+  describe('after switching Stripe keys (test mode to live)', () => {
+    /** The saved customer belongs to test mode, so the live key can't find it. */
+    beforeEach(() => {
+      customers = [];
+    });
+
+    it('starts afresh with a new customer and a normal Checkout', async () => {
+      const res = await subscribe('STUDIO');
+
+      expect(res.status).toBe(200);
+      expect(res.body.url).toContain('checkout.stripe.test');
+      expect(calls.map((c) => c.method)).toEqual(['customers.create', 'checkout.sessions.create']);
+      const checkout = calls.find((c) => c.method === 'checkout.sessions.create')!;
+      expect(checkout.args[0]).toMatchObject({ customer: 'cus_new' });
+      const after = await org();
+      expect(after.billingCustomerId).toBe('cus_new');
+      expect(after.billingSubscriptionId).toBeNull();
+    });
+
+    it('takes up the new subscription when its webhook arrives', async () => {
+      await subscribe('STUDIO').expect(200);
+
+      await handleWebhook({
+        id: 'evt_live_subscription_created',
+        type: 'customer.subscription.created',
+        accountId: null,
+        data: {
+          id: 'sub_live',
+          status: 'active',
+          customer: 'cus_new',
+          metadata: { organizationId: studio.organizationId, planId: 'STUDIO' },
+          items: { data: [{ price: { unit_amount: 8900 }, current_period_end: Math.floor(Date.now() / 1000) + 30 * 86_400 }] },
+        },
+      } as never);
+
+      const after = await org();
+      expect(after.billingSubscriptionId).toBe('sub_live');
+      expect(after.plan).toBe('STUDIO');
+    });
+
+    it('treats a customer deleted in Stripe the same way', async () => {
+      customers = ['cus_paying'];
+      deletedCustomer = true;
+
+      await subscribe('STUDIO').expect(200);
+
+      expect((await org()).billingCustomerId).toBe('cus_new');
+    });
+
+    it('says there is nothing to manage yet, instead of failing', async () => {
+      const res = await request(app).post(`${studio.base}/billing/portal`).set(studio.headers);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('NO_SUBSCRIPTION');
+      expect(calls).toHaveLength(0);
+      expect((await org()).billingCustomerId).toBeNull();
+    });
+  });
+
+  it('keeps the saved customer when Stripe has any other problem', async () => {
+    customerFails = Object.assign(new Error('Connection error'), { type: 'StripeConnectionError' });
+
+    const res = await subscribe('STUDIO');
+
+    expect(res.status).toBe(500);
+    const after = await org();
+    expect(after.billingCustomerId).toBe('cus_paying');
+    expect(after.billingSubscriptionId).toBe('sub_current');
+  });
+
+  it('opens the billing portal for a customer it can reach', async () => {
+    const res = await request(app).post(`${studio.base}/billing/portal`).set(studio.headers);
+
+    expect(res.status).toBe(200);
+    expect(calls[0]).toMatchObject({
+      method: 'billingPortal.sessions.create',
+      args: [{ customer: 'cus_paying' }],
+    });
   });
 
   it('ignores an active duplicate, such as one cancelled at period end', async () => {
