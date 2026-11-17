@@ -96,10 +96,10 @@ On the staff member's row, click **Hours**.
 
 | | **Class** | **Event** |
 |---|---|---|
-| What it is | Runs over several weeks, e.g. a 6-week beginner course | One date, e.g. a date night, a workshop, a party |
+| What it is | A course of several sessions, e.g. a 6-week beginner course. It can repeat weekly or monthly, run at several times a day, and run again and again over a date range | One date, e.g. a date night, a workshop, a party |
 | How customers book | Once, for **every session** | A seat on that date |
 | Price | For the whole class | Per seat |
-| Plan | Every plan. **Solo runs 1 class at a time**; Studio and Pro, unlimited | Every plan, unlimited |
+| Plan | Every plan. **Solo runs 1 class at a time**; Studio and Pro, unlimited. Several times or runs of one Class still count as **one** class | Every plan, unlimited |
 
 Then a few short steps. **Next** checks each step before moving on, and **Back** never loses what you typed.
 
@@ -126,12 +126,12 @@ Two time slots on the same day are two events: publish the first, then **Duplica
 
 ### 9.2 A Class: eight steps
 
-Only three things are required: a **name**, at least one **weekday**, and an **adult price** (`0` if it's free). Everything else is filled in for you or optional.
+Only three things are required: a **name**, at least one **day**, and an **adult price** (`0` if it's free). Everything else is filled in for you or optional.
 
 | Step | What you fill in |
 |---|---|
 | **What** | **Activity name**, short description, full description, **Category**. **Type** shows *Class* (it was chosen on the first screen) |
-| **Schedule** | **Starts on**, **Every** (weekdays), start and end time, **Duration** (worked out from the times), number of **Sessions** |
+| **Schedule** | **Starts on**, **Until** (optional), **Days**, start and end time, **More times**, and **Repeat weekly** or **Repeat monthly**. The number of sessions is worked out for you (Step 9.3) |
 | **Where and who** | Location, **Meeting point** (which door or room), instructor |
 | **Seats and price** | **Adult price** and **Child price**, both for the **whole** class (child `0` = adults only), **Currency** (set for the whole studio), **Maximum capacity**, **Minimum guests**, **Deposit** |
 | **Look** | **Icon** and **Colour** for its card and calendar block |
@@ -149,16 +149,50 @@ What the booking rules mean for a Class, which is booked once for the whole run:
 | **Bookable up to** | Booking opens this many days before the first session. **Blank: open as soon as you publish.** Until then the card says *Booking opens …* |
 | **Status: Hidden** | Saved, but not on the booking page and can't be booked. On Solo it doesn't use your one class until you switch it to Published |
 
-On **Schedule**, the real dates appear as you type, for example:
+### 9.3 The Schedule step
 
-> 6 sessions · Tue 6:00pm–8:00pm · ends Tue 22 Dec
-> ☑ Tue 17 Nov ☑ Tue 24 Nov ☑ Tue 1 Dec …
+| Field | What it does |
+|---|---|
+| **Starts on** | The first possible date. The class starts on the first ticked day on or after it |
+| **Days** | Mon–Sun. Tick the days it runs. All seven = every day |
+| **Starts at / Ends at** | The time of the class. **Duration** is worked out from these |
+| **More times** | **+ Add another time** runs the same class again that day, at a start time you choose. Every time is the same length as the first. Each time is its **own group** with its own customers, e.g. a 6:00pm and an 8:00pm group |
+| **Repeat weekly** | Then **How many weeks**. Sessions = days × weeks: Mon & Wed for 4 weeks is 8 sessions |
+| **Repeat monthly** | Then **How many months** (up to 24), then **Each month**: *On the 23rd* (only with one day ticked), *On the fourth Monday* (and Wednesday, if both are ticked), or *On the last Monday* (when the start date is in the month's last week). Worked out from the start date |
+| Neither ticked | **One week**: one session on each ticked day |
+| **Until** (optional) | Leave empty for one run. With a date, the same pattern runs **again and again, back to back**, until then (Step 9.4) |
+
+Ticking one repeat box unticks the other. The real dates appear as you go, for example:
+
+> 6 sessions · Mon & Tue 6:00pm–8:00pm · ends Tue 8 Dec
+>
+> ☑ Mon 23 Nov ☑ Tue 24 Nov ☑ Mon 30 Nov …
 
 - **Untick a date** to skip it (a holiday). Another is added at the end, so the class keeps the same number of sessions and the end date moves.
-- One time per class. A morning and an evening group are two classes: **Duplicate** the first.
 - Times stay the same on the clock across a daylight-saving change.
+- A monthly date that a month doesn't have (the 31st) is skipped for that month.
 
-### 9.3 Clashes
+### 9.4 Running it again over a date range: Until
+Set **Until** and the class repeats itself: each **run** starts straight after the last one ends, as long as a **full** run still fits.
+
+> Mon & Tue, Repeat weekly **3 weeks**, from 23 Nov **until 31 Jan**:
+>
+> **3 runs of 6 sessions**
+>
+> - Run 1 · Mon 23 Nov – Tue 8 Dec
+> - Run 2 · Mon 14 Dec – Tue 29 Dec
+> - Run 3 · Mon 4 Jan – Tue 19 Jan
+>
+> *Mon 25 Jan, Tue 26 Jan are not enough for another full run, so they are left out.*
+
+- Runs never share a date, and every run has the same number of sessions, so one price fits them all.
+- With **more times**, every run runs at every time. 3 runs at 6:00pm and 8:00pm are **6 groups**, each booked on its own.
+- Unticking a date in one run moves that run's end, and every later run, along.
+- Neither repeat box ticked gives **one-week runs**: a new run every week.
+- Customers see **one card**; they pick the run and time they want on its calendar.
+- It is still **one class** on your plan.
+
+### 9.5 Clashes
 While you choose dates, the steps check each one and show what is already there, beside the date:
 
 > **Tue 17 Nov** Rowan Pike is teaching Wheel Basics 6–8pm
@@ -176,12 +210,13 @@ While you choose dates, the steps check each one and show what is already there,
 **Publish** puts it on your booking page straight away and says so at the top of **Activities**.
 
 - An **Event** appears under **Events** on the booking page, with its date first.
-- A **Class** appears under **Classes**. Customers book it once and are booked into every session. **Booking closes when the first session starts**, and missed sessions are not made up.
+- A **Class** appears under **Classes**, as **one card** however many times or runs it has (e.g. *6 sessions · 3 runs, from 23 Nov · 2 times: 6:00pm, 8:00pm · Choose a date*). With several times or runs, the card opens a calendar where customers pick their start date and time. They book once and are booked into every session of that group. Missed sessions are not made up.
+- **Weekly** classes close when their first session starts. **Monthly** classes take late joiners: after the start, a group shows on its next session as *Joins in progress*.
 
 Each card in **Activities** shows **Class** or **Event**, and says whether customers can book it. If not, it says why, with a link to fix it. **Bookable now** at the top counts only the ones customers can book.
 
 ### Step 11: Run it again: Duplicate
-On any Class or Event card, live or past, the **Duplicate** button (two sheets) copies everything except the dates and opens at the dates step. Pick new dates and publish. This is how you run "Beginner Wheel" again next term.
+On any Class or Event card, live or past, the **Duplicate** button (two sheets) copies everything except the dates and opens at the dates step. Pick new dates and publish. This is how you run "Beginner Wheel" again next term as a separate class, e.g. on different days. To run the same class again on later dates, you can instead move its **Until** date later (Step 12): no new class is needed.
 
 ### Step 12: Change it later
 **Edit** (the pencil) on a Class or Event opens the same steps you made it with, filled in with what it has now. Change anything, then **Save changes** on Review. Every step can be clicked straight away.
@@ -195,7 +230,8 @@ On any Class or Event card, live or past, the **Duplicate** button (two sheets) 
 | **Location** | Every session still to run moves there, clash-checked |
 | Cancellation policy, minimum notice, bookable up to | Applies from now on |
 | **Status** | Published or Hidden. On Solo, switching a hidden Class on needs your one class place free |
-| **Dates and times** | Can change **only while nobody has booked and it hasn't started**. Then the old dates are replaced by the new ones. Once someone has booked, the Schedule (or When) step shows them greyed out with the reason. To call one date off, cancel it from **Scheduled sessions** |
+| **Dates and times** (Class) | Locked **run by run**. A run (or time group) somebody has booked, or that has started, keeps its dates. The others can change or be removed. Once anyone has booked, the **Schedule** step is greyed out **except Until**: move Until later to **add more runs after the last one**. To call one date off, cancel it from **Scheduled sessions** |
+| **Dates and times** (Event) | Can change only while nobody has booked and it hasn't started. Then the old date is replaced by the new one |
 
 **Type** can't change: a Class stays a Class and an Event stays an Event. Make a new one (or **Duplicate**) instead.
 
@@ -309,13 +345,22 @@ A course where everyone starts together and builds week on week.
 |---|---|
 | Choose | **Class** |
 | What | `Beginner Wheel`, short description `Centre, open and pull your first pots` |
-| Schedule | Starts on `3 Mar`, every **Tue**, `18:00`–`20:00`, `6` sessions. Untick `17 Mar` for spring break: the class now ends a week later |
+| Schedule | Starts on `3 Mar`, days **Tue**, `18:00`–`20:00`, **Repeat weekly** `6` weeks (6 sessions). Untick `17 Mar` for spring break: the class now ends a week later |
 | Where and who | **The studio**, instructor **you** |
 | Seats and price | Adult price `320.00`, child price blank (adults only), maximum capacity `8` (one per wheel), minimum guests `1`, pay in full |
 | Look | 🏺, the terracotta colour |
 | Policies | **Standard** policy, minimum notice `1440` (booking closes a day before), bookable up to blank |
 | For customers | `Clay, tools and glazes` / `Firing for your pieces`; before you come: `Short nails, closed shoes` |
 | Review | Status **Published**, then **Publish** |
+
+### A Class at two times, all winter: Wheel Basics
+Three-week courses, back to back, at 6pm and 8pm.
+
+| Step | Value |
+|---|---|
+| Schedule | Starts on `23 Nov`, **Until** `31 Jan`, days **Mon** and **Tue**, `18:00`–`20:00`, **+ Add another time** `20:00`, **Repeat weekly** `3` weeks |
+| Result | 3 runs of 6 sessions (from 23 Nov, 14 Dec and 4 Jan), each at 6:00pm and 8:00pm: 6 groups, one card on the booking page |
+| Later | Bookings coming in? **Edit** and move **Until** to `31 Mar` to add the spring runs. Booked runs stay as they are |
 
 ### After publishing
 1. Optional, for an Event: **Edit** to add what's included, preparation notes, a deposit or a cancellation policy (Step 12). A Class asked for these in its steps.
@@ -329,14 +374,13 @@ A course where everyone starts together and builds week on week.
 
 | Action | When it's allowed | Effect |
 |---|---|---|
-| **Delete** | Only if the activity has **never had any booking or session**, whatever its status | Permanently removed. Can't be undone |
+| **Delete** | Whenever it has **no upcoming bookings**, whatever its status | Permanently removed with all its sessions and past bookings. Can't be undone |
 | **Set Status: Hidden** | Always | Hidden from the booking page and widget. Existing bookings are kept |
 
-- Activities → trash icon → confirm to delete.
-- If it has any history you'll see: *"This service has bookings and cannot be deleted. Deactivate it instead…"*
-- **Cancelling its bookings doesn't make it deletable.** Cancelled bookings still count, because a customer's receipt has to keep pointing at the activity it was for.
+- Activities → trash icon. The dialog lists what goes with it (sessions, past bookings, payments); type the activity's name and press **Delete permanently**.
+- If people are still booked for dates to come, you'll see *"… has N upcoming bookings. Cancel them first…"*: cancelling tells them and refunds them, then it can be deleted.
 
-**Recommended:** set it to **Draft**. To fix a name or type, edit it in place; bookings stay attached.
+**Recommended** while you're unsure: set it to **Hidden**. It keeps its history and can come back with one click.
 
 ---
 
@@ -358,7 +402,8 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 |---|---|
 | **Minimum guests is only enforced on a Class.** On an Event or older activity, a booking below the minimum is still accepted | State the minimum clearly in the description |
 | **Group sessions aren't private.** If a host books 6 of 10 seats, others can book the remaining 4 | Set **Maximum capacity** to the full party size you expect |
-| **A Class has at most 52 sessions** | Publish a second class for the next term (**Duplicate**) |
+| **A Class run has at most 52 sessions**; **Until** at most a year after the start; at most 12 times a day | Use **Until** for more runs, or publish a second class (**Duplicate**) |
+| **Every run of a Class has the same days and times** | For a run on different days, publish a second class (**Duplicate**) |
 | **Equipment is not checked for clashes** (e.g. more seats than wheels) | Set seats to the number of wheels |
 | **Add a session** (older activities) doesn't check one-thing-at-a-time locations | Check the calendar first |
 | **Changing the timezone doesn't move existing sessions** | Delete wrongly-timed sessions and schedule them again |
@@ -376,9 +421,12 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 | Card says **Not bookable: …** | What it names: no dates, nobody teaches it, no hours, or instructors not at that location | Use the button or link on the card |
 | No dates in the next day or two | **Minimum notice** hides them | Expected. Lower the minimum notice if needed |
 | Later dates missing | **Bookable up to (days ahead)** is too short | Increase it |
-| **Next** won't move on, dates shown in red | Those dates clash (Step 9.3) | Change the time, instructor or location, or untick the dates |
+| **Next** won't move on, dates shown in red | Those dates clash (Step 9.5) | Change the time, instructor or location, or untick the dates |
 | **Class** card is greyed out | On Solo, a class is already running (1 at a time) | Publish the next one when it ends (**Duplicate** it from **Past**), or upgrade in **Billing**. **Billing** shows *Classes running* |
 | A Class or Event disappeared from the booking page | Its last date has passed | It's under **Activities → Past**. **Duplicate** it to run it again |
+| **Until** gives fewer runs than expected, with dates *left out* | A full run doesn't fit in what is left before Until | Move **Until** later, or choose fewer weeks per run |
+| *"One run ends on …"* under **Until** | Until is before the first run can finish | Choose that date or later, or fewer weeks |
+| *"The run from 23 Nov has bookings…"* when saving | That run is booked, so its dates can't change | Leave its days and times as they are; to add dates, move **Until** later |
 | **One to one** shows no times | Instructor not assigned, or no working hours | Steps 7–8 |
 | Instructor not shown | Not assigned, or **Show on the booking page** is off | Steps 6–7 |
 | Staff shows "Not bookable yet" | No activities assigned | Step 7 |
@@ -386,6 +434,6 @@ Upgrade in **Billing**. Plan limits can be changed by the platform admin, so the
 | "This class has to be paid for when you book it" | Stripe connected and pay on arrival is off | Complete payment, or enable **Allow pay on arrival** |
 | Can't add a second instructor | SOLO plan limit | Edit the existing one, or upgrade |
 | Can't pick a location | No location exists | **Settings → Locations → Add a location** |
-| Can't delete an activity | It has bookings or sessions | Set **Status: Hidden** instead |
+| Can't delete an activity | It has **upcoming** bookings | Cancel them first (customers are told and refunded), or set **Status: Hidden** instead |
 | Widget area is blank | Wrong slug in `data-studio` | Copy the snippet again from **Booking Widget** |
 | Widget has a scrollbar / wrong height | Using a plain iframe | Use the snippet (it resizes itself), or raise the iframe height |
