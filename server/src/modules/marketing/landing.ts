@@ -525,6 +525,28 @@ function proofRow(vertical: Vertical): string {
     .join('')}</ul>`;
 }
 
+/**
+ * Background decoration for the hero, all aria-hidden, and deliberately
+ * quiet: no objects, only light and line.
+ *
+ *   A soft beam of light falling from the top centre onto the headline.
+ *   A faint warm aurora behind it that turns very slowly.
+ *   A fan of hairline arcs rising from below the fold like a horizon, with
+ *   one small glint of light that travels along an arc every few seconds.
+ *   A fine dot matrix that fades out from the centre.
+ */
+function heroDeco(): string {
+  const arcs = [0, 1, 2, 3, 4]
+    .map((i) => `<ellipse cx="600" cy="${900 + i * 18}" rx="${520 + i * 140}" ry="${430 + i * 70}"/>`)
+    .join('');
+  return `<div class="deco" aria-hidden="true">
+<div class="aurora"></div>
+<div class="beam"></div>
+<div class="dots"></div>
+<svg class="horizon" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMax slice">${arcs}<ellipse class="glint" cx="600" cy="936" rx="800" ry="570" pathLength="100"/></svg>
+</div>`;
+}
+
 /** "A, b, c and d", for the badge's no-JavaScript sentence. */
 function listSentence(items: string[]): string {
   const lower = items.map((item, i) => (i === 0 ? item : item.charAt(0).toLowerCase() + item.slice(1)));
@@ -714,6 +736,7 @@ ${structuredData(page, canonical)}
   <section class="hero" id="hero" aria-label="Overview">
     <div class="spot" id="spot" aria-hidden="true"></div>
     <div class="orbs" aria-hidden="true"><i></i><i></i><i></i></div>
+    ${heroDeco()}
     <div class="container hero-inner">
       <div class="hero-top">
       <a href="#features" class="badge rv"><span class="badge-new">${SPARKLE}New</span><span class="badge-sep" aria-hidden="true"></span><span class="badge-txt" data-rotate="${escapeHtml(JUST_SHIPPED.map((item) => item.title).join('|'))}">${escapeHtml(listSentence(JUST_SHIPPED.map((item) => item.title)))}</span><span class="badge-tail">are live</span><i class="badge-go" aria-hidden="true">${CHEVRON_RIGHT}</i></a>

@@ -218,7 +218,7 @@ button{font:inherit}
 /* hero */
 .hero{position:relative;padding:56px 0 0;text-align:center;isolation:isolate}
 .hero::before{content:"";position:absolute;inset:-140px 0 auto;height:900px;z-index:-1;background:radial-gradient(600px 340px at 50% 70%,rgba(239,90,36,.16),transparent 70%),radial-gradient(420px 260px at 20% 30%,rgba(255,138,76,.10),transparent 70%),radial-gradient(420px 260px at 82% 26%,rgba(46,107,230,.07),transparent 70%)}
-.hero::after{content:"";position:absolute;inset:0 0 auto;height:760px;z-index:-1;opacity:.5;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:64px 64px;-webkit-mask-image:radial-gradient(ellipse 70% 60% at 50% 30%,#000 30%,transparent 75%);mask-image:radial-gradient(ellipse 70% 60% at 50% 30%,#000 30%,transparent 75%)}
+.hero::after{content:"";position:absolute;inset:0 0 auto;height:760px;z-index:-1;opacity:0;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:64px 64px;-webkit-mask-image:radial-gradient(ellipse 70% 60% at 50% 30%,#000 30%,transparent 75%);mask-image:radial-gradient(ellipse 70% 60% at 50% 30%,#000 30%,transparent 75%)}
 .spot{position:absolute;z-index:-1;width:520px;height:520px;border-radius:50%;left:0;top:0;pointer-events:none;background:radial-gradient(closest-side,rgba(239,90,36,.14),transparent);transform:translate(-50%,-50%);opacity:0;transition:opacity .6s}
 .hero:hover .spot{opacity:1}
 /* headline
@@ -262,7 +262,7 @@ html:not(.js) .kicker-mark{background-size:100% 2px}
    a window bar with a padlock and a pulsing Live pill; a gentle 3D tilt that
    follows the mouse; and a soft cross-fade whenever the schedule swaps. */
 .orbs{position:absolute;inset:-120px 0 auto;height:1000px;z-index:-1;overflow:hidden;pointer-events:none}
-.orbs i{position:absolute;border-radius:50%;filter:blur(60px);opacity:.55;animation:drift 18s ease-in-out infinite alternate}
+.orbs i{position:absolute;border-radius:50%;filter:blur(80px);opacity:.32;animation:drift 18s ease-in-out infinite alternate}
 .orbs i:nth-child(1){width:420px;height:420px;left:8%;top:120px;background:#ffd2b8}
 .orbs i:nth-child(2){width:360px;height:360px;right:6%;top:60px;background:#dfe8ff;animation-duration:22s;animation-delay:-6s}
 .orbs i:nth-child(3){width:520px;height:340px;left:32%;top:520px;background:#ffc3a0;opacity:.45;animation-duration:26s;animation-delay:-12s}
@@ -397,6 +397,26 @@ html:not(.js) .kicker-mark{background-size:100% 2px}
 @media (max-width:560px){
   .sw-n{display:none}
   .switch button{padding:7px 10px 7px 7px}
+}
+
+/* hero decoration
+   Quiet on purpose: light and line, no objects. A soft beam of light falls
+   from the top centre onto the headline; a faint warm aurora turns behind
+   it over two minutes; hairline arcs rise from below the fold like a
+   horizon, and one small glint travels along an arc every few seconds; a
+   fine dot matrix fades out from the centre. */
+.deco{position:absolute;left:0;right:0;top:-90px;height:calc(100svh + 90px);min-height:640px;z-index:-1;pointer-events:none;overflow:hidden}
+.beam{position:absolute;left:50%;top:0;width:min(1100px,90vw);height:78%;translate:-50% 0;background:radial-gradient(50% 60% at 50% 0%,rgba(255,255,255,.95),rgba(255,255,255,.4) 45%,transparent 75%);mix-blend-mode:soft-light}
+.beam::after{content:"";position:absolute;left:50%;top:0;width:1px;height:62%;translate:-50% 0;background:linear-gradient(180deg,rgba(239,90,36,.0),rgba(239,90,36,.28) 40%,transparent);opacity:.7}
+.aurora{position:absolute;left:50%;top:6%;width:min(1200px,110vw);aspect-ratio:2.2;translate:-50% 0;border-radius:50%;background:conic-gradient(from var(--a,0deg) at 50% 50%,rgba(255,180,140,.0),rgba(255,170,120,.30),rgba(255,214,190,.0) 30%,rgba(210,222,255,.26) 55%,rgba(255,190,150,.0) 75%,rgba(255,170,120,.30));filter:blur(70px);opacity:.75;animation:spin 120s linear infinite;-webkit-mask-image:radial-gradient(closest-side,#000 40%,transparent);mask-image:radial-gradient(closest-side,#000 40%,transparent)}
+.dots{position:absolute;inset:0;background-image:radial-gradient(rgba(14,15,18,.11) 1px,transparent 1.3px);background-size:22px 22px;-webkit-mask-image:radial-gradient(ellipse 55% 50% at 50% 42%,#000 10%,transparent 70%);mask-image:radial-gradient(ellipse 55% 50% at 50% 42%,#000 10%,transparent 70%);opacity:.55}
+.horizon{position:absolute;left:0;right:0;bottom:0;width:100%;height:62%;fill:none;stroke:rgba(14,15,18,.07);stroke-width:1;vector-effect:non-scaling-stroke;-webkit-mask-image:linear-gradient(180deg,transparent,#000 35%,#000 70%,transparent);mask-image:linear-gradient(180deg,transparent,#000 35%,#000 70%,transparent)}
+.horizon ellipse{vector-effect:non-scaling-stroke}
+.horizon .glint{stroke:rgba(239,90,36,.85);stroke-width:1.6;stroke-linecap:round;stroke-dasharray:4 96;stroke-dashoffset:0;filter:drop-shadow(0 0 4px rgba(239,90,36,.8));animation:glint 9s var(--ease) infinite}
+@keyframes glint{0%{stroke-dashoffset:62;opacity:0}12%{opacity:1}55%{opacity:1}70%,100%{stroke-dashoffset:38;opacity:0}}
+@media (max-width:900px){
+  .deco{height:900px}
+  .horizon{height:420px}
 }
 
 /* product stage */
