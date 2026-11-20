@@ -475,37 +475,104 @@ function tour(vertical: Vertical): string {
 </div>`;
 }
 
-/** Default calculator state, rendered server-side so it reads without JS. */
-const CALC = { revenue: 6000, rate: 0.05 };
+/**
+ * The commission calculator.
+ *
+ * Inputs: monthly booking revenue (presets and a ruled slider), the cut a
+ * commission tool takes, and which BookAIHub plan to compare against (from
+ * PLANS, so the price is the checkout price). Output: what you keep in a
+ * year, a 12-month chart of cumulative cost (commission against the flat
+ * plan, the gap between them shaded), three figures and a call to action.
+ *
+ * Everything is rendered server-side for the default inputs, so it reads
+ * without JavaScript; the script recomputes the same numbers live. The
+ * chart maths here and in landing-js must stay the same (calcChart).
+ */
+const CALC = { revenue: 6000, rate: 0.05, plan: 'STUDIO' as const };
+const CALC_PRESETS = [2000, 6000, 12000, 25000];
+const CALC_RATES = [0.03, 0.05, 0.08];
+const CHART = { w: 340, h: 150, x0: 16, x1: 324, y0: 128, y1: 14 };
+
+/** Points for the two cumulative lines and the area between them. */
+function calcChart(monthlyCommission: number, monthlyPlan: number) {
+  const top = Math.max(monthlyCommission, monthlyPlan) * 12 || 1;
+  const pt = (m: number, v: number) => {
+    const x = CHART.x0 + ((CHART.x1 - CHART.x0) * m) / 12;
+    const y = CHART.y0 - ((CHART.y0 - CHART.y1) * v) / top;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  };
+  const com = Array.from({ length: 13 }, (_, m) => pt(m, monthlyCommission * m));
+  const flat = Array.from({ length: 13 }, (_, m) => pt(m, monthlyPlan * m));
+  return {
+    com: `M${com.join(' L')}`,
+    flat: `M${flat.join(' L')}`,
+    gap: `M${com.join(' L')} L${[...flat].reverse().join(' L')} Z`,
+    comEnd: com[12]!.split(','),
+    flatEnd: flat[12]!.split(','),
+  };
+}
 
 function calculator(): string {
-  const planYear = (PLANS.STUDIO.priceCentsMonthly / 100) * 12;
-  const comYear = CALC.revenue * CALC.rate * 12;
-  const top = Math.max(comYear, planYear);
   const usd = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+  const plan = PLANS[CALC.plan];
+  const planMonth = plan.priceCentsMonthly / 100;
+  const comMonth = CALC.revenue * CALC.rate;
+  const keepYear = Math.max(0, (comMonth - planMonth) * 12);
+  const ratio = planMonth > 0 ? comMonth / planMonth : 0;
+  const chart = calcChart(comMonth, planMonth);
+
+  const presets = CALC_PRESETS.map(
+    (v) => `<button type="button" data-rev="${v}" aria-pressed="${v === CALC.revenue}">$${v / 1000}K</button>`,
+  ).join('');
+  const rates = CALC_RATES.map(
+    (r) => `<button type="button" data-rate="${r}" aria-pressed="${r === CALC.rate}">${Math.round(r * 100)}%</button>`,
+  ).join('');
+  const plans = Object.values(PLANS)
+    .map(
+      (p) =>
+        `<button type="button" data-plan="${p.priceCentsMonthly / 100}" data-name="${escapeHtml(p.name)}" aria-pressed="${p.id === CALC.plan}">${escapeHtml(p.name)} <em>${money(p.priceCentsMonthly)}</em></button>`,
+    )
+    .join('');
 
   return `<div class="calc">
   <div class="calc-in rv">
     <label for="revIn">Your monthly booking revenue</label>
     <div class="rev"><span id="revOut">${usd(CALC.revenue)}</span><small> /month</small></div>
-    <input type="range" id="revIn" min="1000" max="30000" step="500" value="${CALC.revenue}" data-plan="${planYear}">
-    <div class="scale" aria-hidden="true"><span>$1K</span><span>$10K</span><span>$20K</span><span>$30K</span></div>
-    <span class="lbl" style="margin-top:34px">A tool that takes, per booking</span>
-    <div class="rates" role="group" aria-label="Commission rate to compare">
-      <button type="button" data-rate="0.03" aria-pressed="false">3%</button>
-      <button type="button" data-rate="0.05" aria-pressed="true">5%</button>
-      <button type="button" data-rate="0.08" aria-pressed="false">8%</button>
+    <div class="presets" role="group" aria-label="Revenue presets">${presets}</div>
+    <div class="slider">
+      <input type="range" id="revIn" min="1000" max="30000" step="500" value="${CALC.revenue}" data-plan="${planMonth}">
+      <div class="ruler" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="scale" aria-hidden="true"><span>$1K</span><span>$10K</span><span>$20K</span><span>$30K</span></div>
     </div>
+    <span class="lbl">A tool that takes, per booking</span>
+    <div class="rates" role="group" aria-label="Commission rate to compare">${rates}</div>
+    <span class="lbl">Compared with ${escapeHtml(BRAND)}</span>
+    <div class="rates plans-pick" role="group" aria-label="${escapeHtml(BRAND)} plan to compare">${plans}</div>
   </div>
-  <div class="calc-out rv d1" aria-live="polite">
-    <span class="lbl">You'd keep, every year</span>
-    <div class="keep" id="keep">${usd(comYear - planYear)}</div>
-    <p class="keep-sub">more than with a <span id="rateTxt">5%</span> commission tool, on the ${escapeHtml(PLANS.STUDIO.name)} plan.</p>
-    <div class="vs">
-      <div class="vsr"><span>Commission</span><span class="bar"><span id="comBar" style="background:#6b6f7a;width:${(comYear / top) * 100}%"></span></span><b id="comYear">${usd(comYear)}</b></div>
-      <div class="vsr"><span>${escapeHtml(BRAND)}</span><span class="bar"><span id="planBar" style="background:var(--accent);width:${(planYear / top) * 100}%"></span></span><b>${usd(planYear)}</b></div>
+  <div class="calc-out rv d1">
+    <div aria-live="polite">
+      <span class="lbl">You'd keep, every year</span>
+      <div class="keep" id="keep">${usd(keepYear)}</div>
+      <p class="keep-sub" id="keepSub">more than with a <span id="rateTxt">${Math.round(CALC.rate * 100)}%</span> commission tool, on the <span id="planTxt">${escapeHtml(plan.name)}</span> plan.</p>
     </div>
-    <p class="calc-note">Per year. Illustrative: Stripe's card processing fees apply either way.</p>
+    <figure class="chart" aria-hidden="true">
+      <svg viewBox="0 0 ${CHART.w} ${CHART.h}" preserveAspectRatio="none">
+        <defs><linearGradient id="gapFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff8a4c" stop-opacity=".42"/><stop offset="1" stop-color="#ff8a4c" stop-opacity=".04"/></linearGradient></defs>
+        <g class="grid">${[0, 1, 2, 3].map((i) => `<line x1="${CHART.x0}" x2="${CHART.x1}" y1="${CHART.y1 + ((CHART.y0 - CHART.y1) * i) / 3}" y2="${CHART.y1 + ((CHART.y0 - CHART.y1) * i) / 3}"/>`).join('')}</g>
+        <path id="chGap" class="gap" d="${chart.gap}"/>
+        <path id="chCom" class="com" d="${chart.com}"/>
+        <path id="chFlat" class="flat" d="${chart.flat}"/>
+        <circle id="chComDot" class="dot com-dot" cx="${chart.comEnd[0]}" cy="${chart.comEnd[1]}" r="4"/>
+        <circle id="chFlatDot" class="dot flat-dot" cx="${chart.flatEnd[0]}" cy="${chart.flatEnd[1]}" r="4"/>
+      </svg>
+      <figcaption><span><i class="sw com"></i>Commission tool</span><span><i class="sw flat"></i>${escapeHtml(BRAND)}</span><span class="keep-lg"><i class="sw gapsw"></i>What you keep</span><span class="months">Month 1 → 12</span></figcaption>
+    </figure>
+    <div class="figs">
+      <div><small>Commission a month</small><b id="comMonth">${usd(comMonth)}</b></div>
+      <div><small>${escapeHtml(BRAND)} a month</small><b id="planMonth">${usd(planMonth)}</b></div>
+      <div><small>The cut is</small><b><span id="ratio">${ratio.toFixed(1)}</span>× the plan</b></div>
+    </div>
+    <div class="calc-cta">${primary('/app?signup=1', 'Start free and keep it', {})}<p class="calc-note">Illustrative. Stripe's card processing fees apply either way.</p></div>
   </div>
 </div>`;
 }

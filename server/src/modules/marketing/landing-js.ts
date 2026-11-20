@@ -336,25 +336,48 @@ export const LANDING_JS = `
     a.addEventListener('focus',function(){showTp(k)});
   });
 
-  /* commission calculator */
+  /* commission calculator: same maths as calcChart() in landing.ts */
   var revIn=$('revIn');
   if(revIn){
-    var plan=+revIn.getAttribute('data-plan')||0,rate=.05;
+    var pressedPlan=document.querySelector('.plans-pick button[aria-pressed=true]');
+    var rate=.05,planMonth=+revIn.getAttribute('data-plan')||0,planName=pressedPlan?pressedPlan.getAttribute('data-name'):'Studio';
     var min=+revIn.min,max=+revIn.max;
+    var C={x0:16,x1:324,y0:128,y1:14};
     var fmt=function(n){return '$'+Math.round(n).toLocaleString('en-US')};
-    var calc=function(){
-      var rev=+revIn.value,com=rev*rate*12,keep=Math.max(0,com-plan),top=Math.max(com,plan)||1;
+    var keepEl=$('keep'),shown=null,anim=null;
+    function tweenKeep(to){
+      if(reduce||shown===null){shown=to;keepEl.textContent=fmt(to);return}
+      var from=shown,t0=null;cancelAnimationFrame(anim);
+      (function f(ts){if(!t0)t0=ts;var p=Math.min(1,(ts-t0)/450),e=1-Math.pow(1-p,3);shown=from+(to-from)*e;keepEl.textContent=fmt(shown);if(p<1)anim=requestAnimationFrame(f)})(performance.now());
+      setTimeout(function(){shown=to;keepEl.textContent=fmt(to)},600);
+    }
+    function pts(monthly,top){var a=[];for(var m=0;m<=12;m++){var x=C.x0+(C.x1-C.x0)*m/12,y=C.y0-(C.y0-C.y1)*(monthly*m)/top;a.push(x.toFixed(1)+','+y.toFixed(1))}return a}
+    function calc(){
+      var rev=+revIn.value,comM=rev*rate,keep=Math.max(0,(comM-planMonth)*12),top=Math.max(comM,planMonth)*12||1;
       revIn.style.setProperty('--p',((rev-min)/(max-min)*100)+'%');
       revIn.setAttribute('aria-valuetext',fmt(rev)+' a month');
       $('revOut').textContent=fmt(rev);
-      $('comYear').textContent=fmt(com);
-      $('comBar').style.width=(com/top*100)+'%';
-      $('planBar').style.width=(plan/top*100)+'%';
-      $('keep').textContent=fmt(keep);
-      $('rateTxt').textContent=Math.round(rate*100)+'%';
-    };
+      tweenKeep(keep);
+      /* below the break-even point the flat plan costs more: say so */
+      var pn=planName,rp=Math.round(rate*100)+'%';
+      $('keepSub').innerHTML=comM>planMonth
+        ?'more than with a <span>'+rp+'</span> commission tool, on the <span>'+pn+'</span> plan.'
+        :'At this revenue a '+rp+' cut costs less than the '+pn+' plan. The flat price wins from <span>'+fmt(rate>0?planMonth/rate:0)+'</span> a month.';
+      $('comMonth').textContent=fmt(comM);$('planMonth').textContent=fmt(planMonth);
+      $('ratio').textContent=(planMonth>0?comM/planMonth:0).toFixed(1);
+      var c=pts(comM,top),f=pts(planMonth,top);
+      $('chCom').setAttribute('d','M'+c.join(' L'));
+      $('chFlat').setAttribute('d','M'+f.join(' L'));
+      $('chGap').setAttribute('d','M'+c.join(' L')+' L'+f.slice().reverse().join(' L')+' Z');
+      var ce=c[12].split(','),fe=f[12].split(',');
+      $('chComDot').setAttribute('cx',ce[0]);$('chComDot').setAttribute('cy',ce[1]);
+      $('chFlatDot').setAttribute('cx',fe[0]);$('chFlatDot').setAttribute('cy',fe[1]);
+      each('.presets button',function(b){b.setAttribute('aria-pressed',String(+b.getAttribute('data-rev')===rev))});
+    }
     revIn.addEventListener('input',calc);
-    each('.rates button',function(b){b.addEventListener('click',function(){rate=+b.getAttribute('data-rate');each('.rates button',function(o){o.setAttribute('aria-pressed',String(o===b))});calc()})});
+    each('.presets button',function(b){b.addEventListener('click',function(){revIn.value=b.getAttribute('data-rev');calc()})});
+    each('.rates button[data-rate]',function(b){b.addEventListener('click',function(){rate=+b.getAttribute('data-rate');each('.rates button[data-rate]',function(o){o.setAttribute('aria-pressed',String(o===b))});calc()})});
+    each('.plans-pick button',function(b){b.addEventListener('click',function(){planMonth=+b.getAttribute('data-plan');planName=b.getAttribute('data-name');each('.plans-pick button',function(o){o.setAttribute('aria-pressed',String(o===b))});calc()})});
     calc();
   }
 })();
