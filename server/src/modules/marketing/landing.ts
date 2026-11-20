@@ -230,82 +230,122 @@ function capacityRacks(vertical: Vertical): string {
   return Array.from({ length: shown }, (_, i) => `<div class="rk${i < filled ? ' on' : ''}"></div>`).join('');
 }
 
+/**
+ * The feature grid. Every tile is the same shape: an illustrated panel on
+ * top (a drawn piece of the product, animated when the tile scrolls in),
+ * then a label, a title and the copy. Rows share heights, so nothing
+ * stretches into empty space.
+ *
+ *   row 1  capacity (7)           payments (5)
+ *   row 2  on-site (4)   reminders (4)   courses (4)
+ *   row 3  calendar sync (6)      attendance (6)
+ *   row 4  just shipped (12)
+ */
 function bento(vertical: Vertical): string {
   const [, , keep, , reminders, calendar, courses, register] = SHIPPING_FEATURES;
   const shown = Math.min(vertical.capacity.total, 16);
   const left = shown - Math.round((vertical.capacity.used / Math.max(vertical.capacity.total, 1)) * shown);
   const first = vertical.week[0]?.events[0]?.title ?? 'Saturday session';
   const slot = vertical.bookingCard.slots[1]?.[0] ?? 'Sat 10:30';
+  const course = vertical.week.flatMap((day) => day.events).find((event) => event.kind === 'course')?.title ?? 'Course';
 
-  return `<div class="bento">
-  <article class="tile t-cap rv">
-    <span class="k">Equipment-aware capacity</span>
-    <h3>${escapeHtml(vertical.capacity.headline)}</h3>
-    <p>${escapeHtml(vertical.capacity.body)}</p>
-    <div class="cap-vis" aria-hidden="true">
-      <div class="racks" id="racks" style="grid-template-columns:repeat(${Math.min(shown, 8)},1fr)">${capacityRacks(vertical)}</div>
-      <div class="cap-meta">
-        <div class="cap-big"><span id="seatsLeft">${left}</span> <em>left to sell</em></div>
-        <div class="legend"><span><i style="background:var(--accent)"></i>Booked</span><span><i style="background:#f3f2ef;box-shadow:inset 0 0 0 1px var(--line-2)"></i>Free</span></div>
-      </div>
+  const text = (k: string, title: string, body: string) =>
+    `<div class="tile-text"><span class="k">${escapeHtml(k)}</span><h3>${title}</h3><p>${escapeHtml(body)}</p></div>`;
+
+  const cap = `<article class="tile t-cap rv">
+  <div class="media media-cap" aria-hidden="true">
+    <div class="mc-panel">
+      <div class="mc-head"><span class="mc-live"><i></i>Live</span><b>${escapeHtml(first)}</b><span class="mc-time">${escapeHtml(slot)}</span></div>
+      <div class="mc-row"><span class="mc-lbl">${escapeHtml(vertical.capacity.label)}</span><div class="racks" id="racks" style="grid-template-columns:repeat(${Math.min(shown, 8)},1fr)">${capacityRacks(vertical)}</div></div>
+      <div class="mc-row"><span class="mc-lbl">One-at-a-time kit</span><div class="mc-block"><span>Blocked for the whole job</span></div></div>
+      <div class="mc-foot"><span>Left to sell</span><b><span id="seatsLeft">${left}</span><em> of ${shown}</em></b></div>
     </div>
-  </article>
-  <article class="tile t-pay rv d1">
-    <span class="k">Payments</span>
-    <h3>${escapeHtml(keep!.title)}</h3>
-    <p>${escapeHtml(keep!.body)}</p>
-    <div class="money" aria-hidden="true">
-      <div><span>${escapeHtml(first)}</span><b>$540.00</b></div>
-      <div><span>${escapeHtml(BRAND)} fee</span><b style="color:var(--green)">$0.00</b></div>
-      <div class="tot"><span>To your Stripe</span><b>$540.00</b></div>
+  </div>
+  ${text('Equipment-aware capacity', escapeHtml(vertical.capacity.headline), vertical.capacity.body)}
+</article>`;
+
+  const pay = `<article class="tile t-pay rv d1">
+  <div class="media media-pay" aria-hidden="true">
+    <div class="pc">
+      <div class="pc-top"><span class="pc-ic"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/></svg></span><span>Payout · today</span><span class="pc-ok">Paid</span></div>
+      <div class="pc-amt">$540<small>.00</small></div>
+      <div class="pc-line"><span>${escapeHtml(first)}</span><b>$540.00</b></div>
+      <div class="pc-line"><span>${escapeHtml(BRAND)} fee</span><b class="zero">$0.00</b></div>
+      <div class="pc-to"><i></i>To your own Stripe account</div>
     </div>
-  </article>
-  <article class="tile t-zone rv d2">
-    <span class="k">${escapeHtml(vertical.travel.eyebrow)}</span>
-    <h3>${vertical.travel.title}</h3>
-    <div class="zone" aria-hidden="true"><span class="ring"></span><span class="pin h"></span><span class="pin c"></span><span class="pin x"></span><span class="tag" style="left:66%;top:12%">12 km</span><span class="tag" style="left:58%;top:84%;color:var(--muted)">Out of range</span></div>
-    <ol class="flow">${vertical.travel.flow.map((step) => `<li>${escapeHtml(step)}</li>`).join('')}</ol>
-  </article>
-  <article class="tile t-sms rv">
-    <span class="k">Reminders</span>
-    <h3>${escapeHtml(reminders!.title)}</h3>
-    <p>${escapeHtml(reminders!.body)}</p>
-    <div class="sms" aria-hidden="true">
-      <div class="bub in">Reminder: ${escapeHtml(first)}, ${escapeHtml(slot)} with ${escapeHtml(vertical.bookingCard.name)}. Need to change it? Use the link in your confirmation.<small>1 day before</small></div>
-      <div class="bub out">Moved to Sunday, thanks!<small>2 minutes later</small></div>
+    <span class="fee-pill">0% commission</span>
+  </div>
+  ${text('Payments', escapeHtml(keep!.title), keep!.body)}
+</article>`;
+
+  const zone = `<article class="tile t-zone rv">
+  <div class="media media-zone" aria-hidden="true">
+    <div class="zone"><span class="ring"></span><span class="route"></span><span class="pin h"></span><span class="pin c"></span><span class="pin x"></span><span class="tag t1">12 km · inside</span><span class="tag t2">Out of range</span></div>
+  </div>
+  <div class="tile-text"><span class="k">${escapeHtml(vertical.travel.eyebrow)}</span><h3>${vertical.travel.title}</h3><p>${escapeHtml(vertical.travel.lede)}</p></div>
+</article>`;
+
+  const sms = `<article class="tile t-sms rv d1">
+  <div class="media media-sms" aria-hidden="true">
+    <div class="sms">
+      <div class="bub in b1">Reminder: ${escapeHtml(first)}, ${escapeHtml(slot)}. Need to change it? Use your link.<small>1 day before</small></div>
+      <div class="typing"><i></i><i></i><i></i></div>
+      <div class="bub out b2">Moved to Sunday, thanks!<small>2 min later</small></div>
     </div>
-  </article>
-  <article class="tile t-course rv d1">
-    <span class="k">Courses</span>
-    <h3>${escapeHtml(courses!.title)}</h3>
-    <p>${escapeHtml(courses!.body)}</p>
-    <div class="weeks" aria-hidden="true">${[62, 75, 75, 88, 75, 62]
-      .map((h, i) => `<div class="wbar" style="height:${h}%"><span>Wk ${i + 1}</span></div>`)
-      .join('')}</div>
-  </article>
-  <article class="tile t-cal rv">
-    <span class="k">Calendar sync</span>
-    <h3>${escapeHtml(calendar!.title)}</h3>
-    <p>${escapeHtml(calendar!.body)}</p>
-    <div class="cal" aria-hidden="true">
-      <div class="g"><span>${escapeHtml(first)}</span><em>Synced</em></div>
-      <div class="b"><span>Dentist (your calendar)</span><em>Slot blocked</em></div>
+  </div>
+  ${text('Reminders', escapeHtml(reminders!.title), reminders!.body)}
+</article>`;
+
+  const weeks = [62, 75, 75, 88, 75, 62]
+    .map((h, i) => `<div class="wk-col"><div class="wtrack"><div class="wbar" style="--h:${h}%;--i:${i}"></div></div><small>Wk ${i + 1}</small></div>`)
+    .join('');
+  const crs = `<article class="tile t-course rv d2">
+  <div class="media media-course" aria-hidden="true">
+    <div class="crs-head"><b>${escapeHtml(course)}</b><span>6 weeks · 1 enrolment</span></div>
+    <div class="weeks">${weeks}</div>
+  </div>
+  ${text('Courses', escapeHtml(courses!.title), courses!.body)}
+</article>`;
+
+  const cal = `<article class="tile t-cal rv">
+  <div class="media media-cal" aria-hidden="true">
+    <div class="cal-col"><span class="cal-h">Your calendar</span><div class="cal-ev busy">Dentist<small>10:00</small></div><div class="cal-ev ghost"></div><div class="cal-ev in-sync">${escapeHtml(first)}<small>${escapeHtml(slot)}</small></div></div>
+    <div class="cal-sync"><span class="cal-line"></span><span class="cal-ic"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14.3 4.9M4 12a8 8 0 0 1 14.3-4.9"/><path d="M18.5 3.5v3.8h-3.8M5.5 20.5v-3.8h3.8"/></svg></span><span class="cal-line"></span></div>
+    <div class="cal-col"><span class="cal-h">${escapeHtml(BRAND)}</span><div class="cal-ev blocked">Slot blocked<small>10:00</small></div><div class="cal-ev ghost"></div><div class="cal-ev ours">${escapeHtml(first)}<small>${escapeHtml(slot)}</small></div></div>
+  </div>
+  ${text('Calendar sync', escapeHtml(calendar!.title), calendar!.body)}
+</article>`;
+
+  const people = [
+    ['AM', 'Amira M.', true],
+    ['JT', 'Jonah T.', true],
+    ['SR', 'Sofia R.', true],
+    ['LK', 'Leo K.', false],
+  ] as const;
+  const reg = `<article class="tile t-reg rv d1">
+  <div class="media media-reg" aria-hidden="true">
+    <div class="roster">
+      <div class="ro-head"><b>${escapeHtml(first)}</b><span>Register · ${escapeHtml(slot)}</span></div>
+      ${people
+        .map(
+          ([ini, name, here], i) =>
+            `<div class="ro" style="--i:${i}"><span class="av">${ini}</span><span>${name}</span><i class="${here ? 'y' : 'n'}">${here ? '✓' : '–'}</i></div>`,
+        )
+        .join('')}
     </div>
-  </article>
-  <article class="tile t-reg rv d1">
-    <span class="k">Attendance</span>
-    <h3>${escapeHtml(register!.title)}</h3>
-    <p>${escapeHtml(register!.body)}</p>
-    <div class="ticks" aria-hidden="true"><span><i>✓</i>Amira</span><span><i>✓</i>Jonah</span><span><i>✓</i>Sofia</span><span class="no"><i>–</i>Leo</span></div>
-  </article>
-  <article class="tile t-new rv">
-    <div><span class="k">Just shipped</span><h3 style="font-size:30px">Four more things you used to do by hand.</h3><p>On top of everything above, and included in every plan.</p></div>
-    <ul class="chips">${JUST_SHIPPED.map(
-      (item) =>
-        `<li class="chipx"><b>${escapeHtml(item.title)} <em>New</em></b><span>${escapeHtml(item.body)}</span></li>`,
-    ).join('')}</ul>
-  </article>
-</div>`;
+  </div>
+  ${text('Attendance', escapeHtml(register!.title), register!.body)}
+</article>`;
+
+  const fresh = `<article class="tile t-new rv">
+  <div class="new-head"><div><span class="k">Just shipped</span><h3>Four more things you used to do by hand.</h3></div><p>On top of everything above, and included in every plan.</p></div>
+  <ul class="chips">${JUST_SHIPPED.map(
+    (item) =>
+      `<li class="chipx"><b>${escapeHtml(item.title)} <em>New</em></b><span>${escapeHtml(item.body)}</span></li>`,
+  ).join('')}</ul>
+</article>`;
+
+  return `<div class="bento">${cap}${pay}${zone}${sms}${crs}${cal}${reg}${fresh}</div>`;
 }
 
 function comparisonRows(vertical: Vertical): string {
