@@ -551,17 +551,69 @@ function faqList(page: Page): string {
 }
 
 /**
- * Who it's for. On a trade page the grid still renders with that trade
- * marked, so a visitor who landed on the wrong one can move without going
- * back to the root.
+ * Who it's for: an index of the ten trades beside a preview card.
+ *
+ * The list is grouped (studios and makers, tours and water) and every row is
+ * a real link to that trade's page. Hovering or focusing a row swaps the
+ * preview to that trade, built from the same Vertical data as its page:
+ * the page's own headline, its capacity gauge, three sessions from its week
+ * and its booking card. On a trade page the list marks the current trade and
+ * the preview opens on it.
  */
+const TRADE_GROUPS: { title: string; slugs: string[] }[] = [
+  {
+    title: 'Studios and makers',
+    slugs: ['for/pottery', 'for/glass-and-jewelry', 'for/woodworking', 'for/paint-and-sip', 'for/candle-making', 'for/screen-printing'],
+  },
+  {
+    title: 'Tours and water',
+    slugs: ['for/kayak-tours', 'for/boat-tours', 'for/walking-tours', 'for/scuba-diving'],
+  },
+];
+
+function tradePreview(vertical: Vertical, active: boolean): string {
+  const { used, total, label } = vertical.capacity;
+  const pct = total > 0 ? Math.round((used / total) * 100) : 0;
+  const events = vertical.week.flatMap((day) => day.events.map((event) => ({ ...event, dow: day.dow }))).slice(0, 3);
+  const card = vertical.bookingCard;
+
+  return `<a class="tp${active ? ' on' : ''}" href="/${vertical.slug}" data-t="${escapeHtml(vertical.slug)}" tabindex="-1" aria-hidden="true">
+  <span class="tp-badge">${escapeHtml(vertical.badge)}</span>
+  <b class="tp-h">${escapeHtml(vertical.page.h1)}</b>
+  <div class="tp-row">
+    <div class="tp-gauge" style="--pct:${pct}"><span class="tp-ring"><b>${used}</b><em>/${total}</em></span><span class="tp-lbl">${escapeHtml(label)}</span></div>
+    <div class="tp-week">${events
+      .map(
+        (event) =>
+          `<span class="tp-ev ev-${event.kind}${event.state ? ` ${event.state}` : ''}"><small>${escapeHtml(event.dow)}</small><b>${escapeHtml(event.title)}</b><em>${escapeHtml(event.meta)}</em></span>`,
+      )
+      .join('')}</div>
+  </div>
+  <div class="tp-card"><span class="av">${escapeHtml(initials(card.name))}</span><span><b>${escapeHtml(card.name)}</b><small>${escapeHtml(card.handle)} · ${escapeHtml(card.kind)}</small></span><span class="tp-dep">${escapeHtml(card.deposit.split('·')[0]!.trim())}</span></div>
+  <span class="tp-go">Open the ${escapeHtml(vertical.navLabel.toLowerCase())} page <i>→</i></span>
+</a>`;
+}
+
 function tradeGrid(current: Vertical): string {
-  return VERTICALS.map((vertical) => {
-    const inner = `<span class="cnt">${String(vertical.capacity.total).padStart(2, '0')}</span><span class="res">${escapeHtml(vertical.capacity.label)}</span><b>${escapeHtml(vertical.navLabel)}</b>`;
-    return vertical.slug === current.slug
-      ? `<li><span class="tr current" aria-current="page">${inner}</span></li>`
-      : `<li><a class="tr" href="/${vertical.slug}">${inner}</a></li>`;
+  const startSlug = VERTICALS.some((vertical) => vertical.slug === current.slug) ? current.slug : 'for/pottery';
+  const list = TRADE_GROUPS.map((group) => {
+    const rows = group.slugs
+      .map(bySlug)
+      .filter((vertical): vertical is Vertical => Boolean(vertical))
+      .map((vertical) => {
+        const isCurrent = vertical.slug === current.slug;
+        return `<li><a class="tr-item${vertical.slug === startSlug ? ' on' : ''}" href="/${vertical.slug}" data-t="${escapeHtml(vertical.slug)}"${isCurrent ? ' aria-current="page"' : ''}><span class="tr-n">${String(vertical.capacity.total).padStart(2, '0')}</span><span class="tr-name">${escapeHtml(vertical.navLabel)}</span><span class="tr-res">${escapeHtml(vertical.capacity.label)}</span>${isCurrent ? '<span class="tr-here">You are here</span>' : ''}<span class="tr-go" aria-hidden="true">→</span></a></li>`;
+      })
+      .join('');
+    return `<div class="tr-group"><p class="tr-gh">${escapeHtml(group.title)}</p><ul>${rows}</ul></div>`;
   }).join('');
+
+  const previews = VERTICALS.map((vertical) => tradePreview(vertical, vertical.slug === startSlug)).join('');
+
+  return `<div class="trades">
+  <div class="tr-list">${list}</div>
+  <div class="tr-preview">${previews}</div>
+</div>`;
 }
 
 function marquee(): string {
@@ -934,7 +986,7 @@ ${structuredData(page, canonical)}
         <div><span class="label">Who it's for</span><h2 class="h2" id="vertTitle">One engine. <span class="dim">Ten trades. Your nouns.</span></h2></div>
         <p class="sub">The same scheduler underneath every one of these. Each page talks about the wheels, hulls, benches or guides you actually have.</p>
       </div>
-      <ul class="tgrid rv">${tradeGrid(vertical)}</ul>
+      <div class="rv">${tradeGrid(vertical)}</div>
     </div>
   </section>
 

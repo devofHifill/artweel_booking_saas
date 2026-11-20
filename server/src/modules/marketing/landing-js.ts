@@ -323,6 +323,19 @@ export const LANDING_JS = `
     window.addEventListener('resize',rail);rail();
   }
 
+  /* who it's for: hovering or focusing a trade swaps the preview */
+  var trItems=Array.prototype.slice.call(document.querySelectorAll('.tr-item'));
+  var tps=Array.prototype.slice.call(document.querySelectorAll('.tp'));
+  function showTp(k){
+    trItems.forEach(function(a){a.classList.toggle('on',a.getAttribute('data-t')===k)});
+    tps.forEach(function(p){p.classList.toggle('on',p.getAttribute('data-t')===k)});
+  }
+  trItems.forEach(function(a){
+    var k=a.getAttribute('data-t');
+    a.addEventListener('pointerenter',function(){showTp(k)});
+    a.addEventListener('focus',function(){showTp(k)});
+  });
+
   /* commission calculator */
   var revIn=$('revIn');
   if(revIn){
