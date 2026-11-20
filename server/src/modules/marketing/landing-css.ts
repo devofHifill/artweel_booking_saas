@@ -1137,16 +1137,50 @@ html:not(.js) .cmp .them .tx{background-size:100% 1px}
   .cta-mark .brand-mark{width:40px;height:40px}
 }
 
-/* footer */
-.site-footer{padding:80px 0 40px}
-.footer-grid{display:grid;grid-template-columns:1.6fr repeat(3,1fr);gap:40px;font-size:14.5px;color:var(--body)}
+/* footer
+   A top band (brand and blurb; Start free / Sign in and the integrations
+   it works with), four link columns with a sliding underline on hover, the
+   big outlined wordmark (it wipes in when it scrolls into view, and fills
+   with orange light under the cursor), and a bottom bar. */
+.site-footer{padding:84px 0 36px}
+.footer-top{display:flex;justify-content:space-between;align-items:flex-start;gap:40px;flex-wrap:wrap;padding-bottom:40px;border-bottom:1px solid var(--line)}
+.footer-blurb{margin-top:16px;max-width:340px;font-size:14.5px;color:var(--body)}
+.footer-go{display:flex;flex-direction:column;align-items:flex-end;gap:16px}
+.footer-ctas{display:flex;gap:8px;flex-wrap:wrap}
+.footer-badges{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.footer-badges li{display:inline-flex;align-items:center;gap:7px;padding:6px 12px 6px 10px;border-radius:999px;background:#fff;box-shadow:0 0 0 1px var(--line);font-size:12.5px;color:var(--ink-2)}
+.fb-dot{width:8px;height:8px;border-radius:50%}
+.fb-v{background:var(--violet)}.fb-b{background:var(--blue)}.fb-g{background:var(--green)}
+.footer-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:32px;padding-top:40px;font-size:14.5px;color:var(--body)}
 .footer-h{margin:0 0 16px;font:500 11.5px var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
-.footer-col a{display:block;padding:5px 0;transition:color .2s}
+.footer-col a{position:relative;display:table;padding:5px 0;transition:color .2s}
+.footer-col a::after{content:"";position:absolute;left:0;right:0;bottom:3px;height:1px;background:var(--accent);transform:scaleX(0);transform-origin:0 50%;transition:transform .35s var(--ease)}
 .footer-col a:hover{color:var(--ink)}
-.footer-blurb{margin-top:16px;max-width:300px}
-.wordmark em{font-style:normal;-webkit-text-stroke:1px rgba(239,90,36,.55)}
-.wordmark{margin-top:72px;font-size:clamp(64px,15vw,210px);font-weight:600;letter-spacing:-.07em;line-height:.8;color:transparent;-webkit-text-stroke:1px var(--line-2);-webkit-user-select:none;user-select:none;white-space:nowrap;overflow:hidden}
-.footer-bottom{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:28px;font:500 12px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.footer-col a:hover::after{transform:scaleX(1)}
+.fc-more{color:var(--accent-ink)!important;font-weight:500}
+.wordmark{position:relative;margin-top:64px;font-size:clamp(64px,15.4vw,216px);font-weight:600;letter-spacing:-.07em;line-height:.8;white-space:nowrap;overflow:hidden;-webkit-user-select:none;user-select:none;--wx:50%;--wy:50%}
+.wm-line{display:block;color:transparent;-webkit-text-stroke:1.2px rgba(14,15,18,.2)}
+.wm-line em{font-style:normal;-webkit-text-stroke:1.2px rgba(239,90,36,.7)}
+.wm-fill{position:absolute;left:0;top:0;color:transparent;background:radial-gradient(260px circle at var(--wx) var(--wy),rgba(239,90,36,.9),rgba(255,138,76,.35) 45%,transparent 70%);-webkit-background-clip:text;background-clip:text;opacity:0;transition:opacity .4s}
+.wordmark:hover .wm-fill{opacity:1}
+.js .wordmark .wm-line{clip-path:inset(0 100% 0 0);transition:clip-path 1.4s var(--ease)}
+.js .wordmark.in .wm-line{clip-path:inset(0 0 0 0)}
+.footer-bottom{display:flex;align-items:center;gap:24px;flex-wrap:wrap;margin-top:28px;padding-top:20px;border-top:1px solid var(--line);font:500 12px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.footer-bottom .fbm{margin-right:auto}
+.footer-bottom a{transition:color .2s}
+.footer-bottom a:hover{color:var(--ink)}
+.to-top{display:inline-flex;align-items:center;gap:8px}
+.to-top i{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;font-style:normal;background:#fff;box-shadow:0 0 0 1px var(--line);color:var(--ink);transition:transform .3s var(--ease),background .3s,color .3s}
+.to-top:hover i{transform:translateY(-3px);background:var(--ink);color:#fff}
+@media (max-width:900px){
+  .footer-go{align-items:flex-start}
+  .footer-badges{justify-content:flex-start}
+  .footer-grid{grid-template-columns:1fr 1fr;gap:28px 20px}
+}
+@media (max-width:560px){
+  .footer-bottom{gap:12px 20px}
+  .footer-bottom .fbm{margin-right:0;width:100%;order:-1}
+}
 
 /* spotlight + grain */
 .sp::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:0;transition:opacity .3s;background:radial-gradient(380px circle at var(--mx,50%) var(--my,50%),rgba(239,90,36,.10),transparent 60%)}
@@ -1192,8 +1226,6 @@ body::after{content:"";position:fixed;inset:0;z-index:100;pointer-events:none;op
   .inline-scene{display:grid;place-items:center;grid-column:1/-1;margin-top:18px;padding:22px 14px;border-radius:24px;background:linear-gradient(160deg,#fff8f2,#f3f1ee);box-shadow:0 0 0 1px var(--line);min-height:340px;position:relative;overflow:hidden}
   .inline-scene .scene{position:relative;inset:auto;opacity:1;transform:none;filter:none;padding:0}
   .inline-scene .ig-phone{height:430px}
-  .footer-grid{grid-template-columns:1fr 1fr}
-  .footer-brand{grid-column:1/-1}
   .app{grid-template-columns:1fr}
   .app-side{display:none}
   .wk{grid-template-columns:repeat(3,1fr)}

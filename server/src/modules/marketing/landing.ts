@@ -1,6 +1,6 @@
 import { config } from '../../config';
 import { PLANS, classesLine } from '../billing/plan';
-import { BRAND, JUST_SHIPPED, SHIPPING_FEATURES, type Page } from './content';
+import { BRAND, GUIDES, JUST_SHIPPED, SHIPPING_FEATURES, type Page } from './content';
 import { GENERAL, VERTICALS, type Vertical } from './verticals';
 import { escapeHtml, structuredData } from './render';
 import { LANDING_CSS } from './landing-css';
@@ -1205,33 +1205,52 @@ ${structuredData(page, canonical)}
 
 <footer class="site-footer">
   <div class="container">
-    <div class="footer-grid">
+    <div class="footer-top">
       <div class="footer-brand">
         <a href="/" class="brand" aria-label="${escapeHtml(BRAND)} home">${logoMark('f')}${WORDMARK}</a>
         <p class="footer-blurb">${escapeHtml(vertical.footerBlurb)}</p>
       </div>
+      <div class="footer-go">
+        <div class="footer-ctas">${primary('/app?signup=1', 'Start free for 14 days', {})}${secondary('/app', 'Sign in', {})}</div>
+        <ul class="footer-badges" aria-label="Works with">
+          <li><span class="fb-dot fb-v" aria-hidden="true"></span>Payouts to your Stripe</li>
+          <li><span class="fb-dot fb-b" aria-hidden="true"></span>Google Calendar sync</li>
+          <li><span class="fb-dot fb-g" aria-hidden="true"></span>Email and text reminders</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-grid">
       <nav class="footer-col" aria-labelledby="fcol1">
         <h2 class="footer-h" id="fcol1">Product</h2>
         <a href="#features">Features</a>
         <a href="#how">How it works</a>
+        <a href="#calc">Commission calculator</a>
         <a href="/pricing">Pricing</a>
         <a href="/demo">Live demo</a>
-        <a href="/guides/how-many-wheels-can-you-fill">Guides</a>
       </nav>
       <nav class="footer-col" aria-labelledby="fcol2">
         <h2 class="footer-h" id="fcol2">Who it's for</h2>
         ${footerTrades()}
-        <a href="#verticals">All ten →</a>
+        <a href="#verticals" class="fc-more">All ten trades →</a>
       </nav>
       <nav class="footer-col" aria-labelledby="fcol3">
-        <h2 class="footer-h" id="fcol3">Compare</h2>
+        <h2 class="footer-h" id="fcol3">Guides</h2>
+        ${GUIDES.map((guide) => `<a href="/${guide.slug}">${escapeHtml(guide.title)}</a>`).join('')}
+      </nav>
+      <nav class="footer-col" aria-labelledby="fcol4">
+        <h2 class="footer-h" id="fcol4">Compare</h2>
         <a href="/alternatives/momence">vs Momence</a>
         <a href="/alternatives/punchpass">vs Punchpass</a>
         <a href="/alternatives/sawyer">vs Sawyer</a>
       </nav>
     </div>
-    <div class="wordmark" aria-hidden="true">${escapeHtml(BRAND).replace('AI', '<em>AI</em>')}</div>
-    <div class="footer-bottom"><span>© ${escapeHtml(BRAND)} ${new Date().getFullYear()}</span><span>0% commission on every booking</span></div>
+    <div class="wordmark" id="wordmark" aria-hidden="true"><span class="wm-line">${escapeHtml(BRAND).replace('AI', '<em>AI</em>')}</span><span class="wm-fill">${escapeHtml(BRAND)}</span></div>
+    <div class="footer-bottom">
+      <span>© ${escapeHtml(BRAND)} ${new Date().getFullYear()}</span>
+      <span class="fbm">0% commission on every booking</span>
+      <a href="/sitemap.xml">Sitemap</a>
+      <a href="#main" class="to-top">Back to top <i aria-hidden="true">↑</i></a>
+    </div>
   </div>
 </footer>
 

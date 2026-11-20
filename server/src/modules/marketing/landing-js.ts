@@ -437,5 +437,12 @@ export const LANDING_JS = `
   if(ctaEl&&fine&&!reduce){
     ctaEl.addEventListener('pointermove',function(e){var r=ctaEl.getBoundingClientRect();ctaEl.style.setProperty('--cx',(e.clientX-r.left)+'px');ctaEl.style.setProperty('--cy',(e.clientY-r.top)+'px')});
   }
+  /* footer wordmark: wipes in on scroll, fills with light under the cursor */
+  var wm=$('wordmark');
+  if(wm){
+    if('IntersectionObserver' in window){var wio=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){wm.classList.add('in');wio.disconnect()}})},{rootMargin:'0px 0px -10% 0px'});wio.observe(wm)}else{wm.classList.add('in')}
+    if(fine&&!reduce)wm.addEventListener('pointermove',function(e){var r=wm.getBoundingClientRect();wm.style.setProperty('--wx',(e.clientX-r.left)+'px');wm.style.setProperty('--wy',(e.clientY-r.top)+'px')});
+    if(reduce)wm.classList.add('in');
+  }
 })();
 `;
