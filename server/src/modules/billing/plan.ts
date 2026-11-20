@@ -103,7 +103,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     courseSeries: true,
     apiAccess: true,
     whiteLabel: true,
-    blurb: 'Unlimited instructors and locations, API access and your own domain.',
+    blurb: 'Everything in Studio, with unlimited instructors and locations.',
   },
 };
 

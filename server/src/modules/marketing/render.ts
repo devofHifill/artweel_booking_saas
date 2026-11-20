@@ -3,7 +3,6 @@ import { tokensCss } from '../../lib/design-tokens';
 import { PLANS, classesLine } from '../billing/plan';
 import {
   BRAND,
-  COMING_SOON,
   SHIPPING_FEATURES,
   type Page,
 } from './content';
@@ -177,16 +176,6 @@ border-left:1.5px solid var(--clay);border-bottom:1.5px solid var(--clay);
 transform:rotate(-45deg)}
 .plan .btn{margin-top:auto}
 
-/* --- Being built next --- */
-.soon{background:var(--clay-lt);border-radius:var(--radius-lg);padding:24px 26px}
-.soon h2{margin:0 0 6px}
-.soon .note{color:var(--muted);font-size:.95rem;margin:0 0 12px;max-width:40rem}
-.soon ul{margin:0;padding-left:20px;color:var(--muted)}
-.soon li{margin-bottom:5px}
-.not-yet{display:inline-block;margin-bottom:12px;padding:3px 10px;border-radius:var(--radius-pill);
-border:1px solid var(--clay);color:var(--clay-text);font-size:.72rem;font-weight:600;
-letter-spacing:.06em;text-transform:uppercase}
-
 /* --- FAQ --- */
 .faq{border-top:1px solid var(--line);padding:18px 0}
 .faq:last-of-type{border-bottom:1px solid var(--line)}
@@ -287,7 +276,6 @@ function planCards(): string {
         <li>Unlimited events</li>
         ${plan.mobileBookings ? '<li>Mobile and travelling bookings</li>' : ''}
         ${plan.smsReminders ? '<li>Text reminders</li>' : ''}
-        ${plan.apiAccess ? '<li>API access</li>' : ''}
       </ul>
       <a class="btn${featured ? '' : ' ghost'}" href="/app?signup=1">Start free</a>
     </div>`;
@@ -470,20 +458,6 @@ ${head}
     ${isPricing ? planCards() : ''}
 
     ${body ? `<section class="band"><div class="prose">${body}</div></section>` : ''}
-
-    ${
-      isHome
-        ? `<section class="band">
-      <div class="soon">
-        <span class="not-yet">Not available yet</span>
-        <h2>Being built next</h2>
-        <p class="note">Listed so you know where this is going before you commit
-        to it. None of it is available today.</p>
-        <ul>${COMING_SOON.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
-      </div>
-    </section>`
-        : ''
-    }
 
     ${faqs}
 

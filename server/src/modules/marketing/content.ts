@@ -2,15 +2,18 @@
  * Marketing copy, as data.
  *
  * ONE RULE ABOVE ALL: nothing here may describe a feature that does not ship
- * today. Promising piece tracking or multi-week courses before they exist
- * produces trials that churn in week one and refund requests from people who
- * were told the truth by a competitor instead. What is coming is labelled as
- * coming.
+ * today. Promising a feature before it exists produces trials that churn in
+ * week one and refund requests from people who were told the truth by a
+ * competitor instead.
  *
  * Shipping today: classes and appointments, mobile/travelling bookings with
  * travel areas and fees, equipment-aware capacity, Stripe payments with
  * deposits and policy-driven refunds, email and SMS reminders, two-way Google
- * Calendar sync, and the owner dashboard.
+ * Calendar sync, multi-week courses, attendance, waitlists, class packs,
+ * make-up credits, piece tracking and firings, and the owner dashboard.
+ *
+ * NOT shipping, so never claimed: a public API, custom domains (white label),
+ * and OTA channel sync (Viator, GetYourGuide, Bókun).
  */
 
 import { GENERAL, VERTICAL_PAGES } from './verticals';
@@ -99,18 +102,31 @@ export const SHIPPING_FEATURES = [
 ];
 
 /**
- * Phase 2 work that is genuinely not built yet.
+ * The Phase 2 work that used to be listed as "being built next".
  *
- * This list has been split twice now, each time a piece of it shipped: courses
- * left when W2.1 landed, attendance registers when W2.2a did. Keep doing that.
- * Half-true is the shape of promise a studio signs up on and churns over, and
- * it costs nothing to move a line.
+ * It all shipped in 61ce328 (waitlists, class packs, make-up credits, piece
+ * tracking with the "your work is ready" notification, firings) and the
+ * marketing site went on saying "not available yet" for three months. The
+ * landing page now sells these as features. If something new is genuinely
+ * unbuilt, it does not go on the landing page at all.
  */
-export const COMING_SOON = [
-  'Piece tracking through the firing cycle, with a text when a piece is ready',
-  'Kiln loads and firing schedules',
-  'Make-up classes for a missed week',
-  'Waitlists and class packs',
+export const JUST_SHIPPED = [
+  {
+    title: 'Waitlists',
+    body: 'When a session fills, customers join the list and are offered the next free place automatically.',
+  },
+  {
+    title: 'Class packs',
+    body: 'Sell a bundle of sessions up front and let regulars book against it.',
+  },
+  {
+    title: 'Make-up credits',
+    body: 'Someone missed a week of a course? Give them a credit for a make-up session.',
+  },
+  {
+    title: 'Piece tracking',
+    body: 'Follow work customers leave with you through each stage, and tell them when it is ready.',
+  },
 ];
 
 const CTA = 'Start free for 14 days. No card needed.';
