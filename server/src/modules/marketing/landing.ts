@@ -1182,11 +1182,23 @@ ${structuredData(page, canonical)}
   </section>
 
   <section class="cta rv" id="start" aria-labelledby="ctaTitle">
-    <h2 id="ctaTitle">Try it on your own <em>bookings.</em></h2>
-    <p>${escapeHtml(page.cta ?? 'Start free for 14 days. No card needed.')}</p>
-    <div class="ctas">
-      ${primary('/app?signup=1', 'Start free for 14 days', { size: 'lg', glow: true })}
-      ${secondary('/demo', 'Explore the live demo', { size: 'lg', play: true })}
+    <span class="cta-light" aria-hidden="true"></span>
+    <svg class="cta-rings" viewBox="0 0 800 800" aria-hidden="true"><circle cx="400" cy="400" r="180"/><circle cx="400" cy="400" r="270"/><circle cx="400" cy="400" r="360"/></svg>
+    <div class="cta-float cf-1" aria-hidden="true"><span class="cf-ic ok">✓</span><div><b>Booking confirmed</b><span>${escapeHtml(vertical.week[0]?.events[0]?.title ?? 'Saturday session')} · ${escapeHtml(vertical.bookingCard.slots[1]?.[0] ?? 'Sat 10:30')}</span></div></div>
+    <div class="cta-float cf-2" aria-hidden="true"><span class="cf-ic pay">$</span><div><b>Paid to your Stripe</b><span>Deposit · 0% commission</span></div></div>
+    <div class="cta-inner">
+      <span class="cta-mark">${logoMark('cta')}</span>
+      <h2 id="ctaTitle">Try it on your own <em>bookings.</em></h2>
+      <p>${escapeHtml(page.cta ?? 'Start free for 14 days. No card needed.')}</p>
+      <div class="ctas">
+        ${primary('/app?signup=1', 'Start free for 14 days', { size: 'lg', glow: true })}
+        ${secondary('/demo', 'Explore the live demo', { size: 'lg', play: true })}
+      </div>
+      <ol class="cta-steps" aria-label="Your first two weeks">
+        <li><span class="cs-dot" aria-hidden="true"></span><b>Today</b><small>Sign up. No card.</small></li>
+        <li><span class="cs-dot" aria-hidden="true"></span><b>This afternoon</b><small>Your booking link is live.</small></li>
+        <li><span class="cs-dot" aria-hidden="true"></span><b>Day 14</b><small>Choose a plan to keep it running.</small></li>
+      </ol>
     </div>
   </section>
 </main>

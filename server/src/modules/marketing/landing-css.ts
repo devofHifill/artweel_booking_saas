@@ -1097,6 +1097,46 @@ html:not(.js) .cmp .them .tx{background-size:100% 1px}
 .cta p{color:var(--night-body);font-size:18px;margin:24px auto 36px;max-width:520px}
 .cta .btn-line{background:transparent;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.22)}
 
+/* closing cta, enhanced
+   The light logo mark glows above the headline; faint rings sit behind it;
+   two small cards float at the sides (a confirmed booking, a payout); a
+   three-step timeline of the trial sits under the buttons; and a soft light
+   follows the cursor across the panel (--cx/--cy, set by the script). */
+.cta{--cx:50%;--cy:30%}
+.cta-inner{position:relative;z-index:1}
+.cta-light{position:absolute;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(520px circle at var(--cx) var(--cy),rgba(255,138,76,.16),transparent 60%);transition:opacity .4s}
+.cta-rings{position:absolute;left:50%;top:50%;width:min(1100px,130%);translate:-50% -50%;z-index:-1;fill:none;stroke:rgba(255,255,255,.06);stroke-width:1;pointer-events:none;-webkit-mask-image:radial-gradient(closest-side,#000 50%,transparent);mask-image:radial-gradient(closest-side,#000 50%,transparent)}
+.cta-mark{display:inline-grid;place-items:center;width:76px;height:76px;margin-bottom:26px;border-radius:24px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 0 0 10px rgba(255,255,255,.02),0 20px 50px -10px rgba(239,90,36,.45)}
+.cta-mark .brand-mark{width:48px;height:48px;--lm-body:#f4f4f2;--lm-face:#1d1f26;animation:markfloat 6s ease-in-out infinite}
+@keyframes markfloat{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-4px) rotate(-3deg)}}
+.cta-float{position:absolute;z-index:0;display:flex;align-items:center;gap:12px;padding:12px 16px 12px 12px;border-radius:16px;background:rgba(255,255,255,.06);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 24px 50px -24px rgba(0,0,0,.7);text-align:left;font-size:12.5px;pointer-events:none}
+.cta-float b{display:block;font-size:13.5px;font-weight:600;color:#fff}
+.cta-float span{color:var(--night-body)}
+.cf-ic{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;flex:none;font:600 13px var(--mono)}
+.cf-ic.ok{background:rgba(79,211,147,.16);color:#4fd393}
+.cf-ic.pay{background:rgba(255,138,76,.18);color:var(--accent-2)}
+.cf-1{left:6%;top:24%;rotate:-5deg;animation:cfloat 7s ease-in-out infinite}
+.cf-2{right:6%;bottom:22%;rotate:4deg;animation:cfloat 8s ease-in-out infinite -3s}
+@keyframes cfloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+.cta-steps{position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:720px;margin:46px auto 0;padding-top:22px;text-align:left}
+.cta-steps::before{content:"";position:absolute;left:6px;right:6px;top:4px;height:1px;background:linear-gradient(90deg,var(--accent-2),rgba(255,255,255,.14) 60%)}
+.cta-steps li{position:relative}
+.cs-dot{position:absolute;left:0;top:-22px;width:9px;height:9px;border-radius:50%;background:var(--night);box-shadow:0 0 0 1.5px rgba(255,255,255,.3)}
+.cta-steps li:first-child .cs-dot{background:var(--accent-2);box-shadow:0 0 0 4px rgba(255,138,76,.2)}
+.cta-steps b{display:block;font:500 11.5px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:#fff;margin-bottom:4px}
+.cta-steps small{display:block;font-size:14px;color:var(--night-body);line-height:1.45}
+.cta .brand-mark{--lm-body:#f4f4f2;--lm-face:#1d1f26}
+@media (max-width:1100px){
+  .cta-float{display:none}
+}
+@media (max-width:640px){
+  .cta-steps{grid-template-columns:1fr;gap:18px;max-width:300px;padding:0 0 0 22px}
+  .cta-steps::before{left:4px;right:auto;top:6px;bottom:6px;width:1px;height:auto;background:linear-gradient(180deg,var(--accent-2),rgba(255,255,255,.14) 70%)}
+  .cs-dot{left:-22px;top:4px}
+  .cta-mark{width:64px;height:64px;border-radius:20px}
+  .cta-mark .brand-mark{width:40px;height:40px}
+}
+
 /* footer */
 .site-footer{padding:80px 0 40px}
 .footer-grid{display:grid;grid-template-columns:1.6fr repeat(3,1fr);gap:40px;font-size:14.5px;color:var(--body)}

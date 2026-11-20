@@ -432,5 +432,10 @@ export const LANDING_JS = `
       });
     });
   }
+  /* closing cta: a soft light follows the cursor across the panel */
+  var ctaEl=$('start');
+  if(ctaEl&&fine&&!reduce){
+    ctaEl.addEventListener('pointermove',function(e){var r=ctaEl.getBoundingClientRect();ctaEl.style.setProperty('--cx',(e.clientX-r.left)+'px');ctaEl.style.setProperty('--cy',(e.clientY-r.top)+'px')});
+  }
 })();
 `;
