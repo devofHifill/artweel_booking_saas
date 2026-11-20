@@ -351,10 +351,10 @@ function bento(vertical: Vertical): string {
 function comparisonRows(vertical: Vertical): string {
   return [vertical.compare, ...COMPARISON]
     .map(
-      (row) => `<tr>
-<th scope="row">${row.need}</th>
-<td class="them" data-label="Generic booking tools"><span class="mk" aria-hidden="true">✕</span>${row.them}</td>
-<td class="us" data-label="${escapeHtml(BRAND)}"><span class="mk" aria-hidden="true">✓</span>${row.us}</td>
+      (row, i) => `<tr style="--i:${i}">
+<th scope="row"><span class="need-n" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span>${row.need}</th>
+<td class="them" data-label="Generic booking tools"><span class="mk" aria-hidden="true">✕</span><span class="tx">${row.them}</span></td>
+<td class="us" data-label="${escapeHtml(BRAND)}"><span class="mk" aria-hidden="true">✓</span><span class="tx">${row.us}</span></td>
 </tr>`,
     )
     .join('');
@@ -836,11 +836,15 @@ ${structuredData(page, canonical)}
         <div><span class="label">Why it's different</span><h2 class="h2" id="cmpTitle">What a <em>generic</em> booking tool makes you fake.</h2></div>
         <p class="sub">Most booking software was built for salons and gyms, where a business is a list of appointments. Everything below is something owners work around by hand, every week.</p>
       </div>
-      <table class="cmp rv">
+      <div class="cmp-wrap rv">
+      <table class="cmp">
         <caption class="sr-only">Generic booking tools compared with ${escapeHtml(BRAND)}</caption>
-        <thead><tr><th scope="col">What you need</th><th scope="col" class="them">Generic booking tools</th><th scope="col" class="us">${escapeHtml(BRAND)}</th></tr></thead>
+        <colgroup><col class="c-need"><col class="c-them"><col class="c-us"></colgroup>
+        <thead><tr><th scope="col">What you need</th><th scope="col" class="them"><span class="col-h"><span class="col-ic them-ic" aria-hidden="true">?</span>Generic booking tools</span></th><th scope="col" class="us"><span class="col-h">${BRAND_MARK}${escapeHtml(BRAND)}<span class="col-pill">Built for this</span></span></th></tr></thead>
         <tbody>${comparisonRows(vertical)}</tbody>
+        <tfoot><tr><th scope="row"><span class="sr-only">In short</span></th><td class="them"><span class="foot-them">Workarounds, every week</span></td><td class="us">${primary('/app?signup=1', 'Start free for 14 days', { block: true })}</td></tr></tfoot>
       </table>
+      </div>
     </div>
   </section>
 
