@@ -36,15 +36,17 @@ export function createApp() {
   app.set('trust proxy', 1);
   // The booking page inlines its own CSS and JS to ship in one request, so
   // the default CSP (which forbids inline anything) has to be relaxed for it.
-  // Nothing is loaded from a third party, so 'self' plus inline is the whole
-  // policy — there is no CDN to trust.
+  // The only third party is Google Fonts' stylesheet for the landing page.
   app.use(
     helmet({
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
           scriptSrc: ["'self'", "'unsafe-inline'"],
-          styleSrc: ["'self'", "'unsafe-inline'"],
+          // The landing page's typefaces. The stylesheet comes from Google
+          // Fonts; the font files themselves are already allowed by helmet's
+          // default font-src ('self' https: data:).
+          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
           imgSrc: ["'self'", 'data:', 'https:'],
           connectSrc: ["'self'"],
           frameAncestors: ["'self'"],

@@ -24,12 +24,13 @@
  * multi-week courses, attendance, per-service child pricing
  * (`child_price_cents`), a meeting point on the confirmation
  * (`meeting_point`), a skill level, a prerequisite service
- * (`prerequisite_service_type_id`), and padding either side of a booking.
+ * (`prerequisite_service_type_id`), padding either side of a booking, and the
+ * features in JUST_SHIPPED (waitlists, class packs, make-up credits, piece
+ * tracking).
  *
- * WHAT IS DELIBERATELY NOT CLAIMED: waitlists, class packs, piece tracking and
- * kiln loads are in COMING_SOON and stay there. Neither is OTA channel sync —
- * Viator, GetYourGuide, Bókun — which the tour pages must not imply, because
- * an operator who assumes it and finds it missing churns inside a week.
+ * WHAT IS DELIBERATELY NOT CLAIMED: OTA channel sync — Viator, GetYourGuide,
+ * Bókun — which the tour pages must not imply, because an operator who
+ * assumes it and finds it missing churns inside a week.
  */
 
 import type { Page } from './content';
@@ -101,27 +102,10 @@ export type Vertical = {
     flow: [string, string, string];
   };
 
-  /** Overrides COMING_SOON where its pottery nouns would not make sense. */
-  comingSoon?: string[];
-
   footerBlurb: string;
 };
 
 const CTA = 'Start free for 14 days. No card needed.';
-
-/**
- * The roadmap in trade-neutral words.
- *
- * Same four unbuilt things as COMING_SOON, which stays as it is for the
- * pottery page. A dive centre reading "kiln loads" learns only that this page
- * was written for somebody else.
- */
-const NEUTRAL_COMING_SOON = [
-  'Waitlists when a session is full',
-  'Class packs and multi-session credits',
-  'Make-up sessions for a missed week',
-  'Tracking work customers leave with you, with a text when it is ready',
-];
 
 // ===========================================================================
 // The neutral home
@@ -264,7 +248,6 @@ export const GENERAL: Vertical = {
       'you a session forty minutes after a job across town.',
     flow: ['Address entered', 'Inside travel zone · 12 km', 'Pick a date & time'],
   },
-  comingSoon: NEUTRAL_COMING_SOON,
   footerBlurb:
     'Booking software for studios, tours and workshops. Built around the ' +
     'equipment, boats and people you actually have — not appointments.',
@@ -476,7 +459,7 @@ const GLASS_JEWELRY: Vertical = {
       },
       {
         q: 'Does it track pieces left for firing?',
-        a: 'Not yet — that is on the roadmap and deliberately not sold as available. Bookings, capacity, payments and reminders all work today.',
+        a: 'Yes. Each piece can be followed through the firing cycle, and the customer is told when it is ready to collect.',
       },
     ],
     cta: CTA,
@@ -548,7 +531,6 @@ const GLASS_JEWELRY: Vertical = {
       'into the hour you are still loading the van.',
     flow: ['Address entered', 'Inside travel zone · 12 km', 'Pick a date & time'],
   },
-  comingSoon: NEUTRAL_COMING_SOON,
   footerBlurb:
     'Booking software for jewelry, glass and metalsmithing studios. Built ' +
     'around benches, torches and kilns — not appointments.',
@@ -686,7 +668,6 @@ const WOODWORKING: Vertical = {
       'nothing gets sold into the hours you are on the road.',
     flow: ['Address entered', 'Inside travel zone · 18 km', 'Pick a date & time'],
   },
-  comingSoon: NEUTRAL_COMING_SOON,
   footerBlurb:
     'Booking software for makerspaces and woodworking studios. Built around ' +
     'benches, machines and inductions — not appointments.',
@@ -752,7 +733,7 @@ const PAINT_AND_SIP: Vertical = {
       },
       {
         q: 'We fire what people paint. Does that work?',
-        a: 'The kiln can be a resource that a firing blocks, so nothing is scheduled into it. Tracking individual pieces through the firing cycle is on the roadmap and not available yet.',
+        a: 'The kiln can be a resource that a firing blocks, so nothing is scheduled into it. Individual pieces can also be tracked through the firing cycle, with a message to the customer when theirs is ready.',
       },
     ],
     cta: CTA,
@@ -824,7 +805,6 @@ const PAINT_AND_SIP: Vertical = {
       'cannot be sold into an evening you are still driving back from.',
     flow: ['Address entered', 'Inside travel zone · 18 km', 'Pick a date & time'],
   },
-  comingSoon: NEUTRAL_COMING_SOON,
   footerBlurb:
     'Booking software for paint & sip and paint-your-own studios. Built ' +
     'around seats, easels and private hire — not appointments.',
@@ -889,7 +869,7 @@ const CANDLE: Vertical = {
       },
       {
         q: 'Do you handle the collection reminder?',
-        a: 'The collection window is shown on the confirmation, and you can write it into the booking instructions. Automatic "your order is ready" tracking is on the roadmap, not available today.',
+        a: 'The collection window is shown on the confirmation, and you can write it into the booking instructions. Piece tracking can also tell the customer when their work is ready to collect.',
       },
     ],
     cta: CTA,
@@ -961,7 +941,6 @@ const CANDLE: Vertical = {
       'studio workshop into the hour you are still unloading wax.',
     flow: ['Address entered', 'Inside travel zone · 9 km', 'Pick a date & time'],
   },
-  comingSoon: NEUTRAL_COMING_SOON,
   footerBlurb:
     'Booking software for candle, soap and resin studios. Built around pour ' +
     'stations and the time a room really needs — not appointments.',
@@ -1099,7 +1078,6 @@ const SCREEN_PRINTING: Vertical = {
       'the two cannot be sold over each other.',
     flow: ['Address entered', 'Inside travel zone · 15 km', 'Pick a date & time'],
   },
-  comingSoon: NEUTRAL_COMING_SOON,
   footerBlurb:
     'Booking software for screen printing and weaving studios. Built around ' +
     'presses, looms and the exposure unit — not appointments.',
@@ -1240,7 +1218,6 @@ const KAYAK: Vertical = {
       'schedule will not sell a tour you would still be towing a trailer to.',
     flow: ['Pickup address entered', 'Inside pickup zone · 12 km', 'Pick a date & time'],
   },
-  comingSoon: NEUTRAL_COMING_SOON,
   footerBlurb:
     'Booking software for kayak, paddle and watersports operators. Built ' +
     'around the fleet and the guides — not appointments.',
@@ -1380,7 +1357,6 @@ const BOAT: Vertical = {
       'booking.',
     flow: ['Departure point chosen', 'Boarding time confirmed', 'Meeting point on the ticket'],
   },
-  comingSoon: NEUTRAL_COMING_SOON,
   footerBlurb:
     'Booking software for boat tours and sunset cruises. Built around the ' +
     'vessel, the departure and the dock — not appointments.',
@@ -1517,7 +1493,6 @@ const WALKING: Vertical = {
       'distance fee are checked before a time is ever offered.',
     flow: ['Tour chosen', 'Meeting point on the ticket', 'Reminder the day before'],
   },
-  comingSoon: NEUTRAL_COMING_SOON,
   footerBlurb:
     'Booking software for walking tours, food tours and tastings. Built ' +
     'around guides and meeting points — not appointments.',
@@ -1655,7 +1630,6 @@ const SCUBA: Vertical = {
       'is not sold a departure you could not physically make.',
     flow: ['Pickup address entered', 'Inside transfer zone · 12 km', 'Pick a date & time'],
   },
-  comingSoon: NEUTRAL_COMING_SOON,
   footerBlurb:
     'Booking software for dive centres and scuba operators. Built around ' +
     'tanks, boats and ratios — not appointments.',

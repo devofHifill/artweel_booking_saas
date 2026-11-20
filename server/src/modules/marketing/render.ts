@@ -3,10 +3,10 @@ import { tokensCss } from '../../lib/design-tokens';
 import { PLANS, classesLine } from '../billing/plan';
 import {
   BRAND,
-  COMING_SOON,
   SHIPPING_FEATURES,
   type Page,
 } from './content';
+import { FAVICON_HREF, WORDMARK, logoMark } from './brand-logo';
 
 /**
  * The marketing site, server-rendered.
@@ -45,19 +45,8 @@ function money(cents: number): string {
   return `$${Math.round(cents / 100)}`;
 }
 
-/**
- * The mark: concentric rings, a pot seen from directly above the wheel.
- *
- * Inline SVG rather than a file, because an <img> here would be a second
- * request blocking the first paint of a page whose whole argument is that it
- * arrives in one.
- */
-const MARK = `<svg class="mark" width="24" height="24" viewBox="0 0 26 26" aria-hidden="true">
-<defs><linearGradient id="m" x1="0" y1="0" x2="1" y2="1">
-<stop offset="0%" stop-color="#6e3418"/><stop offset="55%" stop-color="#c06a3c"/>
-<stop offset="100%" stop-color="#e0a878"/></linearGradient></defs>
-<circle cx="13" cy="13" r="11" fill="none" stroke="url(#m)" stroke-width="2.4"/>
-<circle cx="13" cy="13" r="4.5" fill="none" stroke="url(#m)" stroke-width="1.6"/></svg>`;
+// The logo lives in brand-logo.ts, shared with the landing page.
+
 
 const STYLES = `
 ${tokensCss(config.THEME_PACK)}
@@ -88,8 +77,14 @@ header.site{position:sticky;top:0;z-index:10;
 border-bottom:1px solid var(--line);background:var(--card)}
 header.site .wrap{display:flex;align-items:center;gap:18px;padding-top:13px;padding-bottom:13px;
 flex-wrap:wrap}
-.logo{display:inline-flex;align-items:center;gap:9px;font-weight:600;text-decoration:none;
-color:var(--ink);letter-spacing:-.02em;font-size:1.15rem}
+.logo{display:inline-flex;align-items:center;gap:9px;font-weight:700;text-decoration:none;
+color:var(--ink);letter-spacing:-.03em;font-size:1.2rem}
+.logo .brand-mark{display:block;width:32px;height:32px;flex:none}
+/* these pages are dark: the calendar flips to light, as on the landing page's dark panels */
+.logo .brand-mark{--lm-body:#f4f4f2;--lm-face:#1d1f26}
+.logo .brand-mark svg{display:block;width:100%;height:100%;overflow:visible}
+.logo .wm-text em{font-style:normal;background:linear-gradient(180deg,#ff8a3d,#ef4f17);
+-webkit-background-clip:text;background-clip:text;color:transparent}
 header nav{display:flex;gap:20px;font-size:.92rem;margin-left:auto;align-items:center;flex-wrap:wrap}
 header nav a{color:var(--muted);text-decoration:none}
 header nav a:hover{color:var(--clay-text)}
@@ -177,16 +172,6 @@ border-left:1.5px solid var(--clay);border-bottom:1.5px solid var(--clay);
 transform:rotate(-45deg)}
 .plan .btn{margin-top:auto}
 
-/* --- Being built next --- */
-.soon{background:var(--clay-lt);border-radius:var(--radius-lg);padding:24px 26px}
-.soon h2{margin:0 0 6px}
-.soon .note{color:var(--muted);font-size:.95rem;margin:0 0 12px;max-width:40rem}
-.soon ul{margin:0;padding-left:20px;color:var(--muted)}
-.soon li{margin-bottom:5px}
-.not-yet{display:inline-block;margin-bottom:12px;padding:3px 10px;border-radius:var(--radius-pill);
-border:1px solid var(--clay);color:var(--clay-text);font-size:.72rem;font-weight:600;
-letter-spacing:.06em;text-transform:uppercase}
-
 /* --- FAQ --- */
 .faq{border-top:1px solid var(--line);padding:18px 0}
 .faq:last-of-type{border-bottom:1px solid var(--line)}
@@ -225,7 +210,7 @@ footer nav{margin-left:0}
 const NAV = `
 <header class="site">
   <div class="wrap">
-    <a class="logo" href="/">${MARK}${escapeHtml(BRAND)}</a>
+    <a class="logo" href="/" aria-label="${escapeHtml(BRAND)} home">${logoMark('n')}${WORDMARK}</a>
     <nav>
       <a href="/pricing">Pricing</a>
       <a href="/#verticals">Who it is for</a>
@@ -242,7 +227,7 @@ function footer(): string {
   return `
 <footer>
   <div class="wrap">
-    <a class="logo" href="/">${MARK}${escapeHtml(BRAND)}</a>
+    <a class="logo" href="/" aria-label="${escapeHtml(BRAND)} home">${logoMark('ft')}${WORDMARK}</a>
     <span>&copy; ${new Date().getFullYear()}</span>
     <nav>
       <a href="/pricing">Pricing</a>
@@ -287,7 +272,6 @@ function planCards(): string {
         <li>Unlimited events</li>
         ${plan.mobileBookings ? '<li>Mobile and travelling bookings</li>' : ''}
         ${plan.smsReminders ? '<li>Text reminders</li>' : ''}
-        ${plan.apiAccess ? '<li>API access</li>' : ''}
       </ul>
       <a class="btn${featured ? '' : ' ghost'}" href="/app?signup=1">Start free</a>
     </div>`;
@@ -441,6 +425,7 @@ export function renderMarketingPage(page: Page): string {
 <title>${escapeHtml(page.title)}</title>
 <meta name="description" content="${escapeHtml(page.description)}">
 <link rel="canonical" href="${escapeHtml(canonical)}">
+<link rel="icon" href="${FAVICON_HREF}">
 <meta property="og:type" content="${page.article ? 'article' : 'website'}">
 <meta property="og:title" content="${escapeHtml(page.title)}">
 <meta property="og:description" content="${escapeHtml(page.description)}">
@@ -470,20 +455,6 @@ ${head}
     ${isPricing ? planCards() : ''}
 
     ${body ? `<section class="band"><div class="prose">${body}</div></section>` : ''}
-
-    ${
-      isHome
-        ? `<section class="band">
-      <div class="soon">
-        <span class="not-yet">Not available yet</span>
-        <h2>Being built next</h2>
-        <p class="note">Listed so you know where this is going before you commit
-        to it. None of it is available today.</p>
-        <ul>${COMING_SOON.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
-      </div>
-    </section>`
-        : ''
-    }
 
     ${faqs}
 

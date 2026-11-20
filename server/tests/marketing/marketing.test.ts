@@ -5,7 +5,7 @@ import { prisma } from '../../src/lib/prisma';
 import { resetDb } from '../helpers/fixtures';
 import { signUpStudio } from '../helpers/api';
 import { resetRateLimits } from '../../src/middleware/rate-limit';
-import { ALL_PAGES, COMING_SOON } from '../../src/modules/marketing/content';
+import { ALL_PAGES, JUST_SHIPPED } from '../../src/modules/marketing/content';
 import { escapeHtml } from '../../src/modules/marketing/render';
 import { GENERAL, VERTICALS } from '../../src/modules/marketing/verticals';
 
@@ -267,44 +267,40 @@ describe('technical SEO', () => {
 });
 
 describe('honesty of the copy', () => {
-  it('labels unbuilt features as coming, not as shipping', async () => {
-    // A trial that starts on a false promise churns in week one.
+  it('sells the Phase 2 features that shipped, and no roadmap', async () => {
+    // Waitlists, class packs, make-up credits and piece tracking shipped in
+    // 61ce328 and were still listed as "not available yet" three months
+    // later. Underselling is a false claim too: the landing page now sells
+    // them, on the home page and on every trade page.
+    for (const path of ['/', ...VERTICALS.map((vertical) => `/${vertical.slug}`)]) {
+      const res = await request(app).get(path);
+
+      for (const item of JUST_SHIPPED) {
+        expect(res.text, path).toContain(escapeHtml(item.title));
+      }
+      expect(res.text, path).not.toContain('Being built next');
+      expect(res.text, path).not.toContain('Not available yet');
+    }
+  });
+
+  it('does not sell Pro with things that do not exist', async () => {
+    // There is no public API and no custom-domain support (billing/plan.ts,
+    // FEATURE_ENFORCED). Neither may appear as a plan feature anywhere.
+    for (const path of ['/', '/pricing', '/for/pottery']) {
+      const res = await request(app).get(path);
+
+      expect(res.text, path).not.toMatch(/API access/i);
+      expect(res.text, path).not.toMatch(/your own domain/i);
+    }
+  });
+
+  it('labels the comparison table by column, not with contradictory yes/no text', async () => {
+    // The old table read "Yes. Nothing" on the commission row.
     const res = await request(app).get('/');
 
-    expect(res.text).toContain('Being built next');
-    expect(res.text).toContain('Not available yet');
-
-    // The home page stopped being the pottery page on 2026-09-10, and with it
-    // the roadmap stopped being worded in pottery's nouns: GENERAL overrides
-    // COMING_SOON with a trade-neutral list, and the pottery wording lives on
-    // at /for/pottery. Asserting the override rather than the default is what
-    // keeps this honest for whichever list the page actually renders.
-    for (const item of GENERAL.comingSoon ?? COMING_SOON) {
-      expect(res.text).toContain(escapeHtml(item.slice(0, 30)));
-    }
-  });
-
-  it('keeps the pottery roadmap honest at its own URL', async () => {
-    const res = await request(app).get('/for/pottery');
-
-    for (const item of COMING_SOON) {
-      expect(res.text).toContain(escapeHtml(item.slice(0, 30)));
-    }
-  });
-
-  it('does not claim piece tracking or courses anywhere as shipping', async () => {
-    // These are Phase 2. They may only appear under the "being built" heading.
-    for (const page of ALL_PAGES) {
-      const shippingCopy = [
-        page.intro,
-        ...page.sections.flatMap((s) => s.body),
-        ...(page.faqs?.map((f) => f.a) ?? []),
-      ].join(' ');
-
-      expect(shippingCopy, page.slug).not.toMatch(/piece tracking/i);
-      expect(shippingCopy, page.slug).not.toMatch(/make-?up class/i);
-      expect(shippingCopy, page.slug).not.toMatch(/waitlist/i);
-    }
+    expect(res.text).not.toContain('<span class="sr-only">Yes. </span>');
+    expect(res.text).not.toContain('<span class="sr-only">No. </span>');
+    expect(res.text).toContain('<th scope="col" class="us">');
   });
 
   it('is fair about what competitors do well', async () => {
