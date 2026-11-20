@@ -276,17 +276,51 @@ export const LANDING_JS = `
     },2200);
   }
 
-  /* sticky tour */
+  /* how it works: rail, nodes, story bars and scenes */
+  var tourEl=$('tour'),tvis=document.querySelector('.tvis'),tvN=$('tvN');
   var steps=Array.prototype.slice.call(document.querySelectorAll('.tstep'));
   var scenes=Array.prototype.slice.call(document.querySelectorAll('.tvis .scene'));
+  var bars=Array.prototype.slice.call(document.querySelectorAll('.tv-bars b'));
+  /* phones: each step carries its own copy of its scene, played when the step scrolls in */
   steps.forEach(function(st,i){
     if(!scenes[i])return;
     var box=document.createElement('div');box.className='inline-scene';box.setAttribute('aria-hidden','true');
-    var sc=scenes[i].cloneNode(true);sc.classList.add('act');box.appendChild(sc);st.appendChild(box);
+    var sc=scenes[i].cloneNode(true);sc.classList.remove('act');box.appendChild(sc);st.appendChild(box);
   });
+  function countUp(el){
+    if(!el||el._done)return;el._done=true;
+    var to=+el.getAttribute('data-to')||0,t0=null;
+    if(reduce){el.textContent='$'+to.toFixed(2);return}
+    function f(ts){if(!t0)t0=ts;var p=Math.min(1,(ts-t0)/1200),e=1-Math.pow(1-p,3);el.textContent='$'+(to*e).toFixed(2);if(p<1)requestAnimationFrame(f)}
+    el.textContent='$0.00';requestAnimationFrame(f);
+    setTimeout(function(){el.textContent='$'+to.toFixed(2)},1600);
+  }
+  function setStep(n){
+    steps.forEach(function(x,i){x.classList.toggle('act',i===n);x.classList.toggle('done',i<n)});
+    scenes.forEach(function(x,i){x.classList.toggle('act',i===n)});
+    bars.forEach(function(b,i){b.style.transform='scaleX('+(i<=n?1:0)+')'});
+    if(tvis)tvis.setAttribute('data-at',String(n));
+    if(tvN)tvN.textContent=String(n+1);
+    if(n===2)countUp(document.querySelector('.tvis .payline b'));
+  }
   if('IntersectionObserver' in window&&steps.length){
-    var tio=new IntersectionObserver(function(es){es.forEach(function(e){if(!e.isIntersecting)return;var s=+e.target.getAttribute('data-step');steps.forEach(function(x,i){x.classList.toggle('act',i===s)});scenes.forEach(function(x,i){x.classList.toggle('act',i===s)})})},{rootMargin:'-45% 0px -45% 0px'});
+    var tio=new IntersectionObserver(function(es){es.forEach(function(e){if(!e.isIntersecting)return;setStep(+e.target.getAttribute('data-step'))})},{rootMargin:'-45% 0px -45% 0px'});
     steps.forEach(function(s){tio.observe(s)});
+    var iio=new IntersectionObserver(function(es){es.forEach(function(e){if(!e.isIntersecting)return;e.target.classList.add('act');var pb=e.target.querySelector('.payline b');if(pb)countUp(pb);iio.unobserve(e.target)})},{rootMargin:'0px 0px -20% 0px'});
+    Array.prototype.forEach.call(document.querySelectorAll('.inline-scene .scene'),function(sc){iio.observe(sc)});
+  }else{steps.forEach(function(x){x.classList.add('act')})}
+  setStep(0);
+  /* the rail fills as you scroll from the first step to the last */
+  if(tourEl&&steps.length>1){
+    var railTick=false;
+    var rail=function(){
+      railTick=false;
+      var a=steps[0].getBoundingClientRect(),z=steps[steps.length-1].getBoundingClientRect(),mid=window.innerHeight/2;
+      var top=a.top+a.height/2,bot=z.top+z.height/2,p=(mid-top)/Math.max(1,bot-top);
+      tourEl.style.setProperty('--rail',Math.max(0,Math.min(1,p)).toFixed(3));
+    };
+    window.addEventListener('scroll',function(){if(!railTick){railTick=true;requestAnimationFrame(rail)}},{passive:true});
+    window.addEventListener('resize',rail);rail();
   }
 
   /* commission calculator */

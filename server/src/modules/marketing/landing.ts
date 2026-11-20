@@ -360,47 +360,117 @@ function comparisonRows(vertical: Vertical): string {
     .join('');
 }
 
+/**
+ * How it works: three steps on a numbered rail that fills as you scroll,
+ * beside a sticky stage that plays one scene per step. The stage has
+ * story-style progress bars and a tint per step; each scene animates when
+ * it becomes the active one (setup fields fill in, an Instagram profile
+ * opens a booking sheet, the register ticks and the payout counts up).
+ * On phones each step carries its own copy of its scene.
+ */
 function tour(vertical: Vertical): string {
   const card = vertical.bookingCard;
   const publicHost = new URL(config.PUBLIC_URL).host;
   const link = `${publicHost}/public/${slugify(card.name)}`;
   const first = vertical.week[0]?.events[0]?.title ?? 'Saturday session';
+  const slot = card.slots[1]?.[0] ?? 'Sat 10:30';
+  const ini = escapeHtml(initials(card.name));
 
-  return `<div class="tour">
-  <div>
-    <div class="tstep act" data-step="0"><div class="num">01 / 03</div><h3>Describe your business once.</h3><p>${escapeHtml(vertical.setupStep)}</p><small>About 20 minutes</small></div>
-    <div class="tstep" data-step="1"><div class="num">02 / 03</div><h3>Share one booking link.</h3><p>Paste it into your Instagram bio, your website or a reply. It shows live availability, takes the deposit and confirms the booking without you.</p><small>One link, everywhere</small></div>
-    <div class="tstep" data-step="2"><div class="num">03 / 03</div><h3>Turn up and run it.</h3><p>Reminders go out on their own, the register is on your phone, and the money lands in your Stripe account. Nobody messages you to ask what time it starts.</p><small>Every week after</small></div>
-  </div>
-  <div class="tvis" aria-hidden="true">
-    <div class="scene act">
+  const steps = [
+    {
+      title: 'Describe your business once.',
+      body: vertical.setupStep,
+      tag: 'About 20 minutes',
+    },
+    {
+      title: 'Share one booking link.',
+      body: 'Paste it into your Instagram bio, your website or a reply. It shows live availability, takes the deposit and confirms the booking without you.',
+      tag: 'One link, everywhere',
+    },
+    {
+      title: 'Turn up and run it.',
+      body: 'Reminders go out on their own, the register is on your phone, and the money lands in your Stripe account. Nobody messages you to ask what time it starts.',
+      tag: 'Every week after',
+    },
+  ];
+
+  const rail = steps
+    .map(
+      (step, i) => `<div class="tstep${i === 0 ? ' act' : ''}" data-step="${i}">
+      <span class="t-node" aria-hidden="true"><b>${i + 1}</b><svg viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.5l4.5-5"/></svg></span>
+      <div class="t-body"><div class="num">Step ${i + 1} of 3</div><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.body)}</p><small>${escapeHtml(step.tag)}</small></div>
+    </div>`,
+    )
+    .join('');
+
+  const fields: [string, string][] = [
+    [vertical.capacity.label, `${vertical.capacity.total} at once`],
+    ['Travel area', '15 km · +$20'],
+    ['Deposit', '$15 per booking'],
+    ['Cancellation terms', 'Your rules'],
+  ];
+
+  const scene1 = `<div class="scene sc-setup act">
       <div class="card-ui">
-        <h4>What do you work with?</h4><p class="hint">Setup · step 3 of 4</p>
-        <div class="fld"><span>${escapeHtml(vertical.capacity.label)}</span><b>${vertical.capacity.total} at once</b></div>
-        <div class="fld focus"><span>Travel area</span><b>15 km · +$20</b></div>
-        <div class="fld"><span>Deposit</span><b>$15 per booking</b></div>
-        <div class="fld"><span>Cancellation terms</span><b>Your rules</b></div>
+        <div class="cu-top"><h4>Set up your studio</h4><span class="cu-step">3 of 4</span></div>
+        <p class="hint">What do you work with?</p>
+        ${fields
+          .map(
+            ([label, value], i) =>
+              `<div class="fld" style="--i:${i}"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><i class="fld-ok"><svg viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.5l4.5-5"/></svg></i></div>`,
+          )
+          .join('')}
         <div class="prog"><span></span></div>
+        <div class="cu-foot"><span>Saved automatically</span><span class="cu-btn">Continue</span></div>
       </div>
-    </div>
-    <div class="scene">
-      <div class="card-ui">
-        <h4>Your booking link is ready</h4><p class="hint">Live availability, deposits and confirmations</p>
-        <div class="linkbox"><span>${escapeHtml(link)}</span><em>Copy</em></div>
-        <p class="copied">✓ Copied · paste it in your bio</p>
-        <div class="ig"><span class="ig-ring"><span>${escapeHtml(initials(card.name))}</span></span><div><b>${escapeHtml(card.handle.replace(/^@/, ''))}</b><p>${card.bio}<br><span>${escapeHtml(link)}</span></p></div></div>
+    </div>`;
+
+  const scene2 = `<div class="scene sc-share">
+      <div class="ig-phone">
+        <div class="igp-top"><span class="ig-ring"><span>${ini}</span></span><div class="igp-stats"><span><b>248</b>posts</span><span><b>3.1k</b>followers</span><span><b>180</b>following</span></div></div>
+        <b class="igp-name">${escapeHtml(card.handle.replace(/^@/, ''))}</b>
+        <p class="igp-bio">${card.bio}</p>
+        <span class="igp-link"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>${escapeHtml(link)}<i class="tap"></i></span>
+        <div class="igp-grid"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="sheet-up">
+          <span class="sh-grab"></span>
+          <b>${escapeHtml(card.name)}</b>
+          <div class="sh-slots">${card.slots
+            .map(([label, note], i) => `<span class="${i === 1 ? 'sel' : ''}${i === card.slots.length - 1 ? ' sold' : ''}">${escapeHtml(label)}<em>${escapeHtml(note)}</em></span>`)
+            .join('')}</div>
+          <span class="sh-book">${escapeHtml(card.cta)} · ${escapeHtml(card.deposit.split('·')[0]!.trim())}</span>
+        </div>
       </div>
-    </div>
-    <div class="scene">
-      <div class="card-ui">
-        <h4>${escapeHtml(first)} · ${escapeHtml(card.slots[1]?.[0] ?? '')}</h4><p class="hint">Register</p>
-        <div class="reg"><span class="av">AM</span><span>Amira M.</span><i class="y">✓</i></div>
-        <div class="reg"><span class="av" style="background:var(--blue-soft);color:var(--blue)">JT</span><span>Jonah T.</span><i class="y">✓</i></div>
-        <div class="reg"><span class="av" style="background:var(--green-soft);color:var(--green)">SR</span><span>Sofia R.</span><i class="y">✓</i></div>
-        <div class="reg"><span class="av">LK</span><span>Leo K.</span><i class="n">–</i></div>
-        <div class="payline"><span>Paid to your Stripe today</span><b>$540.00</b></div>
+    </div>`;
+
+  const people = [
+    ['AM', 'Amira M.', true],
+    ['JT', 'Jonah T.', true],
+    ['SR', 'Sofia R.', true],
+    ['LK', 'Leo K.', false],
+  ] as const;
+  const scene3 = `<div class="scene sc-run">
+      <div class="run-stack">
+        <div class="run-note"><span class="rn-ic">↻</span><div><b>Reminder sent</b><span>${escapeHtml(first)} · tomorrow ${escapeHtml(slot)}</span></div></div>
+        <div class="card-ui run-reg">
+          <div class="cu-top"><h4>${escapeHtml(first)}</h4><span class="cu-step">${escapeHtml(slot)}</span></div>
+          ${people
+            .map(
+              ([a, name, here], i) =>
+                `<div class="reg" style="--i:${i}"><span class="av">${a}</span><span>${name}</span><i class="${here ? 'y' : 'n'}">${here ? '✓' : '–'}</i></div>`,
+            )
+            .join('')}
+        </div>
+        <div class="payline"><span>Paid to your Stripe today</span><b data-to="540">$540.00</b></div>
       </div>
-    </div>
+    </div>`;
+
+  return `<div class="tour" id="tour">
+  <div class="t-rail"><span class="t-line" aria-hidden="true"><i></i></span>${rail}</div>
+  <div class="tvis" aria-hidden="true">
+    <div class="tv-bars"><i><b></b></i><i><b></b></i><i><b></b></i></div>
+    <span class="tv-chip">Step <b id="tvN">1</b> of 3</span>
+    ${scene1}${scene2}${scene3}
   </div>
 </div>`;
 }
