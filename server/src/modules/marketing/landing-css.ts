@@ -22,6 +22,12 @@ export const LANDING_CSS = `
   --night:#0d0e11;--night-2:#16181d;--night-line:rgba(255,255,255,.09);--night-body:#a7abb5;
   --sans:Geist,Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--serif:"Instrument Serif",Georgia,serif;
   --ease:cubic-bezier(.2,.7,.2,1);--wrap:1200px;
+  /* Primary button colour (option A, brand orange, chosen 2026-11-20). To try
+     another, change only these: background gradient, its shadow tint, the
+     arrow disc and the arrow. */
+  --btn-bg:linear-gradient(180deg,#ff7a45,#ef5a24 58%,#e04c16);
+  --btn-tint:239,90,36;--btn-edge:120,30,0;
+  --btn-disc:#fff;--btn-arrow:#ef5a24;
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:96px}
@@ -46,7 +52,7 @@ button{font:inherit}
 
 /* buttons
    One system for every button on the page:
-     .btn-ink    primary. Ink pill, lit top edge, a sheen that sweeps across on
+     .btn-ink    primary. Brand-orange pill (--btn-*), lit top edge, a sheen that sweeps across on
                  hover, and an orange arrow disc that slides out and swaps for
                  a fresh arrow coming in.
      .btn-accent the one orange button (featured plan). Same behaviour.
@@ -62,14 +68,14 @@ button{font:inherit}
 .btn>.lbl{position:relative;z-index:2;display:inline-flex;align-items:center;gap:10px}
 .btn:focus-visible{outline:none;box-shadow:0 0 0 3px var(--paper),0 0 0 5px var(--accent)}
 .btn-ink,.btn-accent{color:#fff}
-.btn-ink{background:linear-gradient(180deg,#24262d,var(--ink) 55%);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),inset 0 -1px 0 rgba(0,0,0,.4),0 1px 2px rgba(14,15,18,.3),0 10px 26px -12px rgba(14,15,18,.7)}
+.btn-ink{background:var(--btn-bg);box-shadow:inset 0 1px 0 rgba(255,255,255,.3),inset 0 -1px 0 rgba(var(--btn-edge),.35),0 1px 2px rgba(var(--btn-tint),.35),0 12px 28px -12px rgba(var(--btn-tint),.75)}
 .btn-accent{background:linear-gradient(180deg,#ff7a45,var(--accent) 60%,#e04c16);box-shadow:inset 0 1px 0 rgba(255,255,255,.3),inset 0 -1px 0 rgba(120,30,0,.35),0 1px 2px rgba(178,61,13,.35),0 12px 28px -12px rgba(239,90,36,.75)}
 .btn-ink::after,.btn-accent::after{content:"";position:absolute;z-index:1;top:0;bottom:0;left:0;width:45%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);transform:translateX(-120%) skewX(-20deg);pointer-events:none}
 .btn-ink:hover,.btn-accent:hover{transform:translate(var(--mx),calc(var(--my) - 2px))}
-.btn-ink:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(0,0,0,.4),0 2px 4px rgba(14,15,18,.25),0 18px 36px -14px rgba(14,15,18,.65)}
+.btn-ink:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.32),inset 0 -1px 0 rgba(var(--btn-edge),.35),0 2px 4px rgba(var(--btn-tint),.3),0 20px 38px -14px rgba(var(--btn-tint),.8)}
 .btn-accent:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.32),inset 0 -1px 0 rgba(120,30,0,.35),0 2px 4px rgba(178,61,13,.3),0 20px 38px -14px rgba(239,90,36,.8)}
 .btn-ink:hover::after,.btn-accent:hover::after{animation:sheen .9s var(--ease)}
-.btn-ink:active,.btn-accent:active{transform:translate(var(--mx),calc(var(--my) + 1px)) scale(.985);box-shadow:inset 0 1px 0 rgba(255,255,255,.1),inset 0 2px 6px rgba(0,0,0,.35),0 4px 12px -6px rgba(14,15,18,.6);transition-duration:.08s}
+.btn-ink:active,.btn-accent:active{transform:translate(var(--mx),calc(var(--my) + 1px)) scale(.985);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 0 2px 6px rgba(var(--btn-edge),.35),0 4px 12px -6px rgba(var(--btn-tint),.6);transition-duration:.08s}
 
 /* the arrow disc: current arrow slides out right, a new one slides in from the left */
 .arr{position:relative;z-index:2;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent);margin-right:-14px;overflow:hidden;flex:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 2px 6px -2px rgba(239,90,36,.7);transition:transform .35s var(--ease),background .25s}
@@ -78,8 +84,8 @@ button{font:inherit}
 .btn:hover .arr{transform:scale(1.08)}
 .btn:hover .arr svg:first-child{transform:translateX(22px)}
 .btn:hover .arr svg+svg{transform:none}
-.btn-accent .arr{background:#fff;box-shadow:0 2px 6px -2px rgba(120,30,0,.4)}
-.btn-accent .arr svg{stroke:var(--accent)}
+.btn-ink .arr,.btn-accent .arr{background:var(--btn-disc);box-shadow:0 2px 6px -2px rgba(var(--btn-edge),.4)}
+.btn-ink .arr svg,.btn-accent .arr svg{stroke:var(--btn-arrow)}
 
 /* secondary */
 .btn-line{color:var(--ink);background:rgba(255,255,255,.72);-webkit-backdrop-filter:blur(10px) saturate(160%);backdrop-filter:blur(10px) saturate(160%);box-shadow:inset 0 0 0 1px var(--line-2),0 1px 2px rgba(14,15,18,.05)}
@@ -99,7 +105,7 @@ button{font:inherit}
 
 /* the conic ring for the two headline CTAs */
 .glow{overflow:visible}
-.glow::before{content:"";position:absolute;inset:-2px;border-radius:inherit;z-index:-2;background:conic-gradient(from var(--a,0deg),var(--accent),#ffb27f,rgba(14,15,18,.2),var(--accent));animation:spin 4s linear infinite}
+.glow::before{content:"";position:absolute;inset:-2px;border-radius:inherit;z-index:-2;background:conic-gradient(from var(--a,0deg),#ffd2b8,#fff,var(--accent-2),rgba(var(--btn-edge),.5),#ffd2b8);animation:spin 4s linear infinite}
 .glow>.bg{position:absolute;inset:0;border-radius:inherit;z-index:-1;background:inherit;box-shadow:inherit;overflow:hidden}
 .glow>.bg::after{content:"";position:absolute;top:0;bottom:0;left:0;width:45%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);transform:translateX(-120%) skewX(-20deg)}
 .glow:hover>.bg::after{animation:sheen .9s var(--ease)}
@@ -109,7 +115,7 @@ button{font:inherit}
 
 /* segmented controls (trade switcher, calculator rates) */
 .seg-ctl{position:relative;isolation:isolate}
-.seg-ctl .seg-ind{position:absolute;z-index:-1;top:4px;bottom:4px;left:0;width:0;border-radius:999px;background:linear-gradient(180deg,#24262d,var(--ink));box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 6px 14px -8px rgba(14,15,18,.6);transition:left .4s var(--ease),width .4s var(--ease),opacity .2s;opacity:0}
+.seg-ctl .seg-ind{position:absolute;z-index:-1;top:4px;bottom:4px;left:0;width:0;border-radius:999px;background:var(--btn-bg);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 6px 14px -8px rgba(var(--btn-tint),.7);transition:left .4s var(--ease),width .4s var(--ease),opacity .2s;opacity:0}
 .seg-ctl.ready .seg-ind{opacity:1}
 .seg-ctl.ready button[aria-pressed=true]{background:transparent!important;box-shadow:none!important}
 .rates.seg-ctl .seg-ind{top:0;bottom:0;border-radius:12px}
@@ -137,7 +143,6 @@ button{font:inherit}
 .dark-under .brand{color:#fff}
 .dark-under .nav-desktop>a,.dark-under .nav-trig,.dark-under .nav-signin{color:rgba(255,255,255,.72)}
 .dark-under .nav-ind{background:rgba(255,255,255,.1)}
-.dark-under .header-actions .btn-ink{background:#fff;color:var(--ink)}
 .progress{position:absolute;left:24px;right:24px;bottom:0;height:2px;border-radius:2px;overflow:hidden;opacity:0;transition:opacity .3s;pointer-events:none}
 .stuck .progress{opacity:1}
 .progress i{display:block;height:100%;width:100%;transform-origin:0 50%;transform:scaleX(var(--p,0));background:linear-gradient(90deg,var(--accent),var(--accent-2))}
@@ -216,19 +221,183 @@ button{font:inherit}
 .hero::after{content:"";position:absolute;inset:0 0 auto;height:760px;z-index:-1;opacity:.5;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:64px 64px;-webkit-mask-image:radial-gradient(ellipse 70% 60% at 50% 30%,#000 30%,transparent 75%);mask-image:radial-gradient(ellipse 70% 60% at 50% 30%,#000 30%,transparent 75%)}
 .spot{position:absolute;z-index:-1;width:520px;height:520px;border-radius:50%;left:0;top:0;pointer-events:none;background:radial-gradient(closest-side,rgba(239,90,36,.14),transparent);transform:translate(-50%,-50%);opacity:0;transition:opacity .6s}
 .hero:hover .spot{opacity:1}
-.badge{display:inline-flex;align-items:center;gap:10px;padding:6px 14px 6px 6px;border-radius:999px;background:#fff;box-shadow:0 0 0 1px var(--line),0 6px 18px -10px rgba(14,15,18,.25);font-size:13.5px;color:var(--ink-2);margin-bottom:28px;transition:box-shadow .25s}
-.badge:hover{box-shadow:0 0 0 1px var(--line-2),0 10px 24px -12px rgba(14,15,18,.3)}
-.badge b{font:500 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;background:var(--accent-soft);color:var(--accent-ink);padding:4px 9px;border-radius:999px}
-.hero h1{font-size:clamp(42px,6.6vw,88px);letter-spacing:-.05em;line-height:1;max-width:1000px;margin:0 auto}
-.hero h1 .serif{color:var(--accent);font-size:1.06em}
-.hero h1 .w{display:inline-block;opacity:0;transform:translateY(.35em);filter:blur(8px);transition:opacity .8s var(--ease),transform .8s var(--ease),filter .8s var(--ease)}
-.hero h1.go .w{opacity:1;transform:none;filter:none}
-.hero-sub{max-width:640px;margin:26px auto 34px}
+/* headline
+   Each word sits in its own mask and rises out of it with a slight tilt,
+   one after another. The words are filled with a soft ink gradient rather
+   than flat black. The last word is the serif accent: an orange gradient
+   with a slow shimmer, a warm glow and the drawn underline. The masks open
+   up once the words have landed, so italics and the underline are never
+   clipped. Without JavaScript it is plain ink text. */
+.hero h1{font-size:clamp(44px,7vw,96px);letter-spacing:-.055em;line-height:.98;max-width:1040px;margin:0 auto;text-wrap:balance}
+.hero h1 .wm{display:inline-block;overflow:hidden;padding:0 .07em .16em;margin:0 -.07em -.16em;vertical-align:bottom}
+.hero h1.settled .wm{overflow:visible}
+.hero h1 .w{display:inline-block;transform:translateY(108%) rotate(5deg);transform-origin:0 100%;transition:transform 1.05s cubic-bezier(.16,1,.3,1);background:linear-gradient(180deg,#0e0f12 30%,#4a4e5a 125%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero h1.go .w{transform:none}
+.hero h1 .w.serif{font-size:1.08em;letter-spacing:-.02em;background:linear-gradient(100deg,#b23d0d 0%,#ef5a24 28%,#ffa064 46%,#ef5a24 64%,#b23d0d 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 7s linear infinite;filter:drop-shadow(0 10px 26px rgba(239,90,36,.28))}
+.hero h1:hover .w.serif{animation-duration:2.6s}
+@keyframes shimmer{from{background-position:0% 50%}to{background-position:200% 50%}}
+.hero-sub{max-width:660px;margin:26px auto 34px;font-size:clamp(17px,1.55vw,20px);line-height:1.6;color:var(--body);text-wrap:pretty}
+/* subtitle: the owned nouns in ink with a highlighter stroke that sweeps in,
+   one after another; the closing promise on its own line with an orange
+   underline drawn last. Fully drawn when JavaScript is off. */
+.hero-sub .own{font-style:normal;font-weight:500;color:var(--ink);padding:0 .1em;margin:0 -.04em;border-radius:3px;background:linear-gradient(transparent 58%,rgba(255,160,100,.42) 58%,rgba(255,160,100,.42) 94%,transparent 94%) no-repeat 0 0/0% 100%;transition:background-size .75s var(--ease)}
+.hero-sub.in .own{background-size:100% 100%}
+.hero-sub .own:nth-of-type(1){transition-delay:.7s}.hero-sub .own:nth-of-type(2){transition-delay:.85s}.hero-sub .own:nth-of-type(3){transition-delay:1s}.hero-sub .own:nth-of-type(4){transition-delay:1.15s}.hero-sub .own:nth-of-type(5){transition-delay:1.3s}
+.kicker{display:block;margin-top:12px}
+.kicker-mark{position:relative;display:inline-flex;align-items:center;gap:8px;font-weight:600;color:var(--ink);letter-spacing:-.01em;padding-bottom:3px;background:linear-gradient(90deg,var(--accent),var(--accent-2)) no-repeat 0 100%/0% 2px;transition:background-size .9s var(--ease) 1.5s}
+.kicker-mark::before{content:"";width:18px;height:18px;border-radius:50%;flex:none;background:var(--green-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2312804f' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5L19 7'/%3E%3C/svg%3E") center/11px no-repeat}
+.hero-sub.in .kicker-mark{background-size:100% 2px}
+html:not(.js) .hero-sub .own{background-size:100% 100%}
+html:not(.js) .kicker-mark{background-size:100% 2px}
 .ctas{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 .hero-note{margin-top:18px;font:500 12px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .switch{display:inline-flex;gap:4px;padding:4px;margin-top:30px;border-radius:999px;background:rgba(255,255,255,.75);box-shadow:inset 0 0 0 1px var(--line);max-width:100%;overflow-x:auto;scrollbar-width:none}
 .switch button{flex:none;border:0;background:transparent;font:500 13.5px var(--sans);color:var(--body);padding:8px 14px;border-radius:999px;cursor:pointer;transition:background .2s,color .2s}
-.switch button[aria-pressed=true]{background:var(--ink);color:#fff}
+.switch button[aria-pressed=true]{background:var(--accent);color:#fff}
+
+/* hero, enhanced
+   Drifting warm orbs behind everything; a badge that reads as a link; a
+   hand-drawn underline under the accent word, drawn in after the headline
+   lands; a proof row in place of the mono note; a labelled trade switcher;
+   a window bar with a padlock and a pulsing Live pill; a gentle 3D tilt that
+   follows the mouse; and a soft cross-fade whenever the schedule swaps. */
+.orbs{position:absolute;inset:-120px 0 auto;height:1000px;z-index:-1;overflow:hidden;pointer-events:none}
+.orbs i{position:absolute;border-radius:50%;filter:blur(60px);opacity:.55;animation:drift 18s ease-in-out infinite alternate}
+.orbs i:nth-child(1){width:420px;height:420px;left:8%;top:120px;background:#ffd2b8}
+.orbs i:nth-child(2){width:360px;height:360px;right:6%;top:60px;background:#dfe8ff;animation-duration:22s;animation-delay:-6s}
+.orbs i:nth-child(3){width:520px;height:340px;left:32%;top:520px;background:#ffc3a0;opacity:.45;animation-duration:26s;animation-delay:-12s}
+@keyframes drift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(40px,-30px) scale(1.08)}100%{transform:translate(-30px,24px) scale(.96)}}
+
+
+.hero h1 .serif{position:relative;padding:0 .04em}
+.uline{position:absolute;left:-.04em;bottom:-.12em;width:calc(100% + .1em);height:.32em;overflow:visible;pointer-events:none}
+.uline path{fill:none;stroke:var(--accent);stroke-width:5;stroke-linecap:round;stroke-dasharray:240;stroke-dashoffset:240;opacity:.85;transition:stroke-dashoffset 1.1s var(--ease) .75s}
+.hero h1.go .uline path{stroke-dashoffset:0}
+
+/* proof capsule: four facts in one frosted strip, split by hairlines. Each
+   has its own tinted icon tile; they pop in one after another once the
+   buttons land, and each lifts on hover with its icon giving a small turn. */
+.proof{display:inline-flex;align-items:stretch;margin:26px auto 0;padding:6px;border-radius:20px;background:rgba(255,255,255,.66);-webkit-backdrop-filter:blur(12px) saturate(160%);backdrop-filter:blur(12px) saturate(160%);box-shadow:0 0 0 1px var(--line),0 1px 0 rgba(255,255,255,.9) inset,0 18px 40px -26px rgba(14,15,18,.35);text-align:left}
+.hero-inner>.proof{display:inline-flex}
+.pf{position:relative;display:flex;align-items:center;gap:10px;padding:8px 16px 8px 8px;border-radius:14px;transition:background .25s,translate .3s var(--ease)}
+.pf+.pf::before{content:"";position:absolute;left:-1px;top:22%;bottom:22%;width:1px;background:var(--line-2)}
+.pf:hover{background:#fff;translate:0 -1px}
+.pf:hover+.pf::before,.pf:hover::before{opacity:0}
+.pt{display:flex;flex-direction:column;line-height:1.2}
+.pt small{font:500 10px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:3px}
+.pt b{font-size:13.5px;font-weight:600;letter-spacing:-.015em;color:var(--ink);white-space:nowrap}
+.js .proof .pf{opacity:0;transform:translateY(8px) scale(.97);transition:opacity .5s var(--ease),transform .5s var(--ease),background .25s,translate .3s var(--ease)}
+.js .proof.in .pf{opacity:1;transform:none}
+.js .proof.in .pf:nth-child(2){transition-delay:.08s,.08s,0s,0s}.js .proof.in .pf:nth-child(3){transition-delay:.16s,.16s,0s,0s}.js .proof.in .pf:nth-child(4){transition-delay:.24s,.24s,0s,0s}
+.pi{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;flex:none;transition:transform .4s var(--ease)}
+.pf:hover .pi{transform:rotate(-8deg) scale(1.06)}
+.pf-who .pi{background:var(--accent-soft);color:var(--accent-ink)}
+.pf-trial .pi{background:var(--green-soft);color:var(--green)}
+.pf-stripe .pi{background:var(--violet-soft);color:var(--violet)}
+.pf-time .pi{background:var(--blue-soft);color:var(--blue)}
+.pi svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+.switch-row{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:34px;max-width:100%}
+.switch-row .switch{margin-top:0}
+.switch-lbl{font:500 11.5px var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);flex:none}
+
+.win-url{display:inline-flex;align-items:center;gap:6px}
+.win-url .lock{width:8px;height:7px;border-radius:2px;background:var(--muted);position:relative;margin-top:3px}
+.win-url .lock::before{content:"";position:absolute;left:1px;top:-4px;width:6px;height:6px;border:1.5px solid var(--muted);border-bottom:0;border-radius:4px 4px 0 0;box-sizing:border-box}
+.win-bar{position:relative}
+.live{position:absolute;right:16px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;gap:6px;font:500 11px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--green)}
+.live i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(18,128,79,.5);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(18,128,79,.45)}70%{box-shadow:0 0 0 7px rgba(18,128,79,0)}100%{box-shadow:0 0 0 0 rgba(18,128,79,0)}}
+
+.stage{--rx:0deg;--ry:0deg}
+.stage.flat .win{transform:rotateX(var(--rx)) rotateY(var(--ry))}
+.stage.flat .win{transition:transform .6s var(--ease)}
+.stage .float{transition:translate .6s var(--ease)}
+.stage.tilting .float.phone{translate:calc(var(--px,0px) * -1) calc(var(--py,0px) * -1)}
+.stage.tilting .float.toasts{translate:var(--px,0px) var(--py,0px)}
+.win::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;background:radial-gradient(600px circle at var(--gx,50%) var(--gy,0%),rgba(255,255,255,.35),transparent 50%);opacity:0;transition:opacity .4s}
+.stage.tilting .win::after{opacity:1}
+.wk,.gauge-n,.cells,.app-who b{transition:opacity .28s var(--ease),transform .28s var(--ease),filter .28s}
+.swapping .wk,.swapping .gauge-n,.swapping .cells,.swapping .app-who b{opacity:0;transform:translateY(6px);filter:blur(3px)}
+.ev{transition:box-shadow .3s,transform .3s var(--ease)}
+.ev:hover{transform:translateY(-1px)}
+.mq:hover .mq-track{animation-play-state:paused}
+
+/* announcement badge
+   A white pill inside a slowly turning orange ring. An orange "New" chip
+   with a sparkle and a light sweep, a hairline divider, then the feature
+   name, which the script turns into a rotator (Waitlists, Class packs,
+   Make-up credits, Piece tracking) sliding up one at a time, with the width
+   easing between names. "are live" and the arrow stay put. Hover lifts it
+   and glows the ring. Without JS it shows the full sentence. */
+.badge{position:relative;isolation:isolate;display:inline-flex;align-items:center;gap:10px;height:38px;padding:0 6px 0 5px;margin-bottom:28px;border-radius:999px;font-size:13.5px;color:var(--ink-2);background:#fff;box-shadow:0 1px 2px rgba(14,15,18,.06),0 10px 26px -14px rgba(239,90,36,.45);transition:translate .35s var(--ease),box-shadow .35s var(--ease),opacity .9s var(--ease),transform .9s var(--ease)}
+.badge::before{content:"";position:absolute;inset:-1px;z-index:-2;border-radius:inherit;background:conic-gradient(from var(--a,0deg),rgba(239,90,36,.75),rgba(255,178,127,.35),rgba(14,15,18,.08),rgba(14,15,18,.08),rgba(239,90,36,.75));animation:spin 6s linear infinite}
+.badge::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;background:linear-gradient(180deg,#fff,#fffaf6)}
+.badge:hover{translate:0 -2px;box-shadow:0 2px 4px rgba(14,15,18,.06),0 16px 34px -14px rgba(239,90,36,.6)}
+.badge-new{position:relative;overflow:hidden;display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px 0 8px;border-radius:999px;font:500 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:#fff;background:var(--btn-bg);box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 4px 10px -4px rgba(var(--btn-tint),.7)}
+.badge-new svg{width:12px;height:12px;fill:#fff;animation:twinkle 2.4s var(--ease) infinite}
+.badge-new::after{content:"";position:absolute;top:0;bottom:0;left:0;width:60%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);transform:translateX(-140%) skewX(-20deg);animation:chipsheen 4s var(--ease) infinite 1.2s}
+@keyframes twinkle{0%,100%{transform:scale(1) rotate(0)}40%{transform:scale(1.25) rotate(20deg)}60%{transform:scale(.9) rotate(-10deg)}}
+@keyframes chipsheen{0%{transform:translateX(-140%) skewX(-20deg)}30%,100%{transform:translateX(260%) skewX(-20deg)}}
+.badge-sep{width:1px;height:16px;background:var(--line-2)}
+.badge-txt{font-weight:500;color:var(--ink)}
+.badge-tail{color:var(--body)}
+.rot{position:relative;display:inline-block;height:1.5em;vertical-align:bottom;overflow:hidden;transition:width .45s var(--ease)}
+.rot span{position:absolute;left:0;top:0;white-space:nowrap;line-height:1.5em;font-weight:600;background:linear-gradient(90deg,var(--accent-ink),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent;transform:translateY(100%);opacity:0;transition:transform .5s var(--ease),opacity .4s}
+.rot span.on{transform:none;opacity:1}
+.rot span.out{transform:translateY(-100%);opacity:0}
+.badge-go{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--paper);box-shadow:inset 0 0 0 1px var(--line);transition:transform .35s var(--ease),background .3s,box-shadow .3s}
+.badge-go svg{width:10px;height:10px;stroke:var(--ink);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:stroke .3s}
+.badge:hover .badge-go{transform:translateX(2px);background:var(--accent);box-shadow:none}
+.badge:hover .badge-go svg{stroke:#fff}
+@media (max-width:560px){
+  .badge{font-size:13px;gap:8px}
+  .badge-sep,.badge-tail{display:none}
+}
+
+/* trade switcher, enhanced
+   "Live preview" with a pulsing dot; each trade has a line icon and its
+   resource count; during autoplay a thin bar fills along the bottom of the
+   active trade (paused on hover, gone once a trade is picked). */
+.switch-row{gap:14px}
+.switch-lbl{display:inline-flex;align-items:center;gap:8px}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+.switch{padding:5px;gap:2px;background:rgba(255,255,255,.8);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);box-shadow:inset 0 0 0 1px var(--line),0 10px 28px -20px rgba(14,15,18,.35)}
+.switch button{position:relative;display:inline-flex;align-items:center;gap:8px;padding:8px 10px 8px 9px;overflow:hidden}
+.sw-ic{display:grid;place-items:center;width:24px;height:24px;border-radius:8px;background:var(--paper);box-shadow:inset 0 0 0 1px var(--line);color:var(--body);transition:background .3s,color .3s,box-shadow .3s,transform .4s var(--ease)}
+.sw-ic svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.switch button:hover .sw-ic{transform:rotate(-8deg)}
+.switch button[aria-pressed=true] .sw-ic{background:rgba(255,255,255,.22);box-shadow:none;color:#fff}
+.sw-n{font:500 10.5px var(--mono);padding:2px 6px;border-radius:999px;background:rgba(14,15,18,.06);color:var(--muted);transition:background .3s,color .3s}
+.switch button[aria-pressed=true] .sw-n{background:rgba(255,255,255,.22);color:#fff}
+.sw-bar{position:absolute;left:12px;right:12px;bottom:3px;height:2px;border-radius:2px;background:rgba(255,255,255,.28);opacity:0;transition:opacity .3s}
+.sw-bar::after{content:"";position:absolute;inset:0;border-radius:inherit;background:#fff;transform-origin:0 50%;transform:scaleX(var(--prog,0));transition:transform .1s linear}
+.autoplay .switch button[aria-pressed=true] .sw-bar{opacity:1}
+
+/* hero buttons, enhanced
+   The primary breathes a soft glow every few seconds until someone hovers
+   it. The demo button leads with a play disc that sends out a ripple, and
+   fills orange on hover. */
+.ctas{gap:14px}
+.hero .glow:not(:hover) .glow-halo{animation:breathe 5s var(--ease) infinite 2.5s}
+@keyframes breathe{0%,60%,100%{opacity:0}78%{opacity:.85}}
+.btn-line.has-play{padding-left:8px}
+.play{position:relative;z-index:2;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;flex:none;background:var(--ink);transition:background .3s,transform .35s var(--ease)}
+.btn-lg .play{width:40px;height:40px}
+.play svg{width:12px;height:12px;fill:#fff;margin-left:2px}
+.play::after{content:"";position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 0 rgba(14,15,18,.35);animation:ripple 2.6s var(--ease) infinite}
+@keyframes ripple{0%{box-shadow:0 0 0 0 rgba(14,15,18,.3)}70%,100%{box-shadow:0 0 0 12px rgba(14,15,18,0)}}
+.btn-line.has-play:hover .play{background:var(--accent);transform:scale(1.06)}
+.btn-line.has-play:hover .play::after{animation-name:ripple-o}
+@keyframes ripple-o{0%{box-shadow:0 0 0 0 rgba(239,90,36,.45)}70%,100%{box-shadow:0 0 0 12px rgba(239,90,36,0)}}
+.cta .play{background:#fff}
+.cta .play svg{fill:var(--ink)}
+.cta .play::after{animation-name:ripple-w}
+@keyframes ripple-w{0%{box-shadow:0 0 0 0 rgba(255,255,255,.35)}70%,100%{box-shadow:0 0 0 12px rgba(255,255,255,0)}}
+@media (max-width:560px){
+  .sw-n{display:none}
+  .switch button{padding:7px 10px 7px 7px}
+}
 
 /* product stage */
 .stage{position:relative;max-width:1080px;margin:56px auto 0;perspective:2000px}
@@ -464,7 +633,7 @@ a.tr:hover .res{color:#8a8e99}
 .scale{display:flex;justify-content:space-between;font:500 11px var(--mono);color:var(--muted);margin-top:10px}
 .rates{display:flex;gap:6px}
 .rates button{flex:1;height:44px;border:0;border-radius:12px;background:var(--paper);box-shadow:inset 0 0 0 1px var(--line);font:500 14px var(--sans);color:var(--body);cursor:pointer;transition:background .2s,color .2s}
-.rates button[aria-pressed=true]{background:var(--ink);color:#fff;box-shadow:none}
+.rates button[aria-pressed=true]{background:var(--accent);color:#fff;box-shadow:none}
 .calc-out .lbl{color:#8a8e99}
 .keep{font-size:clamp(52px,6vw,80px);font-weight:600;letter-spacing:-.06em;line-height:1;margin:14px 0 6px;color:var(--accent-2);font-variant-numeric:tabular-nums}
 .keep-sub{color:var(--night-body);font-size:15px}
@@ -518,7 +687,6 @@ a.tr:hover .res{color:#8a8e99}
 .cta h2{font-size:clamp(44px,7vw,92px);letter-spacing:-.05em;line-height:.98}
 .cta h2 em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--accent-2)}
 .cta p{color:var(--night-body);font-size:18px;margin:24px auto 36px;max-width:520px}
-.cta .btn-ink{background:#fff;color:var(--ink)}
 .cta .btn-line{background:transparent;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.22)}
 
 /* footer */
@@ -546,6 +714,7 @@ body::after{content:"";position:fixed;inset:0;z-index:100;pointer-events:none;op
   *,*::before,*::after{animation:none!important;transition:none!important}
   html{scroll-behavior:auto}
   .js .rv,.hero h1 .w{opacity:1;transform:none;filter:none}
+  .hero h1 .wm{overflow:visible}
   .win{transform:none}
   .toast{opacity:1;transform:none}
 }
@@ -556,6 +725,10 @@ body::after{content:"";position:fixed;inset:0;z-index:100;pointer-events:none;op
   .phone{left:-16px}
   .toasts{right:-12px}
   .tgrid{grid-template-columns:repeat(3,1fr)}
+}
+@media (max-width:1000px){
+  .hero-inner>.proof{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+  .pf:nth-child(3)::before{display:none}
 }
 @media (max-width:900px){
   .nav-desktop,.header-actions{display:none}
@@ -597,7 +770,14 @@ body::after{content:"";position:fixed;inset:0;z-index:100;pointer-events:none;op
   .site-header{padding:10px 0}
   .hero{padding-top:28px}
   .hero h1{font-size:44px}
-  .ctas .btn{flex:1}
+  .switch-row{flex-direction:column;gap:10px}
+  .orbs i{filter:blur(40px);opacity:.4}
+  .proof{display:grid;grid-template-columns:1fr 1fr;gap:2px;width:100%;max-width:420px;border-radius:18px}
+  .pf{padding:8px}
+  .pf::before{display:none}
+  .pt b{white-space:normal;font-size:13px}
+  .ctas{flex-direction:column;align-items:stretch;max-width:420px;margin-left:auto;margin-right:auto}
+  .ctas .btn{width:100%}
   .stage{margin-top:40px}
   .win{transform:none}
   .wk{grid-template-columns:repeat(2,1fr)}
@@ -614,5 +794,34 @@ body::after{content:"";position:fixed;inset:0;z-index:100;pointer-events:none;op
   .cmp th,.cmp td{padding:16px 18px;font-size:14px}
   .cta{padding:96px 20px}
   .price{font-size:54px}
+}
+
+/* first screen: on tablets and up, the header and everything from the badge
+   to the trade switcher fit in one viewport. The block fills exactly the
+   screen below the header and centres its content; spacing (--vg) and the
+   headline size scale with the screen's height, so a 650px laptop and a
+   1080px monitor both get one composed first screen. The product window
+   starts just below the fold. */
+@media (min-width:901px){
+  .site-header{--hp:clamp(6px,1.2vh,14px);padding:var(--hp) 0}
+  .hero{padding-top:0}
+  .hero-top{--vg:clamp(10px,2.3vh,30px);min-height:calc(100svh - 60px - 2 * clamp(6px,1.2vh,14px));display:flex;flex-direction:column;align-items:center;justify-content:center;padding:var(--vg) 0 calc(var(--vg) * 1.3)}
+  .hero-top .badge{margin-bottom:var(--vg)}
+  .hero h1{font-size:clamp(40px,min(6.6vw,9.4vh),92px)}
+  .hero-sub{margin:var(--vg) auto calc(var(--vg) * 1.1);font-size:clamp(16px,min(1.5vw,2.5vh),20px);line-height:1.5}
+  .kicker{margin-top:calc(var(--vg) * .45)}
+  .hero-top .proof{margin-top:var(--vg)}
+  .hero-top .switch-row{margin-top:var(--vg)}
+  .stage{margin-top:clamp(20px,4vh,56px)}
+}
+@media (min-width:901px) and (max-height:720px){
+  .hero-top .btn-lg{height:50px;padding:0 24px;font-size:15px}
+  .hero-top .btn-lg .arr{width:28px;height:28px;margin-right:-14px}
+  .hero-top .btn-lg .play{width:34px;height:34px}
+  .hero-top .pf{padding:6px 14px 6px 6px}
+  .hero-top .pi{width:30px;height:30px}
+  .hero-top .switch button{padding:6px 9px 6px 7px}
+  .hero-top .badge{height:34px}
+  .hero-top .badge-new{height:24px}
 }
 `;

@@ -39,7 +39,7 @@ const ARROW = `<span class="arr" aria-hidden="true">${ARROW_SVG}${ARROW_SVG}</sp
 
 const GO = '<span class="go" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3 8h10M9 4l4 4-4 4"/></svg></span>';
 
-type ButtonOpts = { size?: 'sm' | 'lg'; glow?: boolean; block?: boolean };
+type ButtonOpts = { size?: 'sm' | 'lg'; glow?: boolean; block?: boolean; play?: boolean };
 
 function cls(base: string, opts: ButtonOpts): string {
   return [
@@ -66,7 +66,10 @@ function accent(href: string, label: string, opts: ButtonOpts = {}): string {
 
 /** Secondary: frosted glass, gradient ring and an arrow on hover. */
 function secondary(href: string, label: string, opts: ButtonOpts = {}): string {
-  return `<a href="${href}" class="${cls('btn-line', opts)}"><span class="lbl">${label}</span>${GO}</a>`;
+  const play = opts.play
+    ? '<span class="play" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="M4 2.6v6.8L9.4 6z"/></svg></span>'
+    : '';
+  return `<a href="${href}" class="${cls('btn-line', opts)}${opts.play ? ' has-play' : ''}">${play}<span class="lbl">${label}</span>${GO}</a>`;
 }
 
 const BRAND_MARK = `<span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="16" height="16" fill="none">
@@ -188,12 +191,20 @@ function switcherTemplates(): string {
     .join('');
 }
 
+/** One small line icon per trade in the hero switcher. */
+const SWITCH_ICONS: Record<string, string> = {
+  'for/pottery': '<path d="M8 3h8"/><path d="M9 3c0 3-4 4-4 9a7 7 0 0 0 14 0c0-5-4-6-4-9"/><path d="M6.5 14h11"/>',
+  'for/kayak-tours': '<path d="M2 15c2.5 2 5 2 7.5 0s5-2 7.5 0 3.5 1.5 5 1"/><path d="M4 11.5 20 6"/><path d="m17 4 4 1.5-1.5 2"/>',
+  'for/woodworking': '<path d="m14 4 6 6"/><path d="M12.5 5.5 4 14l6 6 8.5-8.5"/><path d="m7 17 2-2M10 14l1.5-1.5"/>',
+  'for/walking-tours': '<path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11Z"/><circle cx="12" cy="10" r="2.2"/>',
+};
+
 function switcherButtons(): string {
   return SWITCHER.map(bySlug)
     .filter((vertical): vertical is Vertical => Boolean(vertical))
     .map(
       (vertical, i) =>
-        `<button type="button" data-trade="${escapeHtml(vertical.slug)}" aria-pressed="${i === 0}">${escapeHtml(vertical.navLabel)}</button>`,
+        `<button type="button" data-trade="${escapeHtml(vertical.slug)}" aria-pressed="${i === 0}" title="${escapeHtml(`${vertical.capacity.total} · ${vertical.capacity.label}`)}"><span class="sw-ic" aria-hidden="true"><svg viewBox="0 0 24 24">${SWITCH_ICONS[vertical.slug] ?? ''}</svg></span><span class="sw-name">${escapeHtml(vertical.navLabel)}</span><span class="sw-n" aria-hidden="true">${String(vertical.capacity.total).padStart(2, '0')}</span><i class="sw-bar" aria-hidden="true"></i></button>`,
     )
     .join('');
 }
@@ -455,6 +466,73 @@ function marquee(): string {
 // Header menus
 // ---------------------------------------------------------------------------
 
+const CHEVRON_RIGHT = '<svg viewBox="0 0 10 10"><path d="M3.5 2 6.5 5 3.5 8"/></svg>';
+
+const SPARKLE = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 0c.4 2.6 1.4 3.6 4 4-2.6.4-3.6 1.4-4 4-.4-2.6-1.4-3.6-4-4 2.6-.4 3.6-1.4 4-4Z"/><path d="M10 8c.2 1 .6 1.4 1.6 1.6-1 .2-1.4.6-1.6 1.6-.2-1-.6-1.4-1.6-1.6 1-.2 1.4-.6 1.6-1.6Z" opacity=".7"/></svg>';
+
+/**
+ * The countable things each trade's intro names. In the hero subtitle these
+ * are set in ink with a highlighter stroke, so the page's one idea (capacity
+ * is what you own) is what the eye picks out of the sentence.
+ */
+const OWNED_NOUNS = [
+  'press arms', 'wheels', 'kayaks', 'benches', 'seats', 'stations', 'looms', 'hulls',
+  'guides', 'guide', 'tanks', 'boats', 'machines', 'kilns', 'vessel', 'instructor ratios',
+];
+
+const CLOSER = 'No booking fees and no commission.';
+
+/**
+ * The hero subtitle: the intro with its owned nouns marked, and the closing
+ * promise lifted onto its own line as a highlighted kicker. Same words, same
+ * order, so the text a crawler reads is unchanged.
+ */
+function introHtml(intro: string): string {
+  const trimmed = intro.trim();
+  const hasCloser = trimmed.endsWith(CLOSER);
+  const lead = hasCloser ? trimmed.slice(0, -CLOSER.length).trim() : trimmed;
+  const pattern = new RegExp(`\\b(${OWNED_NOUNS.map((n) => n.replace(/ /g, '\\s')).join('|')})\\b`, 'g');
+  const marked = escapeHtml(lead).replace(pattern, '<em class="own">$1</em>');
+  return hasCloser
+    ? `${marked} <span class="kicker"><span class="kicker-mark">${escapeHtml(CLOSER)}</span></span>`
+    : marked;
+}
+
+/**
+ * The proof row under the hero buttons. Four facts, each true by construction
+ * (who it is for, the trial, where payouts land, setup time) and none of them
+ * repeating the "no commission" line just above it.
+ */
+const PROOF_ICONS = {
+  who: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/>',
+  trial: '<rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="m9 14.5 2 2 4-4"/>',
+  stripe: '<rect x="2.5" y="5.5" width="19" height="13" rx="3"/><path d="M2.5 10h19"/><path d="M6.5 14.5h4"/>',
+  time: '<circle cx="12" cy="12.5" r="8.5"/><path d="M12 8v4.5l3 2"/><path d="M9.5 2.5h5"/>',
+};
+
+function proofRow(vertical: Vertical): string {
+  const items: [keyof typeof PROOF_ICONS, string, string][] = [
+    ['who', vertical.badge.replace(/^For\s+/i, '').replace(/^./, (c) => c.toUpperCase()), 'Built for'],
+    ['trial', '14 days free', 'No card needed'],
+    ['stripe', 'Payouts to your Stripe', 'Not held by us'],
+    ['time', 'Live this afternoon', 'Nothing to install'],
+  ];
+  return `<ul class="proof rv d3" aria-label="At a glance">${items
+    .map(
+      ([key, title, note]) =>
+        `<li class="pf pf-${key}"><span class="pi" aria-hidden="true"><svg viewBox="0 0 24 24">${PROOF_ICONS[key]}</svg></span><span class="pt"><small>${escapeHtml(note)}</small><b>${escapeHtml(title)}</b></span></li>`,
+    )
+    .join('')}</ul>`;
+}
+
+/** "A, b, c and d", for the badge's no-JavaScript sentence. */
+function listSentence(items: string[]): string {
+  const lower = items.map((item, i) => (i === 0 ? item : item.charAt(0).toLowerCase() + item.slice(1)));
+  return lower.length < 2 ? lower.join('') : `${lower.slice(0, -1).join(', ')} and ${lower[lower.length - 1]}`;
+}
+
+const CHECK_SVG = '<svg viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.5l4.5-5"/></svg>';
+
 const CHEVRON = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5"/></svg>';
 
 const icon = (d: string) =>
@@ -635,20 +713,23 @@ ${structuredData(page, canonical)}
 <main id="main">
   <section class="hero" id="hero" aria-label="Overview">
     <div class="spot" id="spot" aria-hidden="true"></div>
+    <div class="orbs" aria-hidden="true"><i></i><i></i><i></i></div>
     <div class="container hero-inner">
-      <a href="#features" class="badge rv"><b>New</b>${escapeHtml(vertical.badge)} · waitlists and class packs are live</a>
+      <div class="hero-top">
+      <a href="#features" class="badge rv"><span class="badge-new">${SPARKLE}New</span><span class="badge-sep" aria-hidden="true"></span><span class="badge-txt" data-rotate="${escapeHtml(JUST_SHIPPED.map((item) => item.title).join('|'))}">${escapeHtml(listSentence(JUST_SHIPPED.map((item) => item.title)))}</span><span class="badge-tail">are live</span><i class="badge-go" aria-hidden="true">${CHEVRON_RIGHT}</i></a>
       <div class="rv d1"><h1>${escapeHtml(page.h1)}</h1></div>
-      <p class="sub hero-sub rv d2">${escapeHtml(page.intro)}</p>
+      <p class="sub hero-sub rv d2">${introHtml(page.intro)}</p>
       <div class="ctas rv d3">
         ${primary('/app?signup=1', 'Start free for 14 days', { size: 'lg', glow: true })}
-        ${secondary('/demo', 'Explore the live demo', { size: 'lg' })}
+        ${secondary('/demo', 'Explore the live demo', { size: 'lg', play: true })}
       </div>
-      <p class="hero-note rv d3">No card needed · nothing to install · 0% commission</p>
-      ${isHome ? `<div class="switch rv d3" role="group" aria-label="Show the schedule for a trade">${switcherButtons()}</div>${switcherTemplates()}` : ''}
+      ${proofRow(vertical)}
+      ${isHome ? `<div class="switch-row rv d3"><span class="switch-lbl"><i class="live-dot" aria-hidden="true"></i>Live preview</span><div class="switch" role="group" aria-label="Show the schedule for a trade">${switcherButtons()}</div></div>${switcherTemplates()}` : ''}
 
+      </div>
       <div class="stage rv" id="stage" role="img" aria-label="${escapeHtml(BRAND)} schedule and booking page, illustrated">
         <div class="win">
-          <div class="win-bar"><i></i><i></i><i></i><span class="win-url">${escapeHtml(appHost)}/schedule</span></div>
+          <div class="win-bar"><i></i><i></i><i></i><span class="win-url"><i class="lock" aria-hidden="true"></i>${escapeHtml(appHost)}/schedule</span><span class="live"><i></i>Live</span></div>
           <div class="app">
             <div class="app-side">
               <div class="app-who"><span class="av" id="av">${escapeHtml(initials(card.name))}</span><div><b id="studio">${escapeHtml(card.name)}</b><small>${escapeHtml(PLANS.STUDIO.name)} plan</small></div></div>
@@ -753,7 +834,7 @@ ${structuredData(page, canonical)}
     <p>${escapeHtml(page.cta ?? 'Start free for 14 days. No card needed.')}</p>
     <div class="ctas">
       ${primary('/app?signup=1', 'Start free for 14 days', { size: 'lg', glow: true })}
-      ${secondary('/demo', 'Explore the live demo', { size: 'lg' })}
+      ${secondary('/demo', 'Explore the live demo', { size: 'lg', play: true })}
     </div>
   </section>
 </main>

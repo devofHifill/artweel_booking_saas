@@ -29,20 +29,54 @@ export const LANDING_JS = `
     h1.setAttribute('aria-label',h1.textContent.trim());
     h1.textContent='';
     words.forEach(function(w,i){
+      var m=document.createElement('span');m.className='wm';m.setAttribute('aria-hidden','true');
       var s=document.createElement('span');
       s.className='w'+(i===words.length-1?' serif':'');
-      s.setAttribute('aria-hidden','true');
       s.textContent=w;
-      s.style.transitionDelay=(i*70)+'ms';
-      h1.appendChild(s);
+      s.style.transitionDelay=(i*65)+'ms';
+      m.appendChild(s);h1.appendChild(m);
       if(i<words.length-1)h1.appendChild(document.createTextNode(' '));
     });
+    /* open the masks once the last word has actually landed. Keyed to the
+       transition, not a timer: a throttled tab can run timers ahead of the
+       animation, and an early open lets rising words spill over the text. */
+    var lastW=h1.querySelectorAll('.w');lastW=lastW[lastW.length-1];
+    var settle=function(){h1.classList.add('settled')};
+    if(reduce||!lastW){settle()}else{lastW.addEventListener('transitionend',function(e){if(e.propertyName==='transform')settle()});setTimeout(settle,6000)}
+    /* hand-drawn underline under the accent word */
+    var acc=h1.querySelector('.serif');
+    if(acc){
+      var ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),path=document.createElementNS(ns,'path');
+      svg.setAttribute('class','uline');svg.setAttribute('viewBox','0 0 200 20');svg.setAttribute('preserveAspectRatio','none');svg.setAttribute('aria-hidden','true');
+      path.setAttribute('d','M3 14 C 40 6, 90 4, 130 8 S 185 13, 197 7');
+      svg.appendChild(path);acc.appendChild(svg);
+    }
     setTimeout(function(){h1.classList.add('go')},reduce?0:120);
+  }
+
+  /* announcement badge: the feature names take turns sliding up */
+  var bt=document.querySelector('.badge-txt[data-rotate]');
+  if(bt&&!reduce){
+    var names=bt.getAttribute('data-rotate').split('|'),full=bt.textContent;
+    var sr=document.createElement('span');sr.className='sr-only';sr.textContent=full;
+    var rot=document.createElement('span');rot.className='rot';rot.setAttribute('aria-hidden','true');
+    var spans=names.map(function(n,i){var s=document.createElement('span');s.textContent=n;if(i===0)s.className='on';rot.appendChild(s);return s});
+    bt.textContent='';bt.appendChild(sr);bt.appendChild(rot);
+    var ri=0;
+    var fit=function(){rot.style.width=Math.ceil(spans[ri].getBoundingClientRect().width)+'px'};
+    fit();
+    if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);
+    setInterval(function(){
+      if(document.hidden)return;
+      var prev=spans[ri];ri=(ri+1)%spans.length;
+      prev.className='out';spans[ri].className='on';fit();
+      setTimeout(function(){if(prev.className==='out')prev.className=''},520);
+    },2600);
   }
 
   /* reveals. The hero is revealed on load, never on scroll: on a short
      laptop screen its buttons sit below the fold and must not wait. */
-  each('.hero .rv',function(el){requestAnimationFrame(function(){el.classList.add('in')})});
+  each('.hero .rv',function(el){setTimeout(function(){el.classList.add('in')},30)});
   if('IntersectionObserver' in window){
     var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{rootMargin:'0px 0px -10% 0px'});
     each('.rv',function(el){io.observe(el)});
@@ -170,17 +204,64 @@ export const LANDING_JS = `
   /* trade switcher (home only): swaps the mock-up from <template> data */
   var tpls={};each('template[data-trade]',function(t){tpls[t.getAttribute('data-trade')]=t});
   var order=Object.keys(tpls),cur=order[0],auto=true,timer=null;
-  function showTrade(k){
+  function applyTrade(k){
     var t=tpls[k];if(!t)return;
     var src=t.content||t;
     var map={wk:'.t-wk',gaugeLabel:'.t-label',gaugeNum:'.t-num',cells:'.t-cells',studio:'.t-studio',av:'.t-av',studio2:'.t-studio',av2:'.t-av',toastTitle:'.t-toast'};
     Object.keys(map).forEach(function(id){var el=$(id),from=src.querySelector(map[id]);if(el&&from)el.innerHTML=from.innerHTML});
+  }
+  /* cross-fade: blur out, swap, blur in */
+  function showTrade(k,instant){
+    if(!tpls[k])return;
     each('.switch button',function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-trade')===k))});
     cur=k;
+    if(instant||reduce||!stage){applyTrade(k);return}
+    stage.classList.add('swapping');
+    clearTimeout(stage._swap);
+    stage._swap=setTimeout(function(){applyTrade(k);setTimeout(function(){stage.classList.remove('swapping')},30)},280);
   }
-  each('.switch button',function(b){b.addEventListener('click',function(){auto=false;if(timer)clearInterval(timer);showTrade(b.getAttribute('data-trade'))})});
-  if(cur)showTrade(cur);
-  if(order.length>1&&!reduce){timer=setInterval(function(){if(!auto||document.hidden)return;showTrade(order[(order.indexOf(cur)+1)%order.length])},4200)}
+  var sw=document.querySelector('.switch'),swRow=document.querySelector('.switch-row');
+  function stopAuto(){auto=false;if(timer)clearInterval(timer);if(swRow)swRow.classList.remove('autoplay');each('.switch button',function(b){b.style.removeProperty('--prog')})}
+  each('.switch button',function(b){b.addEventListener('click',function(){stopAuto();showTrade(b.getAttribute('data-trade'))})});
+  /* arrow keys move between trades, like a tab list */
+  if(sw)sw.addEventListener('keydown',function(e){
+    if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft')return;
+    e.preventDefault();
+    var i=order.indexOf(cur)+(e.key==='ArrowRight'?1:-1);i=(i+order.length)%order.length;
+    stopAuto();showTrade(order[i]);
+    var nb=sw.querySelector('button[data-trade="'+order[i]+'"]');if(nb)nb.focus();
+  });
+  if(cur)showTrade(cur,true);
+
+  /* the product window tilts gently toward the mouse, with a moving sheen */
+  if(stage&&fine&&!reduce){
+    stage.addEventListener('pointermove',function(e){
+      if(!stage.classList.contains('flat'))return;
+      var r=stage.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;
+      stage.classList.add('tilting');
+      stage.style.setProperty('--ry',(x*5).toFixed(2)+'deg');stage.style.setProperty('--rx',(-y*4).toFixed(2)+'deg');
+      stage.style.setProperty('--px',(x*14).toFixed(1)+'px');stage.style.setProperty('--py',(y*10).toFixed(1)+'px');
+      stage.style.setProperty('--gx',((x+.5)*100).toFixed(1)+'%');stage.style.setProperty('--gy',((y+.5)*100).toFixed(1)+'%');
+    });
+    stage.addEventListener('pointerleave',function(){
+      stage.classList.remove('tilting');
+      ['--rx','--ry','--px','--py'].forEach(function(v){stage.style.setProperty(v,v.indexOf('p')===2?'0px':'0deg')});
+    });
+  }
+  /* autoplay: a thin bar fills inside the active trade, then it moves on.
+     Hovering the switcher or the preview pauses it; choosing a trade ends it. */
+  if(order.length>1&&!reduce&&sw){
+    var prog=0,held=false,STEP=100,DUR=4600;
+    if(swRow)swRow.classList.add('autoplay');
+    [swRow,stage].forEach(function(el){if(!el)return;el.addEventListener('pointerenter',function(){held=true});el.addEventListener('pointerleave',function(){held=false})});
+    timer=setInterval(function(){
+      if(!auto||document.hidden||held)return;
+      prog+=STEP/DUR;
+      var on=sw.querySelector('button[aria-pressed=true]');
+      if(prog>=1){prog=0;if(on)on.style.removeProperty('--prog');showTrade(order[(order.indexOf(cur)+1)%order.length]);return}
+      if(on)on.style.setProperty('--prog',prog.toFixed(3));
+    },STEP);
+  }
 
   /* capacity tile: places filling and freeing */
   var racks=$('racks'),seats=$('seatsLeft');
