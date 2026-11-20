@@ -380,5 +380,35 @@ export const LANDING_JS = `
     each('.plans-pick button',function(b){b.addEventListener('click',function(){planMonth=+b.getAttribute('data-plan');planName=b.getAttribute('data-name');each('.plans-pick button',function(o){o.setAttribute('aria-pressed',String(o===b))});calc()})});
     calc();
   }
+  /* plan finder: the cheapest plan that meets every answer gets "Your fit" */
+  var finder=$('finder');
+  if(finder){
+    var cards=Array.prototype.slice.call(document.querySelectorAll('#plans .plan'));
+    var need={staff:5,loc:1,mobile:false,courses:false};
+    var fits=function(c){
+      var st=c.getAttribute('data-staff'),lo=c.getAttribute('data-loc');
+      return (st===''||+st>=need.staff)&&(lo===''||+lo>=need.loc)&&(!need.mobile||c.getAttribute('data-mobile')==='1')&&(!need.courses||c.getAttribute('data-courses')==='1');
+    };
+    var pick=function(){
+      var best=null;cards.forEach(function(c){if(!best&&fits(c))best=c});
+      cards.forEach(function(c){c.classList.toggle('fit',c===best)});
+      if(best){
+        $('fitName').textContent=best.querySelector('.plan-name').firstChild.textContent.trim();
+        $('fitPrice').textContent=best.querySelector('.price').textContent.split(' ').join('').trim();
+      }
+    };
+    Array.prototype.forEach.call(finder.querySelectorAll('.fq-seg'),function(g){
+      var q=g.getAttribute('data-q');
+      Array.prototype.forEach.call(g.querySelectorAll('button'),function(b){b.addEventListener('click',function(){
+        need[q]=+b.getAttribute('data-v');
+        Array.prototype.forEach.call(g.querySelectorAll('button'),function(o){o.setAttribute('aria-pressed',String(o===b))});
+        pick();
+      })});
+    });
+    Array.prototype.forEach.call(finder.querySelectorAll('.fq-tog'),function(t){t.addEventListener('click',function(){
+      var on=t.getAttribute('aria-pressed')!=='true';t.setAttribute('aria-pressed',String(on));need[t.getAttribute('data-q')]=on;pick();
+    })});
+    pick();
+  }
 })();
 `;

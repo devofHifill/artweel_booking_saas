@@ -577,34 +577,92 @@ function calculator(): string {
 }
 
 /**
- * The plans, from billing. A price here that the checkout then contradicts is
- * the one error on a pricing section nobody forgives.
+ * Pricing, from billing. A price here that the checkout then contradicts is
+ * the one error on a pricing section nobody forgives, so everything below
+ * (prices, limits, which features each plan has, and the plan finder's
+ * rules) reads PLANS.
+ *
+ * Every card lists the same rows in the same order, with what a plan lacks
+ * shown crossed out, so the difference between plans is visible at a
+ * glance. What every plan shares goes in one strip underneath.
  */
+type PlanRow = { label: string; yes: boolean };
+
+function planRows(plan: (typeof PLANS)[keyof typeof PLANS]): PlanRow[] {
+  const count = (n: number | null, one: string, many: string) =>
+    n === null ? `Unlimited ${many}` : `${n} ${n === 1 ? one : many}`;
+  return [
+    { label: count(plan.maxStaff, 'instructor', 'instructors'), yes: true },
+    { label: count(plan.maxLocations, 'location', 'locations'), yes: true },
+    { label: classesLine(plan), yes: true },
+    { label: 'Unlimited events', yes: true },
+    { label: 'Mobile and travelling bookings', yes: plan.mobileBookings },
+    { label: 'Text reminders', yes: plan.smsReminders },
+    { label: 'Multi-week courses', yes: plan.courseSeries },
+  ];
+}
+
+/** Shared by every plan: listed once, under the cards. */
+const EVERY_PLAN = [
+  '0% commission on every booking',
+  'Payments straight to your Stripe',
+  'Deposits and cancellation rules',
+  'Email reminders',
+  'Waitlists, class packs and make-up credits',
+  'Google Calendar sync',
+];
+
 function planCards(): string {
   return Object.values(PLANS)
     .map((plan, i) => {
       const featured = plan.id === 'STUDIO';
-      const lines = [
-        `${plan.maxStaff ?? 'Unlimited'} instructor${plan.maxStaff === 1 ? '' : 's'}`,
-        `${plan.maxLocations ?? 'Unlimited'} location${plan.maxLocations === 1 ? '' : 's'}`,
-        classesLine(plan),
-        'Unlimited events',
-        plan.mobileBookings ? 'Mobile and travelling bookings' : null,
-        plan.smsReminders ? 'Text reminders' : null,
-        plan.courseSeries ? 'Multi-week courses' : null,
-        'Deposits and cancellation rules',
-        'Payments straight to your Stripe',
-      ].filter(Boolean) as string[];
+      const rows = planRows(plan);
+      const btn = featured
+        ? accent('/app?signup=1', 'Start free for 14 days', { block: true })
+        : secondary('/app?signup=1', 'Start free for 14 days', { block: true });
 
-      return `<div class="plan rv${i ? ` d${i}` : ''}${featured ? ' featured' : ''}">
+      return `<div class="plan rv${i ? ` d${i}` : ''}${featured ? ' featured' : ''}" data-plan-id="${plan.id}" data-staff="${plan.maxStaff ?? ''}" data-loc="${plan.maxLocations ?? ''}" data-mobile="${plan.mobileBookings ? 1 : 0}" data-courses="${plan.courseSeries ? 1 : 0}">
+<span class="plan-fit" aria-hidden="true">Your fit</span>
 <div class="plan-name">${escapeHtml(plan.name)}${featured ? '<span class="plan-flag">Most chosen</span>' : ''}</div>
 <p class="price"><sup>$</sup>${money(plan.priceCentsMonthly).slice(1)}<small> /month</small></p>
+<p class="plan-bill">Billed monthly · cancel any time</p>
 <p class="plan-note">${escapeHtml(plan.blurb)}</p>
-${featured ? accent('/app?signup=1', 'Start free for 14 days', { block: true }) : secondary('/app?signup=1', 'Start free for 14 days', { block: true })}
-<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>
+${btn}
+<ul>${rows
+        .map((row) =>
+          row.yes
+            ? `<li>${escapeHtml(row.label)}</li>`
+            : `<li class="no"><span class="sr-only">Not included: </span>${escapeHtml(row.label)}</li>`,
+        )
+        .join('')}</ul>
 </div>`;
     })
     .join('');
+}
+
+/**
+ * Which plan fits: four answers, and the cheapest plan that satisfies all of
+ * them lights up. The rules are the plans' own limits (data-staff, data-loc,
+ * data-mobile, data-courses on each card), so the finder cannot disagree
+ * with the cards.
+ */
+function planFinder(): string {
+  const seg = (name: string, label: string, opts: [string, string][], on: number) =>
+    `<div class="fq"><span class="fq-l">${label}</span><div class="rates fq-seg" role="group" aria-label="${label}" data-q="${name}">${opts
+      .map(([value, text], i) => `<button type="button" data-v="${value}" aria-pressed="${i === on}">${text}</button>`)
+      .join('')}</div></div>`;
+  const toggle = (name: string, label: string) =>
+    `<button type="button" class="fq-tog" data-q="${name}" aria-pressed="false"><i aria-hidden="true"></i>${label}</button>`;
+
+  const fit = PLANS.STUDIO;
+  return `<div class="finder rv" id="finder">
+  <div class="fd-head"><span class="label">Which plan fits?</span><p class="fd-out" aria-live="polite">Your fit: <b id="fitName">${escapeHtml(fit.name)}</b> <span id="fitPrice">${money(fit.priceCentsMonthly)}/month</span></p></div>
+  <div class="fd-body">
+    ${seg('staff', 'Instructors', [['1', 'Just me'], ['5', 'Up to 5'], ['6', '6 or more']], 1)}
+    ${seg('loc', 'Locations', [['1', 'One'], ['3', 'Up to 3'], ['4', '4 or more']], 0)}
+    <div class="fq fq-togs">${toggle('mobile', 'We travel to customers')}${toggle('courses', 'We run multi-week courses')}</div>
+  </div>
+</div>`;
 }
 
 function faqList(page: Page): string {
@@ -1072,7 +1130,9 @@ ${structuredData(page, canonical)}
         <div><span class="label">Pricing</span><h2 class="h2" id="pricingTitle">One flat price. <em>No commission.</em></h2></div>
         <p class="sub">Your customers' payments go straight to your own Stripe account. Every plan starts with the 14-day trial, and none of them needs a card.</p>
       </div>
-      <div class="plans">${planCards()}</div>
+      ${planFinder()}
+      <div class="plans" id="plans">${planCards()}</div>
+      <div class="every rv"><span class="every-h">Every plan includes</span><ul>${EVERY_PLAN.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>
       <ul class="assure"><li>No card to start</li><li>Cancel in one click</li><li>Export your data any time</li></ul>
     </div>
   </section>
