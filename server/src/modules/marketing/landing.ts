@@ -5,6 +5,7 @@ import { GENERAL, VERTICALS, type Vertical } from './verticals';
 import { escapeHtml, structuredData } from './render';
 import { LANDING_CSS } from './landing-css';
 import { LANDING_JS } from './landing-js';
+import { FAVICON_HREF, WORDMARK, logoMark } from './brand-logo';
 
 /**
  * The landing page: the home page and the ten /for/<trade> pages.
@@ -72,8 +73,6 @@ function secondary(href: string, label: string, opts: ButtonOpts = {}): string {
   return `<a href="${href}" class="${cls('btn-line', opts)}${opts.play ? ' has-play' : ''}">${play}<span class="lbl">${label}</span>${GO}</a>`;
 }
 
-const BRAND_MARK = `<span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="16" height="16" fill="none">
-<circle cx="16" cy="16" r="11" stroke="currentColor" stroke-width="2.6"/><circle cx="16" cy="16" r="3.4" fill="currentColor"/></svg></span>`;
 
 /**
  * The rows that are true for every trade. The FIRST row — the capacity claim —
@@ -904,7 +903,7 @@ export function renderLanding(page: Page, vertical: Vertical = GENERAL): string 
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="${escapeHtml(page.title)}">
 <meta name="twitter:description" content="${escapeHtml(page.description)}">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23ef5a24'/%3E%3Ccircle cx='16' cy='16' r='7.5' fill='none' stroke='%23fff' stroke-width='2.6'/%3E%3Ccircle cx='16' cy='16' r='2.4' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="icon" href="${FAVICON_HREF}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
@@ -917,7 +916,7 @@ ${structuredData(page, canonical)}
 <header class="site-header" id="siteHeader">
   <div class="container">
     <div class="header-bar">
-      <a href="/" class="brand" aria-label="${escapeHtml(BRAND)} home">${BRAND_MARK}<span>${escapeHtml(BRAND)}</span></a>
+      <a href="/" class="brand" aria-label="${escapeHtml(BRAND)} home">${logoMark('h')}${WORDMARK}</a>
       <nav class="nav-desktop" aria-label="Primary">
         <span class="nav-ind" id="navInd" aria-hidden="true"></span>
         <div class="nav-item" data-menu>
@@ -1029,7 +1028,7 @@ ${structuredData(page, canonical)}
       <table class="cmp">
         <caption class="sr-only">Generic booking tools compared with ${escapeHtml(BRAND)}</caption>
         <colgroup><col class="c-need"><col class="c-them"><col class="c-us"></colgroup>
-        <thead><tr><th scope="col">What you need</th><th scope="col" class="them"><span class="col-h"><span class="col-ic them-ic" aria-hidden="true">?</span>Generic booking tools</span></th><th scope="col" class="us"><span class="col-h">${BRAND_MARK}${escapeHtml(BRAND)}<span class="col-pill">Built for this</span></span></th></tr></thead>
+        <thead><tr><th scope="col">What you need</th><th scope="col" class="them"><span class="col-h"><span class="col-ic them-ic" aria-hidden="true">?</span>Generic booking tools</span></th><th scope="col" class="us"><span class="col-h">${logoMark('c')}${WORDMARK}<span class="col-pill">Built for this</span></span></th></tr></thead>
         <tbody>${comparisonRows(vertical)}</tbody>
         <tfoot><tr><th scope="row"><span class="sr-only">In short</span></th><td class="them"><span class="foot-them">Workarounds, every week</span></td><td class="us">${primary('/app?signup=1', 'Start free for 14 days', { block: true })}</td></tr></tfoot>
       </table>
@@ -1099,7 +1098,7 @@ ${structuredData(page, canonical)}
   <div class="container">
     <div class="footer-grid">
       <div class="footer-brand">
-        <a href="/" class="brand" aria-label="${escapeHtml(BRAND)} home">${BRAND_MARK}<span>${escapeHtml(BRAND)}</span></a>
+        <a href="/" class="brand" aria-label="${escapeHtml(BRAND)} home">${logoMark('f')}${WORDMARK}</a>
         <p class="footer-blurb">${escapeHtml(vertical.footerBlurb)}</p>
       </div>
       <nav class="footer-col" aria-labelledby="fcol1">
@@ -1122,7 +1121,7 @@ ${structuredData(page, canonical)}
         <a href="/alternatives/sawyer">vs Sawyer</a>
       </nav>
     </div>
-    <div class="wordmark" aria-hidden="true">${escapeHtml(BRAND)}</div>
+    <div class="wordmark" aria-hidden="true">${escapeHtml(BRAND).replace('AI', '<em>AI</em>')}</div>
     <div class="footer-bottom"><span>© ${escapeHtml(BRAND)} ${new Date().getFullYear()}</span><span>0% commission on every booking</span></div>
   </div>
 </footer>

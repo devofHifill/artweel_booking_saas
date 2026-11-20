@@ -146,9 +146,15 @@ button{font:inherit}
 .progress{position:absolute;left:24px;right:24px;bottom:0;height:2px;border-radius:2px;overflow:hidden;opacity:0;transition:opacity .3s;pointer-events:none}
 .stuck .progress{opacity:1}
 .progress i{display:block;height:100%;width:100%;transform-origin:0 50%;transform:scaleX(var(--p,0));background:linear-gradient(90deg,var(--accent),var(--accent-2))}
-.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px;letter-spacing:-.03em;color:var(--ink);flex:none;transition:color .3s}
-.brand-mark{width:30px;height:30px;border-radius:10px;background:conic-gradient(from 210deg,var(--accent),var(--accent-2),var(--accent));display:grid;place-items:center;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25),0 4px 10px -4px rgba(239,90,36,.6);flex:none;transition:transform .6s var(--ease)}
-.brand:hover .brand-mark{transform:rotate(-90deg) scale(1.05)}
+/* logo: the redrawn mark plus the wordmark as text (Book, AI in the orange
+   gradient, Hub). On dark backgrounds the calendar flips to light. */
+.brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:19px;letter-spacing:-.035em;color:var(--ink);flex:none;transition:color .3s}
+.brand-mark{display:block;width:36px;height:36px;flex:none;transition:transform .6s var(--ease)}
+.brand-mark svg{display:block;width:100%;height:100%;overflow:visible}
+.brand:hover .brand-mark{transform:rotate(-6deg) scale(1.06)}
+.wm-text{line-height:1}
+.wm-text em{font-style:normal;background:linear-gradient(180deg,#ff8a3d,#ef4f17);-webkit-background-clip:text;background-clip:text;color:transparent;padding-right:.02em}
+.dark-under .brand-mark,.cmp .brand-mark,.dark .brand-mark{--lm-body:#f4f4f2;--lm-face:#1d1f26}
 .nav-desktop{position:relative;display:flex;align-items:center;gap:2px;margin:0 auto;isolation:isolate}
 .nav-desktop>a,.nav-trig{position:relative;display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 14px;font:500 14.5px var(--sans);color:var(--body);border:0;background:transparent;border-radius:999px;cursor:pointer;transition:color .2s}
 .nav-desktop>a:hover,.nav-desktop>a.on,.nav-trig:hover,.nav-trig[aria-expanded=true]{color:var(--ink)}
@@ -693,7 +699,7 @@ html:not(.js) .kicker-mark{background-size:100% 2px}
 .cmp thead th:first-child{color:#6b6f7a}
 .col-h{display:inline-flex;align-items:center;gap:10px}
 .cmp thead .us .col-h{color:#fff;font:600 15px var(--sans);letter-spacing:-.02em;text-transform:none}
-.cmp thead .us .brand-mark{width:26px;height:26px;border-radius:8px}
+.cmp thead .us .brand-mark{width:30px;height:30px}
 .col-ic{display:grid;place-items:center;width:26px;height:26px;border-radius:8px;font:600 12px var(--mono);background:rgba(255,255,255,.06);color:#6b6f7a;box-shadow:inset 0 0 0 1px var(--night-line)}
 .col-pill{font:500 10px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:#1a0d06;background:linear-gradient(180deg,#ffc29c,var(--accent-2));padding:3px 8px;border-radius:999px}
 .cmp tbody th,.cmp tbody td{border-top:1px solid var(--night-line)}
@@ -1021,6 +1027,7 @@ html:not(.js) .cmp .them .tx{background-size:100% 1px}
 .footer-col a{display:block;padding:5px 0;transition:color .2s}
 .footer-col a:hover{color:var(--ink)}
 .footer-blurb{margin-top:16px;max-width:300px}
+.wordmark em{font-style:normal;-webkit-text-stroke:1px rgba(239,90,36,.55)}
 .wordmark{margin-top:72px;font-size:clamp(64px,15vw,210px);font-weight:600;letter-spacing:-.07em;line-height:.8;color:transparent;-webkit-text-stroke:1px var(--line-2);-webkit-user-select:none;user-select:none;white-space:nowrap;overflow:hidden}
 .footer-bottom{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:28px;font:500 12px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 
