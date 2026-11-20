@@ -410,5 +410,27 @@ export const LANDING_JS = `
     })});
     pick();
   }
+  /* faq: answers ease open and closed instead of snapping */
+  if(!reduce&&window.Element&&Element.prototype.animate){
+    each('.qa',function(d){
+      var sum=d.querySelector('summary'),body=d.querySelector('.qa-body');
+      if(!sum||!body)return;
+      sum.addEventListener('click',function(e){
+        e.preventDefault();
+        if(d._anim)d._anim.cancel();
+        if(d.open){
+          var h=body.offsetHeight;
+          d.classList.add('closing');
+          d._anim=body.animate([{height:h+'px',opacity:1},{height:'0px',opacity:0}],{duration:280,easing:'cubic-bezier(.2,.7,.2,1)'});
+          d._anim.onfinish=function(){d.open=false;d.classList.remove('closing');d._anim=null};
+        }else{
+          d.open=true;
+          var full=body.offsetHeight;
+          d._anim=body.animate([{height:'0px',opacity:0},{height:full+'px',opacity:1}],{duration:340,easing:'cubic-bezier(.2,.7,.2,1)'});
+          d._anim.onfinish=function(){d._anim=null};
+        }
+      });
+    });
+  }
 })();
 `;

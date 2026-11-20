@@ -1038,20 +1038,55 @@ html:not(.js) .cmp .them .tx{background-size:100% 1px}
   .plan.fit{translate:none}
 }
 
-/* faq */
-.faq-wrap{display:grid;grid-template-columns:.8fr 1.2fr;gap:64px}
-.faq-aside{margin-top:20px;color:var(--body);max-width:340px}
-.faq details{border-top:1px solid var(--line-2);padding:24px 0}
-.faq details:last-child{border-bottom:1px solid var(--line-2)}
-.faq summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;gap:20px;font-size:19px;font-weight:500;letter-spacing:-.02em}
-.faq summary::-webkit-details-marker{display:none}
-.faq summary i{width:28px;height:28px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px var(--line-2);position:relative;transition:background .3s}
-.faq summary i::before,.faq summary i::after{content:"";position:absolute;left:50%;top:50%;width:10px;height:1.5px;background:var(--ink);transform:translate(-50%,-50%)}
-.faq summary i::after{transform:translate(-50%,-50%) rotate(90deg);transition:transform .3s var(--ease)}
-.faq details[open] summary i{background:var(--ink)}
-.faq details[open] summary i::before,.faq details[open] summary i::after{background:#fff}
-.faq details[open] summary i::after{transform:translate(-50%,-50%) rotate(0)}
-.faq details p{color:var(--body);margin-top:12px;max-width:620px}
+/* faq
+   Left: heading, a count of answers, and a "Still deciding?" card that
+   points to the demo and the trial (sticky on desktop). Right: numbered
+   questions as rows; the open one lifts into a white card with an orange
+   number, and answers ease open and closed (the script animates height;
+   without it, native <details> still works). */
+.faq-wrap{display:grid;grid-template-columns:.85fr 1.15fr;gap:64px;align-items:start}
+.faq-side{position:sticky;top:110px}
+.faq-side .h2 em{font-family:var(--serif);font-style:italic;font-weight:400}
+.faq-aside{margin-top:18px;color:var(--body);max-width:360px}
+.help-card{position:relative;margin-top:28px;padding:22px;border-radius:22px;background:var(--night);color:#fff;overflow:hidden;isolation:isolate;max-width:400px}
+.help-card::before{content:"";position:absolute;right:-30%;top:-50%;width:90%;height:120%;z-index:-1;background:radial-gradient(closest-side,rgba(239,90,36,.4),transparent)}
+.help-ic{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px var(--night-line);margin-bottom:14px}
+.help-ic svg{width:20px;height:20px;fill:none;stroke:var(--accent-2);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.help-card b{display:block;font-size:18px;letter-spacing:-.02em}
+.help-card p{margin:6px 0 16px;font-size:14px;color:var(--night-body)}
+.help-ctas{display:flex;gap:8px;flex-wrap:wrap}
+.help-card .btn-line{background:rgba(255,255,255,.06);color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)}
+.help-card .btn-line:hover{background:rgba(255,255,255,.1)}
+.help-card .play{background:#fff}
+.help-card .play svg{fill:var(--ink)}
+.faq-list{display:flex;flex-direction:column;gap:8px}
+.qa{border-radius:18px;transition:background .3s,box-shadow .3s}
+.qa:hover{background:rgba(255,255,255,.6)}
+.qa[open]{background:#fff;box-shadow:0 0 0 1px var(--line),0 24px 44px -34px rgba(14,15,18,.4)}
+.qa summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:38px 1fr 30px;align-items:center;gap:10px;padding:18px 18px 18px 16px;font-size:18px;font-weight:500;letter-spacing:-.02em;border-radius:18px}
+.qa summary::-webkit-details-marker{display:none}
+.qa summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.qn{font:500 12px var(--mono);color:var(--muted);transition:color .3s}
+.qa[open] .qn{color:var(--accent)}
+.qa summary i{position:relative;width:30px;height:30px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--line-2);transition:background .3s,box-shadow .3s,transform .4s var(--ease)}
+.qa summary i::before,.qa summary i::after{content:"";position:absolute;left:50%;top:50%;width:11px;height:1.6px;border-radius:2px;background:var(--ink);transform:translate(-50%,-50%);transition:transform .35s var(--ease),background .3s}
+.qa summary i::after{transform:translate(-50%,-50%) rotate(90deg)}
+.qa summary:hover i{box-shadow:inset 0 0 0 1px var(--ink)}
+.qa[open] summary i{background:var(--btn-bg);box-shadow:0 6px 14px -6px rgba(var(--btn-tint),.7);transform:rotate(180deg)}
+.qa[open] summary i::before,.qa[open] summary i::after{background:#fff}
+.qa[open] summary i::after{transform:translate(-50%,-50%) rotate(0)}
+.qa-body{overflow:hidden}
+.qa-body p{margin:0;padding:0 64px 22px 64px;color:var(--body);font-size:15.5px;line-height:1.6;max-width:680px}
+.faq-list>.qa+.qa:not([open]){box-shadow:0 -1px 0 var(--line)}
+.qa[open]+.qa:not([open]){box-shadow:none}
+@media (max-width:900px){
+  .faq-wrap{grid-template-columns:1fr;gap:28px}
+  .faq-side{position:static}
+}
+@media (max-width:560px){
+  .qa summary{grid-template-columns:28px 1fr 28px;font-size:16px;padding:15px 12px}
+  .qa-body p{padding:0 14px 18px 50px}
+}
 
 /* closing cta */
 .cta{position:relative;margin:0 16px;padding:150px 28px;text-align:center;border-radius:40px;background:var(--night);color:#fff;overflow:hidden;isolation:isolate}
@@ -1108,8 +1143,7 @@ body::after{content:"";position:fixed;inset:0;z-index:100;pointer-events:none;op
   .nav-toggle{display:flex}
   .section{padding:96px 0}
   .head{flex-direction:column;align-items:flex-start;gap:16px}
-  .plans,.faq-wrap,.tour{grid-template-columns:1fr}
-  .faq-wrap{gap:24px}
+  .plans,.tour{grid-template-columns:1fr}
   .tour{gap:0}
   .tvis{display:none}
   .t-rail{padding:0}

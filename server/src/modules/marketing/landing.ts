@@ -665,11 +665,38 @@ function planFinder(): string {
 </div>`;
 }
 
+/**
+ * Questions true for every trade, added after the page's own FAQs unless the
+ * page already asks the same thing. Each restates something the page
+ * already promises (self-serve changes, calendar sync, data export).
+ * The JSON-LD FAQ block still carries only page.faqs.
+ */
+const SHARED_FAQS = [
+  {
+    q: 'Can customers move or cancel their own booking?',
+    a: 'Yes, from the link in their confirmation, under the cancellation terms you set. Refunds follow your rules automatically, so nobody has to message you.',
+  },
+  {
+    q: 'Does it sync with my calendar?',
+    a: 'Yes. Two-way Google Calendar sync per instructor: classes appear in the calendar you already use, and anything already in it blocks that time.',
+  },
+  {
+    q: 'Can I take my data with me?',
+    a: 'Yes. You can export your data at any time, and cancelling is one click.',
+  },
+];
+
+function faqItems(page: Page) {
+  const own = page.faqs ?? [];
+  const seen = new Set(own.map((faq) => faq.q.toLowerCase()));
+  return [...own, ...SHARED_FAQS.filter((faq) => !seen.has(faq.q.toLowerCase()))];
+}
+
 function faqList(page: Page): string {
-  return (page.faqs ?? [])
+  return faqItems(page)
     .map(
       (faq, i) =>
-        `<details${i === 0 ? ' open' : ''}><summary>${escapeHtml(faq.q)}<i aria-hidden="true"></i></summary><p>${escapeHtml(faq.a)}</p></details>`,
+        `<details class="qa"${i === 0 ? ' open' : ''}><summary><span class="qn" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span><span class="qt">${escapeHtml(faq.q)}</span><i aria-hidden="true"></i></summary><div class="qa-body"><p>${escapeHtml(faq.a)}</p></div></details>`,
     )
     .join('');
 }
@@ -1139,8 +1166,18 @@ ${structuredData(page, canonical)}
 
   <section class="section tight faq" id="faq" aria-labelledby="faqTitle">
     <div class="container faq-wrap">
-      <div class="rv"><span class="label">Questions</span><h2 class="h2" id="faqTitle" style="margin-top:18px">Common questions</h2><p class="faq-aside">Still unsure? Start the trial. Nothing is charged and nothing is installed.</p></div>
-      <div class="rv d1">${faqList(page)}</div>
+      <div class="faq-side rv">
+        <span class="label">Questions</span>
+        <h2 class="h2" id="faqTitle" style="margin-top:18px">Common <em>questions.</em></h2>
+        <p class="faq-aside">${faqItems(page).length} straight answers. Anything else, the trial will tell you faster than we can: nothing is charged and nothing is installed.</p>
+        <div class="help-card">
+          <span class="help-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.4 9.3a2.7 2.7 0 0 1 5.2 1c0 1.8-2.6 2.4-2.6 4"/><path d="M12 17.3h.01"/></svg></span>
+          <b>Still deciding?</b>
+          <p>Click around a real studio in the live demo, no sign-up needed.</p>
+          <div class="help-ctas">${secondary('/demo', 'Explore the live demo', { play: true })}${primary('/app?signup=1', 'Start free', {})}</div>
+        </div>
+      </div>
+      <div class="faq-list rv d1">${faqList(page)}</div>
     </div>
   </section>
 
