@@ -35,3 +35,6 @@ Thumbs.db
 scratch/
 tmp/
 *.local.*
+
+# Ops runbook PDF (has server login details)
+docs/BookAIHub - Change Platform Stripe Account.pdf
