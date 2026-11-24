@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { api, ApiError } from '../lib/api';
-import { Icon } from '../components/Icon';
-import { AuthField, AuthLayout } from '../components/AuthLayout';
+import { AuthField, AuthLayout, AuthSubmit } from '../components/AuthLayout';
 
 /**
  * "Send me a reset link."
@@ -76,10 +75,7 @@ export default function ForgotPassword({ onBack }: { onBack: () => void }) {
           required
         />
 
-        <button className="auth-submit" type="submit" disabled={busy}>
-          <Icon name="send" size={18} />
-          {busy ? 'Sending…' : 'Send reset link'}
-        </button>
+        <AuthSubmit busy={busy} label="Send reset link" busyLabel="Sending…" />
       </form>
     </AuthLayout>
   );

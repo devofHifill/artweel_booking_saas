@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useAuth } from '../lib/auth';
 import { ApiError } from '../lib/api';
-import { Icon } from '../components/Icon';
-import { AuthField, AuthLayout } from '../components/AuthLayout';
+import { AuthField, AuthLayout, AuthSubmit } from '../components/AuthLayout';
 import ForgotPassword from './ForgotPassword';
 
 export default function Login({ onSwitch }: { onSwitch?: () => void }) {
@@ -68,10 +67,7 @@ export default function Login({ onSwitch }: { onSwitch?: () => void }) {
           required
         />
 
-        <button className="auth-submit" type="submit" disabled={busy}>
-          <Icon name="signin" size={18} />
-          {busy ? 'Signing in…' : 'Sign in'}
-        </button>
+        <AuthSubmit busy={busy} label="Sign in" busyLabel="Signing in…" />
 
         <div className="auth-forgot">
           <button

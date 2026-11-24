@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { api, tokens, ApiError } from '../lib/api';
 import { clearAttribution, readAttribution } from '../lib/attribution';
-import { Icon } from '../components/Icon';
-import { AuthField, AuthLayout } from '../components/AuthLayout';
+import { AuthField, AuthLayout, AuthSubmit } from '../components/AuthLayout';
 import { marketingUrl } from '../lib/marketing';
 
 /**
@@ -114,10 +113,7 @@ export default function SignUp({
           required
         />
 
-        <button className="auth-submit" type="submit" disabled={busy}>
-          <Icon name="signin" size={18} />
-          {busy ? 'Creating…' : 'Create my studio'}
-        </button>
+        <AuthSubmit busy={busy} label="Create my studio" busyLabel="Creating…" />
 
         {/* Stripe expects the policies to be reachable from signup. They open
             in a new tab so a half-filled form is not lost. */}
