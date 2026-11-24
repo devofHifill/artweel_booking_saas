@@ -10,17 +10,18 @@ import { BRAND, type Page } from './content';
  * described things the product does not do (annual plans, AI features,
  * analytics cookies). It has not had a legal review.
  *
- * Every business detail that is not settled yet lives in LEGAL below, in
- * [brackets], so the pages show plainly what is still missing. Fill these in
- * before the pages go live.
+ * The business details are in LEGAL below, filled in by Suren on 2026-11-24.
+ * The entity name and address must match the Stripe account exactly.
  */
 export const LEGAL = {
-  entity: '[Legal Entity Name]',
-  address: '[Physical Business Address]',
-  governingLaw: '[State/Country]',
+  entity: 'BookAIHub Inc',
+  address: '10 Evergreen Ave #D, Imperial Beach, CA 91932',
+  governingLaw: 'the State of California, USA',
   supportEmail: 'support@bookaihub.com',
-  timeZone: '[Time Zone]',
-  updated: 'November 23, 2026',
+  supportPhone: '+1 619-920-6864',
+  supportHours:
+    'Monday to Thursday, 2:00 PM to 6:00 PM, and Friday to Sunday, 10:00 AM to 7:30 PM (Pacific Time)',
+  updated: 'November 24, 2026',
 };
 
 const updated = `Last updated ${LEGAL.updated}.`;
@@ -88,7 +89,7 @@ export const TERMS: Page = {
       heading: '9. Governing law and contact',
       body: [
         `These Terms are governed by the laws of ${LEGAL.governingLaw}, without regard to conflict-of-law principles.`,
-        `Questions about these Terms: ${LEGAL.supportEmail}, or ${LEGAL.entity}, ${LEGAL.address}.`,
+        `Questions about these Terms: email ${LEGAL.supportEmail}, call ${LEGAL.supportPhone}, or write to ${LEGAL.entity}, ${LEGAL.address}.`,
       ],
     },
   ],
@@ -145,7 +146,7 @@ export const PRIVACY: Page = {
     {
       heading: '7. Contact us',
       body: [
-        `Questions about this policy or our data practices: ${LEGAL.supportEmail}, or by mail to ${LEGAL.entity}, ${LEGAL.address}.`,
+        `Questions about this policy or our data practices: email ${LEGAL.supportEmail}, call ${LEGAL.supportPhone}, or write to ${LEGAL.entity}, ${LEGAL.address}.`,
       ],
     },
   ],
@@ -188,7 +189,7 @@ export const REFUND_POLICY: Page = {
     {
       heading: '5. Support and disputes',
       body: [
-        `Before opening a chargeback with your bank or card issuer, please contact us so we can sort out any billing issue directly: ${LEGAL.supportEmail}, Monday to Friday, 9:00 AM to 6:00 PM ${LEGAL.timeZone}. We usually reply within one business day.`,
+        `Before opening a chargeback with your bank or card issuer, please contact us so we can sort out any billing issue directly. Email ${LEGAL.supportEmail} or call ${LEGAL.supportPhone}. Phone support is available ${LEGAL.supportHours}. We usually reply to email within one business day.`,
       ],
     },
   ],
