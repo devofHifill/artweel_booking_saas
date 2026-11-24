@@ -3,6 +3,7 @@ import { api, tokens, ApiError } from '../lib/api';
 import { clearAttribution, readAttribution } from '../lib/attribution';
 import { Icon } from '../components/Icon';
 import { AuthField, AuthLayout } from '../components/AuthLayout';
+import { marketingUrl } from '../lib/marketing';
 
 /**
  * Self-serve signup.
@@ -117,6 +118,24 @@ export default function SignUp({
           <Icon name="signin" size={18} />
           {busy ? 'Creating…' : 'Create my studio'}
         </button>
+
+        {/* Stripe expects the policies to be reachable from signup. They open
+            in a new tab so a half-filled form is not lost. */}
+        <p className="auth-legal">
+          By creating a studio you agree to the{' '}
+          <a href={marketingUrl('/terms')} target="_blank" rel="noopener">
+            Terms of Service
+          </a>{' '}
+          and{' '}
+          <a href={marketingUrl('/privacy')} target="_blank" rel="noopener">
+            Privacy Policy
+          </a>
+          . See also our{' '}
+          <a href={marketingUrl('/refund-policy')} target="_blank" rel="noopener">
+            Refund &amp; Cancellation Policy
+          </a>
+          .
+        </p>
       </form>
     </AuthLayout>
   );
