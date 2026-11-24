@@ -4,6 +4,7 @@ import { BRAND, GUIDES, JUST_SHIPPED, SHIPPING_FEATURES, type Page } from './con
 import { GENERAL, VERTICALS, type Vertical } from './verticals';
 import { escapeHtml, structuredData } from './render';
 import { DOC_CSS, LANDING_CSS } from './landing-css';
+import { CONTACT, DASHBOARD_GUIDES, SUPPORT } from './support';
 import { LANDING_JS } from './landing-js';
 import { FAVICON_HREF, WORDMARK, logoMark } from './brand-logo';
 
@@ -1089,6 +1090,7 @@ function siteFooter(vertical: Vertical, at: '' | '/'): string {
     <div class="footer-bottom">
       <span>© ${escapeHtml(BRAND)} ${new Date().getFullYear()}</span>
       <span class="fbm">0% commission on every booking</span>
+      <a href="/support">Support</a>
       <a href="/terms">Terms</a>
       <a href="/privacy">Privacy</a>
       <a href="/refund-policy">Refunds</a>
@@ -1447,7 +1449,7 @@ export function renderNotFound(copy: NotFoundCopy = PAGE_NOT_FOUND): string {
   const links: [string, string, string][] = [
     ['/', 'Home', 'What BookAIHub does, for every trade'],
     ['/pricing', 'Pricing', 'Flat monthly plans, no commission'],
-    ['/demo', 'Live demo', 'Click around a real business'],
+    ['/support', 'Support', 'Email or call us, or find an answer'],
     ['/app', 'Sign in', 'Back to your dashboard'],
   ];
 
@@ -1489,6 +1491,161 @@ ${siteHeader(GENERAL, '/')}
           )
           .join('')}
       </nav>
+    </div>
+  </section>
+</main>
+
+${siteFooter(GENERAL, '/')}
+
+<script>${LANDING_JS}</script>
+</body>
+</html>`;
+}
+
+// --- Support -----------------------------------------------------------------
+
+const ICONS = {
+  mail: '<path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/>',
+  phone: '<path d="M6.6 3.6 9 3l1.6 4-2 1.3a11 11 0 0 0 7.1 7.1l1.3-2 4 1.6-.6 2.4A2 2 0 0 1 18.5 19 15.5 15.5 0 0 1 5 5.5a2 2 0 0 1 1.6-1.9Z"/>',
+  pin: '<path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/>',
+  shop: '<path d="M4 10v10h16V10"/><path d="M3 10 5 4h14l2 6"/><path d="M3 10a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/>',
+  ticket: '<path d="M4 7h16v3a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4Z"/><path d="M14 7v10" stroke-dasharray="2 2"/>',
+};
+const supIcon = (d: string) =>
+  `<span class="sup-ic" aria-hidden="true"><svg viewBox="0 0 24 24">${d}</svg></span>`;
+
+/**
+ * /support. The document shell (header, footer, styles, script) around a
+ * page of its own: three ways to reach us, a split between "I run a business
+ * on BookAIHub" and "I booked with a business" (whose bookings we cannot
+ * change), and the common questions.
+ */
+export function renderSupportPage(page: Page = SUPPORT): string {
+  const canonical = `${config.PUBLIC_URL}/${page.slug}`;
+  const app = config.APP_URL.replace(/\/$/, '');
+
+  // Who to contact, for search results ("customer service" box).
+  const contactLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: BRAND,
+    url: config.PUBLIC_URL,
+    contactPoint: [
+      {
+        '@type': 'ContactPoint',
+        contactType: 'customer support',
+        email: CONTACT.email,
+        telephone: CONTACT.phone,
+        areaServed: 'US',
+        availableLanguage: 'English',
+      },
+    ],
+  };
+
+  const h1 = escapeHtml(page.h1).replace(/help\?$/, '<em class="serif">help?</em>');
+
+  const hours = CONTACT.hours
+    .map(([days, time]) => `<li><span>${escapeHtml(days)}</span><b>${escapeHtml(time)}</b></li>`)
+    .join('');
+
+  const guides = DASHBOARD_GUIDES.map(
+    (guide) => `<li><a href="${escapeHtml(`${app}/help/guides/${guide.slug}`)}">${escapeHtml(guide.title)}<span aria-hidden="true">→</span></a></li>`,
+  ).join('');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+${htmlHead(page, canonical, 'website')}
+<script type="application/ld+json">${JSON.stringify(contactLd).replace(/</g, '\\u003c')}</script>
+<style>${DOC_CSS}</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+${siteHeader(GENERAL, '/')}
+
+<main id="main">
+  <section class="doc-hero sup-hero" aria-labelledby="docTitle">
+    <div class="container doc-hero-in">
+      <span class="label">Support</span>
+      <h1 class="doc-h1" id="docTitle">${h1}</h1>
+      <p class="doc-lede">${escapeHtml(page.intro)}</p>
+    </div>
+  </section>
+
+  <section class="sup-contact" aria-label="Contact us">
+    <div class="container sup-grid">
+      <a class="sup-card rv" href="mailto:${escapeHtml(CONTACT.email)}">
+        ${supIcon(ICONS.mail)}
+        <span class="sup-k">Email</span>
+        <b class="sup-v">${escapeHtml(CONTACT.email)}</b>
+        <p>Any time. We reply within one business day, usually sooner.</p>
+        <span class="sup-go">Write to us <span aria-hidden="true">→</span></span>
+      </a>
+      <a class="sup-card rv d1" href="${escapeHtml(CONTACT.phoneHref)}">
+        ${supIcon(ICONS.phone)}
+        <span class="sup-k">Phone</span>
+        <b class="sup-v">${escapeHtml(CONTACT.phone)}</b>
+        <ul class="sup-hours">${hours}</ul>
+        <p class="sup-tz">${escapeHtml(CONTACT.timeZone)}</p>
+      </a>
+      <div class="sup-card rv d2">
+        ${supIcon(ICONS.pin)}
+        <span class="sup-k">Post</span>
+        <b class="sup-v">${escapeHtml(CONTACT.address.split(', ')[0] ?? '')}</b>
+        <p>${escapeHtml(CONTACT.address.split(', ').slice(1).join(', '))}</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section tight sup-who" aria-labelledby="whoTitle">
+    <div class="container">
+      <div class="head rv">
+        <div><span class="label">Who to ask</span><h2 class="h2" id="whoTitle">Two kinds of <em>help.</em></h2></div>
+        <p class="sub">We look after the businesses that use ${escapeHtml(BRAND)}. A booking belongs to the business you made it with.</p>
+      </div>
+      <div class="sup-split">
+        <article class="sup-path rv">
+          ${supIcon(ICONS.shop)}
+          <h3>I run a business on ${escapeHtml(BRAND)}</h3>
+          <p>Account, billing, Stripe, setting things up: email or call us and we will help directly. Signed in, the step-by-step guides are under Help &amp; Support in your dashboard.</p>
+          <ul class="sup-guides">${guides}</ul>
+          <div class="sup-actions">${primary('/app', 'Open your dashboard', {})}${secondary(`mailto:${CONTACT.email}`, 'Email support', {})}</div>
+        </article>
+        <article class="sup-path dark rv d1">
+          ${supIcon(ICONS.ticket)}
+          <h3>I booked with a business</h3>
+          <p>Your booking, its price and its refund terms belong to the business you booked with, so they are the people who can change it.</p>
+          <ol class="sup-steps">
+            <li><b>Find your confirmation email.</b><span>It came from the business when you booked.</span></li>
+            <li><b>Use the link in it.</b><span>Move or cancel the booking yourself, under the business's own terms.</span></li>
+            <li><b>Anything else, ask the business.</b><span>Their contact details are on their booking page and in that email.</span></li>
+          </ol>
+          <p class="sup-note">${escapeHtml(BRAND)} cannot change, cancel or refund a business's bookings.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section tight faq" id="faq" aria-labelledby="faqTitle">
+    <div class="container faq-wrap">
+      <div class="faq-side rv">
+        <span class="label">Questions</span>
+        <h2 class="h2" id="faqTitle" style="margin-top:18px">Quick <em>answers.</em></h2>
+        <div class="help-card">
+          <span class="help-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.4 9.3a2.7 2.7 0 0 1 5.2 1c0 1.8-2.6 2.4-2.6 4"/><path d="M12 17.3h.01"/></svg></span>
+          <b>Not here?</b>
+          <p>Email ${escapeHtml(CONTACT.email)} and tell us what you were trying to do. A screenshot helps.</p>
+          <div class="help-ctas">${primary(`mailto:${CONTACT.email}`, 'Email support', {})}</div>
+        </div>
+      </div>
+      <div class="faq-list rv d1">${faqDetails(page.faqs ?? [])}</div>
+    </div>
+  </section>
+
+  <section class="sup-policies" aria-label="Policies">
+    <div class="container">
+      <p><span class="label">Policies</span><a href="/terms">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/refund-policy">Refund &amp; Cancellation Policy</a></p>
     </div>
   </section>
 </main>

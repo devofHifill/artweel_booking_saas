@@ -92,6 +92,7 @@ export function AuthLayout({
         <footer className="auth-foot">
           <span>© {new Date().getFullYear()} BookAIHub Inc</span>
           <nav aria-label="Legal">
+            <a href={marketingUrl('/support')}>Help</a>
             <a href={marketingUrl('/terms')}>Terms</a>
             <a href={marketingUrl('/privacy')}>Privacy</a>
             <a href={marketingUrl('/')}>bookaihub.com</a>

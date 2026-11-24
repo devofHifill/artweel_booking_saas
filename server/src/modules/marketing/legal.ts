@@ -13,14 +13,19 @@ import { BRAND, type Page } from './content';
  * The business details are in LEGAL below, filled in by Suren on 2026-11-24.
  * The entity name and address must match the Stripe account exactly.
  */
+/** Phone support hours, Pacific Time. The one list: the legal pages and /support both read it. */
+export const SUPPORT_HOURS = [
+  ['Monday to Thursday', '2:00 PM to 6:00 PM'],
+  ['Friday to Sunday', '10:00 AM to 7:30 PM'],
+] as const;
+
 export const LEGAL = {
   entity: 'BookAIHub Inc',
   address: '10 Evergreen Ave #D, Imperial Beach, CA 91932',
   governingLaw: 'the State of California, USA',
   supportEmail: 'support@bookaihub.com',
   supportPhone: '+1 619-920-6864',
-  supportHours:
-    'Monday to Thursday, 2:00 PM to 6:00 PM, and Friday to Sunday, 10:00 AM to 7:30 PM (Pacific Time)',
+  supportHours: `${SUPPORT_HOURS.map(([days, time]) => `${days}, ${time}`).join(', and ')} (Pacific Time)`,
   updated: 'November 24, 2026',
 };
 
