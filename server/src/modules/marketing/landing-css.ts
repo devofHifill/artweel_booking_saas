@@ -1303,3 +1303,60 @@ body::after{content:"";position:fixed;inset:0;z-index:100;pointer-events:none;op
   .hero-top .badge-new{height:24px}
 }
 `;
+
+/**
+ * The document pages: pricing, comparisons, guides and the legal pages.
+ *
+ * Added on top of LANDING_CSS rather than as a second stylesheet, so these
+ * pages share the landing page's header, footer, buttons, FAQ and closing call
+ * to action exactly, and only the parts that do not exist on a landing page
+ * (a page head and a column of running text) are defined here.
+ */
+export const DOC_CSS = `
+.doc-hero{position:relative;padding:72px 0 64px;isolation:isolate;overflow:hidden}
+.doc-hero::before{content:"";position:absolute;left:50%;top:-340px;width:980px;height:620px;margin-left:-490px;z-index:-1;border-radius:50%;background:radial-gradient(closest-side,rgba(255,138,76,.16),rgba(255,138,76,0))}
+.doc-hero-in{max-width:880px}
+.doc-h1{margin-top:22px;font-size:clamp(40px,6vw,76px);letter-spacing:-.045em;line-height:1}
+.doc-meta{margin-top:18px;font:500 12px/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.doc-lede{margin-top:22px;max-width:680px;font-size:clamp(18px,1.7vw,21px);line-height:1.55;color:var(--body)}
+.doc-ctas{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.doc-body{padding:8px 0 120px}
+.doc-body.with-toc .container{display:grid;grid-template-columns:240px minmax(0,1fr);gap:72px;align-items:start}
+.doc-toc{position:sticky;top:110px;padding:20px 0;border-top:1px solid var(--line)}
+.doc-toc .label{margin-bottom:16px}
+.doc-toc ol{display:grid;gap:2px}
+.doc-toc a{display:block;padding:7px 12px;margin-left:-12px;border-radius:10px;font-size:14px;line-height:1.4;color:var(--body);transition:background .2s,color .2s}
+.doc-toc a:hover{background:rgba(14,15,18,.04);color:var(--ink)}
+.prose{max-width:720px;padding:40px 44px;border-radius:28px;background:#fff;box-shadow:0 0 0 1px var(--line),0 24px 48px -32px rgba(14,15,18,.18)}
+.prose h2{margin:44px 0 14px;font-size:clamp(22px,2.2vw,28px);letter-spacing:-.025em;line-height:1.2;scroll-margin-top:110px}
+.prose h2:first-child{margin-top:0}
+.prose p{margin:0 0 14px;font-size:17px;line-height:1.7;color:var(--ink-2)}
+.prose p:last-child{margin-bottom:0}
+.prose a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:3px}
+.doc-pricing{padding:0 0 120px}
+.nf{position:relative;isolation:isolate;overflow:hidden;padding:56px 0 120px;text-align:center}
+.nf::before{content:"";position:absolute;left:50%;top:-260px;width:1000px;height:700px;margin-left:-500px;z-index:-1;border-radius:50%;background:radial-gradient(closest-side,rgba(255,138,76,.18),rgba(255,138,76,0))}
+.nf-rings{position:absolute;left:50%;top:190px;width:min(980px,140%);translate:-50% -50%;z-index:-1;fill:none;stroke:var(--line-2);stroke-width:1;pointer-events:none;-webkit-mask-image:radial-gradient(closest-side,#000 45%,transparent);mask-image:radial-gradient(closest-side,#000 45%,transparent)}
+.nf-in{display:flex;flex-direction:column;align-items:center}
+.nf-code{display:flex;align-items:center;justify-content:center;gap:.06em;margin-bottom:28px;font-size:clamp(110px,17vw,210px);font-weight:600;line-height:.9;letter-spacing:-.06em;background:linear-gradient(180deg,var(--ink) 30%,#6b6f7a);-webkit-background-clip:text;background-clip:text;color:transparent}
+.nf-zero{display:inline-grid;place-items:center;width:.78em;height:.9em;margin:0 .02em;border-radius:.2em;background:#fff;box-shadow:0 0 0 1px var(--line),0 30px 60px -30px rgba(239,90,36,.45)}
+.nf-zero .brand-mark{width:.52em;height:.52em;animation:markfloat 6s ease-in-out infinite}
+.nf-h1{margin-top:18px;max-width:760px;font-size:clamp(36px,5.2vw,64px);letter-spacing:-.045em;line-height:1.02}
+.nf-lede{margin-top:18px;max-width:560px;font-size:clamp(17px,1.6vw,19px);line-height:1.55;color:var(--body)}
+.nf-ctas{justify-content:center}
+.nf-links{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;width:100%;max-width:960px;margin-top:64px;text-align:left}
+.nf-links a{position:relative;display:grid;gap:4px;padding:18px 44px 18px 20px;border-radius:18px;background:#fff;box-shadow:0 0 0 1px var(--line),0 14px 30px -24px rgba(14,15,18,.25);transition:transform .35s var(--ease),box-shadow .35s var(--ease)}
+.nf-links a:hover{transform:translateY(-2px);box-shadow:0 0 0 1px rgba(239,90,36,.35),0 22px 40px -24px rgba(239,90,36,.45)}
+.nf-links b{font-size:15.5px;font-weight:600;letter-spacing:-.01em}
+.nf-links small{font-size:13px;line-height:1.45;color:var(--muted)}
+.nf-go{position:absolute;right:18px;top:18px;color:var(--accent);transition:transform .3s var(--ease)}
+.nf-links a:hover .nf-go{transform:translateX(3px)}
+@media(max-width:900px){
+  .doc-hero{padding:48px 0 40px}
+  .doc-body.with-toc .container{grid-template-columns:1fr;gap:24px}
+  .doc-toc{position:static}
+  .prose{padding:28px 22px;border-radius:22px}
+  .nf{padding:32px 0 88px}
+  .nf-links{grid-template-columns:1fr 1fr;margin-top:44px}
+}
+`;

@@ -8,8 +8,9 @@ import {
   SCALE_TOKENS,
   tokensCss,
 } from '../../src/lib/design-tokens';
-import { renderMarketingPage } from '../../src/modules/marketing/render';
-import { ALL_PAGES } from '../../src/modules/marketing/content';
+import { renderDocumentPage, renderLanding } from '../../src/modules/marketing/landing';
+import { LANDING_CSS } from '../../src/modules/marketing/landing-css';
+import { ALL_PAGES, PRICING } from '../../src/modules/marketing/content';
 
 /**
  * The four surfaces must look like one product.
@@ -131,30 +132,23 @@ describe('the client mirrors the shared tokens', () => {
   });
 });
 
-describe('the server-rendered surfaces use the shared tokens', () => {
+describe('the marketing site is one site', () => {
   /**
-   * Asserted against rendered HTML rather than source, so inlining the block by
-   * hand somewhere would still fail.
+   * Since the 2026-11 redesign the marketing site has its own "premium light"
+   * palette (LANDING_CSS) rather than the shared tokens, which the booking page
+   * still renders from. What must not drift now is the marketing site against
+   * itself: until 2026-11-24 the document pages (pricing, comparisons, guides,
+   * legal) had a darker template of their own, and the site read as two sites.
    */
-  it('ships the tokens in the marketing page', () => {
-    const html = renderMarketingPage(ALL_PAGES[0]!);
+  it('renders the document pages on the landing page stylesheet and shell', () => {
+    const landing = renderLanding(ALL_PAGES[0]!);
+    const doc = renderDocumentPage(PRICING);
 
-    /*
-      Only the light :root block. Parsing the whole document would also pick up
-      the dark-mode overrides, and since they come later they would win — the
-      test would then compare dark values against light ones and fail for a
-      reason that has nothing to do with drift.
-    */
-    const lightBlock = html.slice(
-      html.indexOf(':root{'),
-      html.indexOf('@media(prefers-color-scheme:dark)'),
-    );
-    const shipped = parseTokens(lightBlock);
-
-    for (const [name, value] of Object.entries(COLOR_TOKENS.light)) {
-      expect(shipped[name], `marketing is missing or overriding ${name}`).toBe(value);
+    for (const html of [landing, doc]) {
+      expect(html).toContain(LANDING_CSS);
+      expect(html).toContain('class="site-header"');
+      expect(html).toContain('class="site-footer"');
     }
-    expect(shipped['--radius']).toBe(SCALE_TOKENS['--radius']);
   });
 
   /**
@@ -162,8 +156,9 @@ describe('the server-rendered surfaces use the shared tokens', () => {
    * surfaces used `--radius`. A token that exists under two names on two
    * surfaces is drift that no amount of care catches by eye.
    */
-  it('no longer declares the abandoned --r radius token', () => {
-    expect(renderMarketingPage(ALL_PAGES[0]!)).not.toContain('--r:');
+  it('does not declare the abandoned --r radius token', () => {
+    expect(renderLanding(ALL_PAGES[0]!)).not.toContain('--r:');
+    expect(renderDocumentPage(PRICING)).not.toContain('--r:');
   });
 });
 

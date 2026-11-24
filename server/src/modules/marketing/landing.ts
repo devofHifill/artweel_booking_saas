@@ -3,7 +3,7 @@ import { PLANS, classesLine } from '../billing/plan';
 import { BRAND, GUIDES, JUST_SHIPPED, SHIPPING_FEATURES, type Page } from './content';
 import { GENERAL, VERTICALS, type Vertical } from './verticals';
 import { escapeHtml, structuredData } from './render';
-import { LANDING_CSS } from './landing-css';
+import { DOC_CSS, LANDING_CSS } from './landing-css';
 import { LANDING_JS } from './landing-js';
 import { FAVICON_HREF, WORDMARK, logoMark } from './brand-logo';
 
@@ -693,7 +693,11 @@ function faqItems(page: Page) {
 }
 
 function faqList(page: Page): string {
-  return faqItems(page)
+  return faqDetails(faqItems(page));
+}
+
+function faqDetails(faqs: { q: string; a: string }[]): string {
+  return faqs
     .map(
       (faq, i) =>
         `<details class="qa"${i === 0 ? ' open' : ''}><summary><span class="qn" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span><span class="qt">${escapeHtml(faq.q)}</span><i aria-hidden="true"></i></summary><div class="qa-body"><p>${escapeHtml(faq.a)}</p></div></details>`,
@@ -917,26 +921,26 @@ const PRODUCT_LINKS = [
   },
 ];
 
-function productMenu(): string {
+function productMenu(at: string): string {
   const items = PRODUCT_LINKS.map(
     (item) =>
-      `<a class="mi" href="${item.href}">${icon(item.icon)}<span><b>${escapeHtml(item.title)}${item.isNew ? '<span class="tag-new">New</span>' : ''}</b><small>${escapeHtml(item.note)}</small></span></a>`,
+      `<a class="mi" href="${at}${item.href}">${icon(item.icon)}<span><b>${escapeHtml(item.title)}${item.isNew ? '<span class="tag-new">New</span>' : ''}</b><small>${escapeHtml(item.note)}</small></span></a>`,
   ).join('');
 
   return `<div class="mega-grid">${items}
 <a class="mega-feature" href="/demo"><span class="k">Live demo</span><b>Click around a real studio, no sign-up.</b><span class="fs">Explore the demo →</span></a>
 </div>
-<div class="mega-foot"><span>0% commission · 14-day trial · no card</span><a href="#pricing">See pricing →</a></div>`;
+<div class="mega-foot"><span>0% commission · 14-day trial · no card</span><a href="${at}#pricing">See pricing →</a></div>`;
 }
 
-function tradesMenu(current: Vertical): string {
+function tradesMenu(current: Vertical, at: string): string {
   const items = VERTICALS.map((vertical) => {
     const isCurrent = vertical.slug === current.slug;
     return `<a class="mi${isCurrent ? ' cur' : ''}" href="/${vertical.slug}"${isCurrent ? ' aria-current="page"' : ''}><span class="n" aria-hidden="true">${String(vertical.capacity.total).padStart(2, '0')}</span><span><b>${escapeHtml(vertical.navLabel)}</b><small>${escapeHtml(vertical.capacity.label)}</small></span></a>`;
   }).join('');
 
   return `<div class="mega-grid">${items}
-<a class="mega-feature" href="#verticals"><span class="k">One engine</span><b>Ten trades, each in its own nouns.</b><span class="fs">Compare them all →</span></a>
+<a class="mega-feature" href="${at}#verticals"><span class="k">One engine</span><b>Ten trades, each in its own nouns.</b><span class="fs">Compare them all →</span></a>
 </div>`;
 }
 
@@ -952,6 +956,177 @@ function footerTrades(): string {
     .filter((vertical): vertical is Vertical => Boolean(vertical))
     .map((vertical) => `<a href="/${vertical.slug}">${escapeHtml(vertical.navLabel)}</a>`)
     .join('');
+}
+
+// --- Shared page shell -------------------------------------------------------
+//
+// The landing page and the document pages (pricing, comparisons, guides, the
+// legal pages) share one <head>, header, footer and closing call to action, so
+// a visitor walking from one to the other stays on the same site. `at` is the
+// prefix for the header's and footer's section links: '' on a landing page,
+// where they scroll to sections of that page, and '/' everywhere else, where
+// they go back to the home page's sections.
+
+function htmlHead(page: Page, canonical: string, ogType: 'website' | 'article'): string {
+  return `<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(page.title)}</title>
+<meta name="description" content="${escapeHtml(page.description)}">
+<meta name="theme-color" content="#faf9f6">
+<meta name="color-scheme" content="light">
+<link rel="canonical" href="${escapeHtml(canonical)}">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta property="og:type" content="${ogType}">
+<meta property="og:site_name" content="${escapeHtml(BRAND)}">
+<meta property="og:url" content="${escapeHtml(canonical)}">
+<meta property="og:title" content="${escapeHtml(page.title)}">
+<meta property="og:description" content="${escapeHtml(page.description)}">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="${escapeHtml(page.title)}">
+<meta name="twitter:description" content="${escapeHtml(page.description)}">
+<link rel="icon" href="${FAVICON_HREF}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
+${structuredData(page, canonical)}
+<style>${LANDING_CSS}</style>`;
+}
+
+function siteHeader(vertical: Vertical, at: '' | '/'): string {
+  // The scrollspy only makes sense where the sections are on the page.
+  const spy = at ? '' : ' data-spy';
+  return `<header class="site-header" id="siteHeader">
+  <div class="container">
+    <div class="header-bar">
+      <a href="/" class="brand" aria-label="${escapeHtml(BRAND)} home">${logoMark('h')}${WORDMARK}</a>
+      <nav class="nav-desktop" aria-label="Primary">
+        <span class="nav-ind" id="navInd" aria-hidden="true"></span>
+        <div class="nav-item" data-menu>
+          <button class="nav-trig" type="button" aria-expanded="false" aria-controls="megaProduct">Product${CHEVRON}</button>
+          <div class="mega" id="megaProduct">${productMenu(at)}</div>
+        </div>
+        <div class="nav-item" data-menu>
+          <button class="nav-trig" type="button" aria-expanded="false" aria-controls="megaTrades">Who it's for${CHEVRON}</button>
+          <div class="mega mega-trades" id="megaTrades">${tradesMenu(vertical, at)}</div>
+        </div>
+        <a href="${at}#how"${spy}>How it works</a>
+        <a href="${at}#pricing"${spy}>Pricing</a>
+        <a href="${at}#faq"${spy}>FAQ</a>
+        <!-- TEMPORARY demo link — remove with the /demo mount in app.ts -->
+        <a href="/demo" class="nav-demo">Demo</a>
+      </nav>
+      <div class="header-actions">
+        <a href="/app" class="nav-signin">Sign in</a>
+        ${primary('/app?signup=1', 'Start free', { size: 'sm' })}
+      </div>
+      <button class="nav-toggle" id="navToggle" type="button" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><i></i></button>
+      <span class="progress" aria-hidden="true"><i id="readBar"></i></span>
+    </div>
+    <nav class="mobile-menu" id="mobileMenu" aria-label="Mobile" hidden>
+      <div class="mm-links">
+        <a href="${at}#features">Product</a>
+        <a href="${at}#difference">Why us</a>
+        <a href="${at}#how">How it works</a>
+        <a href="${at}#pricing">Pricing</a>
+        <a href="${at}#faq">FAQ</a>
+        <!-- TEMPORARY demo link — remove with the /demo mount in app.ts -->
+        <a href="/demo">Live demo</a>
+      </div>
+      <p class="mm-h">Who it's for</p>
+      <div class="mm-trades">${mobileTrades()}</div>
+      <div class="mm-actions">
+        ${primary('/app?signup=1', 'Start free for 14 days', { block: true, size: 'lg' })}
+        ${secondary('/app', 'Sign in', { block: true, size: 'lg' })}
+      </div>
+    </nav>
+  </div>
+</header>`;
+}
+
+function siteFooter(vertical: Vertical, at: '' | '/'): string {
+  return `<footer class="site-footer">
+  <div class="container">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <a href="/" class="brand" aria-label="${escapeHtml(BRAND)} home">${logoMark('f')}${WORDMARK}</a>
+        <p class="footer-blurb">${escapeHtml(vertical.footerBlurb)}</p>
+      </div>
+      <div class="footer-go">
+        <div class="footer-ctas">${primary('/app?signup=1', 'Start free for 14 days', {})}${secondary('/app', 'Sign in', {})}</div>
+        <ul class="footer-badges" aria-label="Works with">
+          <li><span class="fb-dot fb-v" aria-hidden="true"></span>Payouts to your Stripe</li>
+          <li><span class="fb-dot fb-b" aria-hidden="true"></span>Google Calendar sync</li>
+          <li><span class="fb-dot fb-g" aria-hidden="true"></span>Email and text reminders</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-grid">
+      <nav class="footer-col" aria-labelledby="fcol1">
+        <h2 class="footer-h" id="fcol1">Product</h2>
+        <a href="${at}#features">Features</a>
+        <a href="${at}#how">How it works</a>
+        <a href="${at}#calc">Commission calculator</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/demo">Live demo</a>
+      </nav>
+      <nav class="footer-col" aria-labelledby="fcol2">
+        <h2 class="footer-h" id="fcol2">Who it's for</h2>
+        ${footerTrades()}
+        <a href="${at}#verticals" class="fc-more">All ten trades →</a>
+      </nav>
+      <nav class="footer-col" aria-labelledby="fcol3">
+        <h2 class="footer-h" id="fcol3">Guides</h2>
+        ${GUIDES.map((guide) => `<a href="/${guide.slug}">${escapeHtml(guide.title)}</a>`).join('')}
+      </nav>
+      <nav class="footer-col" aria-labelledby="fcol4">
+        <h2 class="footer-h" id="fcol4">Compare</h2>
+        <a href="/alternatives/momence">vs Momence</a>
+        <a href="/alternatives/punchpass">vs Punchpass</a>
+        <a href="/alternatives/sawyer">vs Sawyer</a>
+      </nav>
+    </div>
+    <div class="wordmark" id="wordmark" aria-hidden="true"><span class="wm-line">${escapeHtml(BRAND).replace('AI', '<em>AI</em>')}</span><span class="wm-fill">${escapeHtml(BRAND)}</span></div>
+    <div class="footer-bottom">
+      <span>© ${escapeHtml(BRAND)} ${new Date().getFullYear()}</span>
+      <span class="fbm">0% commission on every booking</span>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/refund-policy">Refunds</a>
+      <a href="/sitemap.xml">Sitemap</a>
+      <a href="#main" class="to-top">Back to top <i aria-hidden="true">↑</i></a>
+    </div>
+  </div>
+</footer>`;
+}
+
+function pricingBlock(): string {
+  return `${planFinder()}
+      <div class="plans" id="plans">${planCards()}</div>
+      <div class="every rv"><span class="every-h">Every plan includes</span><ul>${EVERY_PLAN.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>
+      <ul class="assure"><li>No card to start</li><li>Cancel in one click</li><li>Export your data any time</li></ul>`;
+}
+
+function closingCta(page: Page, vertical: Vertical): string {
+  return `<section class="cta rv" id="start" aria-labelledby="ctaTitle">
+    <span class="cta-light" aria-hidden="true"></span>
+    <svg class="cta-rings" viewBox="0 0 800 800" aria-hidden="true"><circle cx="400" cy="400" r="180"/><circle cx="400" cy="400" r="270"/><circle cx="400" cy="400" r="360"/></svg>
+    <div class="cta-float cf-1" aria-hidden="true"><span class="cf-ic ok">✓</span><div><b>Booking confirmed</b><span>${escapeHtml(vertical.week[0]?.events[0]?.title ?? 'Saturday session')} · ${escapeHtml(vertical.bookingCard.slots[1]?.[0] ?? 'Sat 10:30')}</span></div></div>
+    <div class="cta-float cf-2" aria-hidden="true"><span class="cf-ic pay">$</span><div><b>Paid to your Stripe</b><span>Deposit · 0% commission</span></div></div>
+    <div class="cta-inner">
+      <span class="cta-mark">${logoMark('cta')}</span>
+      <h2 id="ctaTitle">Try it on your own <em>bookings.</em></h2>
+      <p>${escapeHtml(page.cta ?? 'Start free for 14 days. No card needed.')}</p>
+      <div class="ctas">
+        ${primary('/app?signup=1', 'Start free for 14 days', { size: 'lg', glow: true })}
+        ${secondary('/demo', 'Explore the live demo', { size: 'lg', play: true })}
+      </div>
+      <ol class="cta-steps" aria-label="Your first two weeks">
+        <li><span class="cs-dot" aria-hidden="true"></span><b>Today</b><small>Sign up. No card.</small></li>
+        <li><span class="cs-dot" aria-hidden="true"></span><b>This afternoon</b><small>Your booking link is live.</small></li>
+        <li><span class="cs-dot" aria-hidden="true"></span><b>Day 14</b><small>Choose a plan to keep it running.</small></li>
+      </ol>
+    </div>
+  </section>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -972,78 +1147,12 @@ export function renderLanding(page: Page, vertical: Vertical = GENERAL): string 
   return `<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(page.title)}</title>
-<meta name="description" content="${escapeHtml(page.description)}">
-<meta name="theme-color" content="#faf9f6">
-<meta name="color-scheme" content="light">
-<link rel="canonical" href="${escapeHtml(canonical)}">
-<meta name="robots" content="index, follow, max-image-preview:large">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="${escapeHtml(BRAND)}">
-<meta property="og:url" content="${escapeHtml(canonical)}">
-<meta property="og:title" content="${escapeHtml(page.title)}">
-<meta property="og:description" content="${escapeHtml(page.description)}">
-<meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="${escapeHtml(page.title)}">
-<meta name="twitter:description" content="${escapeHtml(page.description)}">
-<link rel="icon" href="${FAVICON_HREF}">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
-${structuredData(page, canonical)}
-<style>${LANDING_CSS}</style>
+${htmlHead(page, canonical, 'website')}
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 
-<header class="site-header" id="siteHeader">
-  <div class="container">
-    <div class="header-bar">
-      <a href="/" class="brand" aria-label="${escapeHtml(BRAND)} home">${logoMark('h')}${WORDMARK}</a>
-      <nav class="nav-desktop" aria-label="Primary">
-        <span class="nav-ind" id="navInd" aria-hidden="true"></span>
-        <div class="nav-item" data-menu>
-          <button class="nav-trig" type="button" aria-expanded="false" aria-controls="megaProduct">Product${CHEVRON}</button>
-          <div class="mega" id="megaProduct">${productMenu()}</div>
-        </div>
-        <div class="nav-item" data-menu>
-          <button class="nav-trig" type="button" aria-expanded="false" aria-controls="megaTrades">Who it's for${CHEVRON}</button>
-          <div class="mega mega-trades" id="megaTrades">${tradesMenu(vertical)}</div>
-        </div>
-        <a href="#how" data-spy>How it works</a>
-        <a href="#pricing" data-spy>Pricing</a>
-        <a href="#faq" data-spy>FAQ</a>
-        <!-- TEMPORARY demo link — remove with the /demo mount in app.ts -->
-        <a href="/demo" class="nav-demo">Demo</a>
-      </nav>
-      <div class="header-actions">
-        <a href="/app" class="nav-signin">Sign in</a>
-        ${primary('/app?signup=1', 'Start free', { size: 'sm' })}
-      </div>
-      <button class="nav-toggle" id="navToggle" type="button" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><i></i></button>
-      <span class="progress" aria-hidden="true"><i id="readBar"></i></span>
-    </div>
-    <nav class="mobile-menu" id="mobileMenu" aria-label="Mobile" hidden>
-      <div class="mm-links">
-        <a href="#features">Product</a>
-        <a href="#difference">Why us</a>
-        <a href="#how">How it works</a>
-        <a href="#pricing">Pricing</a>
-        <a href="#faq">FAQ</a>
-        <!-- TEMPORARY demo link — remove with the /demo mount in app.ts -->
-        <a href="/demo">Live demo</a>
-      </div>
-      <p class="mm-h">Who it's for</p>
-      <div class="mm-trades">${mobileTrades()}</div>
-      <div class="mm-actions">
-        ${primary('/app?signup=1', 'Start free for 14 days', { block: true, size: 'lg' })}
-        ${secondary('/app', 'Sign in', { block: true, size: 'lg' })}
-      </div>
-    </nav>
-  </div>
-</header>
+${siteHeader(vertical, '')}
 
 <main id="main">
   <section class="hero" id="hero" aria-label="Overview">
@@ -1157,10 +1266,7 @@ ${structuredData(page, canonical)}
         <div><span class="label">Pricing</span><h2 class="h2" id="pricingTitle">One flat price. <em>No commission.</em></h2></div>
         <p class="sub">Your customers' payments go straight to your own Stripe account. Every plan starts with the 14-day trial, and none of them needs a card.</p>
       </div>
-      ${planFinder()}
-      <div class="plans" id="plans">${planCards()}</div>
-      <div class="every rv"><span class="every-h">Every plan includes</span><ul>${EVERY_PLAN.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>
-      <ul class="assure"><li>No card to start</li><li>Cancel in one click</li><li>Export your data any time</li></ul>
+      ${pricingBlock()}
     </div>
   </section>
 
@@ -1181,81 +1287,213 @@ ${structuredData(page, canonical)}
     </div>
   </section>
 
-  <section class="cta rv" id="start" aria-labelledby="ctaTitle">
-    <span class="cta-light" aria-hidden="true"></span>
-    <svg class="cta-rings" viewBox="0 0 800 800" aria-hidden="true"><circle cx="400" cy="400" r="180"/><circle cx="400" cy="400" r="270"/><circle cx="400" cy="400" r="360"/></svg>
-    <div class="cta-float cf-1" aria-hidden="true"><span class="cf-ic ok">✓</span><div><b>Booking confirmed</b><span>${escapeHtml(vertical.week[0]?.events[0]?.title ?? 'Saturday session')} · ${escapeHtml(vertical.bookingCard.slots[1]?.[0] ?? 'Sat 10:30')}</span></div></div>
-    <div class="cta-float cf-2" aria-hidden="true"><span class="cf-ic pay">$</span><div><b>Paid to your Stripe</b><span>Deposit · 0% commission</span></div></div>
-    <div class="cta-inner">
-      <span class="cta-mark">${logoMark('cta')}</span>
-      <h2 id="ctaTitle">Try it on your own <em>bookings.</em></h2>
-      <p>${escapeHtml(page.cta ?? 'Start free for 14 days. No card needed.')}</p>
-      <div class="ctas">
-        ${primary('/app?signup=1', 'Start free for 14 days', { size: 'lg', glow: true })}
-        ${secondary('/demo', 'Explore the live demo', { size: 'lg', play: true })}
+  ${closingCta(page, vertical)}
+</main>
+
+${siteFooter(vertical, '')}
+
+<script>${LANDING_JS}</script>
+</body>
+</html>`;
+}
+
+// --- Document pages ----------------------------------------------------------
+
+const LEGAL_SLUGS = new Set(['terms', 'privacy', 'refund-policy']);
+
+/**
+ * What kind of page this is, in the reader's words. Derived from the content
+ * a page carries rather than stored, so it cannot drift from the slug.
+ */
+function docLabel(page: Page): string {
+  if (page.article) return 'Guide';
+  if (page.slug.startsWith('alternatives/')) return 'Comparison';
+  if (page.slug === 'pricing') return 'Pricing';
+  if (LEGAL_SLUGS.has(page.slug)) return 'Legal';
+  return '';
+}
+
+/**
+ * Pricing, the comparisons, the guides and the legal pages.
+ *
+ * Same <head>, header, footer, FAQ and closing call to action as the landing
+ * page, so the site reads as one site; only the page head and the column of
+ * running text are their own. The header and footer section links point back
+ * at the home page ('/#how'), because those sections live there.
+ *
+ * A page with three or more sections gets a contents list beside the text:
+ * the legal pages and the long guides are read by jumping to one part.
+ */
+export function renderDocumentPage(page: Page): string {
+  const canonical =
+    `${config.PUBLIC_URL}/${page.slug}`.replace(/\/$/, '') || config.PUBLIC_URL;
+  const label = docLabel(page);
+  const isLegal = LEGAL_SLUGS.has(page.slug);
+  const isPricing = page.slug === 'pricing';
+  const withToc = page.sections.length >= 3;
+
+  const sectionId = (heading: string) => `s-${slugify(heading)}`;
+  const body = page.sections
+    .map(
+      (section) =>
+        `<h2 id="${sectionId(section.heading)}">${escapeHtml(section.heading)}</h2>` +
+        section.body.map((p) => `<p>${escapeHtml(p)}</p>`).join(''),
+    )
+    .join('');
+
+  const toc = withToc
+    ? `<nav class="doc-toc" aria-label="On this page"><span class="label">On this page</span><ol>${page.sections
+        .map((section) => `<li><a href="#${sectionId(section.heading)}">${escapeHtml(section.heading)}</a></li>`)
+        .join('')}</ol></nav>`
+    : '';
+
+  const faqs = page.faqs?.length
+    ? `<section class="section tight faq" id="faq" aria-labelledby="faqTitle">
+    <div class="container faq-wrap">
+      <div class="faq-side rv">
+        <span class="label">Questions</span>
+        <h2 class="h2" id="faqTitle" style="margin-top:18px">Common <em>questions.</em></h2>
       </div>
-      <ol class="cta-steps" aria-label="Your first two weeks">
-        <li><span class="cs-dot" aria-hidden="true"></span><b>Today</b><small>Sign up. No card.</small></li>
-        <li><span class="cs-dot" aria-hidden="true"></span><b>This afternoon</b><small>Your booking link is live.</small></li>
-        <li><span class="cs-dot" aria-hidden="true"></span><b>Day 14</b><small>Choose a plan to keep it running.</small></li>
-      </ol>
+      <div class="faq-list rv d1">${faqDetails(page.faqs)}</div>
+    </div>
+  </section>`
+    : '';
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+${htmlHead(page, canonical, page.article ? 'article' : 'website')}
+<style>${DOC_CSS}</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+${siteHeader(GENERAL, '/')}
+
+<main id="main">
+  <section class="doc-hero" aria-labelledby="docTitle">
+    <div class="container doc-hero-in">
+      ${label ? `<span class="label">${escapeHtml(label)}</span>` : ''}
+      <h1 class="doc-h1" id="docTitle">${escapeHtml(page.h1)}</h1>
+      ${page.article ? `<p class="doc-meta">${escapeHtml(page.article.readingMinutes)} minute read</p>` : ''}
+      <p class="doc-lede">${escapeHtml(page.intro)}</p>
+      ${
+        isLegal
+          ? ''
+          : `<div class="doc-ctas">${primary('/app?signup=1', 'Start free for 14 days', {})}${secondary('/demo', 'Explore the live demo', { play: true })}</div>`
+      }
+    </div>
+  </section>
+
+  ${isPricing ? `<section class="doc-pricing" id="pricing" aria-label="Plans"><div class="container">${pricingBlock()}</div></section>` : ''}
+
+  ${
+    body
+      ? `<section class="doc-body${withToc ? ' with-toc' : ''}"><div class="container">${toc}<article class="prose">${body}</article></div></section>`
+      : ''
+  }
+
+  ${faqs}
+
+  ${page.cta ? closingCta(page, GENERAL) : ''}
+</main>
+
+${siteFooter(GENERAL, '/')}
+
+<script>${LANDING_JS}</script>
+</body>
+</html>`;
+}
+
+// --- Not found ---------------------------------------------------------------
+
+export type NotFoundCopy = {
+  /** Small label over the headline. */
+  label: string;
+  title: string;
+  lede: string;
+};
+
+/** A URL nobody owns: a typo, an old link, a page that moved. */
+export const PAGE_NOT_FOUND: NotFoundCopy = {
+  label: 'Error 404',
+  title: 'This page does not exist.',
+  lede: 'The link may be mistyped, or the page may have moved. Everything that is here is one click away below.',
+};
+
+/**
+ * A customer-facing link that points at nothing: a booking, a studio, a class
+ * or a waitlist offer that is gone or was never there. `detail` is the
+ * AppError's own message ("Booking not found."), which is written for the
+ * customer already, and the advice points them at the business rather than at
+ * us, because only the business can send a new link.
+ */
+export function linkNotFound(detail: string): NotFoundCopy {
+  return {
+    label: 'Link not found',
+    title: 'This link does not work.',
+    lede: `${detail} If it came from a confirmation email or a business's website, ask them for a fresh link.`,
+  };
+}
+
+/**
+ * The 404 page, on the same shell as every other marketing page.
+ *
+ * Served by the error handler to a browser asking for a page; API clients and
+ * the booking page's own requests still get JSON. `noindex` and no canonical
+ * link, so a crawler that follows a dead link files nothing under it.
+ */
+export function renderNotFound(copy: NotFoundCopy = PAGE_NOT_FOUND): string {
+  const links: [string, string, string][] = [
+    ['/', 'Home', 'What BookAIHub does, for every trade'],
+    ['/pricing', 'Pricing', 'Flat monthly plans, no commission'],
+    ['/demo', 'Live demo', 'Click around a real business'],
+    ['/app', 'Sign in', 'Back to your dashboard'],
+  ];
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(copy.title)} | ${escapeHtml(BRAND)}</title>
+<meta name="robots" content="noindex, follow">
+<meta name="theme-color" content="#faf9f6">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="${FAVICON_HREF}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
+<style>${LANDING_CSS}</style>
+<style>${DOC_CSS}</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+${siteHeader(GENERAL, '/')}
+
+<main id="main">
+  <section class="nf" aria-labelledby="nfTitle">
+    <svg class="nf-rings" viewBox="0 0 800 800" aria-hidden="true"><circle cx="400" cy="400" r="150"/><circle cx="400" cy="400" r="240"/><circle cx="400" cy="400" r="330"/></svg>
+    <div class="container nf-in">
+      <p class="nf-code" aria-hidden="true">4<span class="nf-zero">${logoMark('nf')}</span>4</p>
+      <span class="label">${escapeHtml(copy.label)}</span>
+      <h1 class="nf-h1" id="nfTitle">${escapeHtml(copy.title)}</h1>
+      <p class="nf-lede">${escapeHtml(copy.lede)}</p>
+      <div class="doc-ctas nf-ctas">${primary('/', 'Back to the home page', {})}${secondary('/pricing', 'See pricing', {})}</div>
+      <nav class="nf-links" aria-label="Popular pages">
+        ${links
+          .map(
+            ([href, title, note]) =>
+              `<a href="${href}"><b>${escapeHtml(title)}</b><small>${escapeHtml(note)}</small><span class="nf-go" aria-hidden="true">→</span></a>`,
+          )
+          .join('')}
+      </nav>
     </div>
   </section>
 </main>
 
-<footer class="site-footer">
-  <div class="container">
-    <div class="footer-top">
-      <div class="footer-brand">
-        <a href="/" class="brand" aria-label="${escapeHtml(BRAND)} home">${logoMark('f')}${WORDMARK}</a>
-        <p class="footer-blurb">${escapeHtml(vertical.footerBlurb)}</p>
-      </div>
-      <div class="footer-go">
-        <div class="footer-ctas">${primary('/app?signup=1', 'Start free for 14 days', {})}${secondary('/app', 'Sign in', {})}</div>
-        <ul class="footer-badges" aria-label="Works with">
-          <li><span class="fb-dot fb-v" aria-hidden="true"></span>Payouts to your Stripe</li>
-          <li><span class="fb-dot fb-b" aria-hidden="true"></span>Google Calendar sync</li>
-          <li><span class="fb-dot fb-g" aria-hidden="true"></span>Email and text reminders</li>
-        </ul>
-      </div>
-    </div>
-    <div class="footer-grid">
-      <nav class="footer-col" aria-labelledby="fcol1">
-        <h2 class="footer-h" id="fcol1">Product</h2>
-        <a href="#features">Features</a>
-        <a href="#how">How it works</a>
-        <a href="#calc">Commission calculator</a>
-        <a href="/pricing">Pricing</a>
-        <a href="/demo">Live demo</a>
-      </nav>
-      <nav class="footer-col" aria-labelledby="fcol2">
-        <h2 class="footer-h" id="fcol2">Who it's for</h2>
-        ${footerTrades()}
-        <a href="#verticals" class="fc-more">All ten trades →</a>
-      </nav>
-      <nav class="footer-col" aria-labelledby="fcol3">
-        <h2 class="footer-h" id="fcol3">Guides</h2>
-        ${GUIDES.map((guide) => `<a href="/${guide.slug}">${escapeHtml(guide.title)}</a>`).join('')}
-      </nav>
-      <nav class="footer-col" aria-labelledby="fcol4">
-        <h2 class="footer-h" id="fcol4">Compare</h2>
-        <a href="/alternatives/momence">vs Momence</a>
-        <a href="/alternatives/punchpass">vs Punchpass</a>
-        <a href="/alternatives/sawyer">vs Sawyer</a>
-      </nav>
-    </div>
-    <div class="wordmark" id="wordmark" aria-hidden="true"><span class="wm-line">${escapeHtml(BRAND).replace('AI', '<em>AI</em>')}</span><span class="wm-fill">${escapeHtml(BRAND)}</span></div>
-    <div class="footer-bottom">
-      <span>© ${escapeHtml(BRAND)} ${new Date().getFullYear()}</span>
-      <span class="fbm">0% commission on every booking</span>
-      <a href="/terms">Terms</a>
-      <a href="/privacy">Privacy</a>
-      <a href="/refund-policy">Refunds</a>
-      <a href="/sitemap.xml">Sitemap</a>
-      <a href="#main" class="to-top">Back to top <i aria-hidden="true">↑</i></a>
-    </div>
-  </div>
-</footer>
+${siteFooter(GENERAL, '/')}
 
 <script>${LANDING_JS}</script>
 </body>
