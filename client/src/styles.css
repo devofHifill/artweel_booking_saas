@@ -742,166 +742,197 @@ tr:hover td { background: var(--clay-lt); }
   .day-guest .sub { flex-basis: 100%; }
 }
 
-/* --- Signed-out split screen --------------------------------------------- */
-/* Two panels on a warm wash: brand on the left, form on the right. The split
-   is what makes a login page feel like a product rather than a gate — the left
-   half is the only chance to say what is behind the password. */
+/* --- Signed-out screens (sign in, sign up, forgot, reset) ------------------ */
+/* Dressed as the marketing site, not the dashboard: people arrive here from
+   "Start free" on bookaihub.com, and the step across hosts should not look
+   like a second product. `.auth` sets the marketing palette and fonts on
+   itself, plus the dashboard tokens the shared input and button rules read,
+   so everything inside follows without restyling each control. Light in both
+   themes, as the marketing site is. Mirrors server
+   modules/marketing/landing-css.ts; change the two together. */
 .auth {
+  --paper: #faf9f6; --ink: #0e0f12; --ink-2: #2a2c33; --body: #5d6170; --muted: #7d818c;
+  --line: rgba(14, 15, 18, 0.1); --line-2: rgba(14, 15, 18, 0.16);
+  --accent: #ef5a24; --accent-2: #ff8a4c; --accent-soft: #fff1ea; --accent-ink: #b23d0d;
+  --night: #0d0e11; --night-body: #a7abb5; --night-line: rgba(255, 255, 255, 0.09);
+  --sans: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --serif: "Instrument Serif", Georgia, serif;
+  --out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* the dashboard tokens, re-pointed at the marketing palette */
+  --bg: var(--paper); --card: #fff; --danger: #c93535;
+  --clay: var(--accent); --clay-dk: #c8430f; --clay-lt: var(--accent-soft); --clay-text: var(--accent-ink);
+
+  color-scheme: light;
   display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: var(--space-5);
+  grid-template-columns: 1.08fr 0.92fr;
+  gap: 16px;
   min-height: 100dvh;
-  padding: var(--space-5);
+  padding: 16px;
+  color: var(--ink);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
   background:
-    radial-gradient(900px 520px at 12% -12%, var(--clay-lt), transparent 62%),
-    radial-gradient(700px 420px at 105% 108%, var(--clay-lt), transparent 60%),
-    var(--bg);
+    radial-gradient(900px 560px at 92% -12%, rgba(255, 138, 76, 0.16), transparent 62%),
+    radial-gradient(700px 420px at 60% 112%, rgba(255, 138, 76, 0.08), transparent 60%),
+    var(--paper);
 }
 
-/* Brand half. Dark in BOTH themes: it is brand surface, so every colour on it
-   is fixed rather than tokenised, and stays legible either way. */
+.auth .brand-mark { display: block; flex: none; overflow: visible; transition: transform 0.6s var(--out); }
+.auth-logo { display: inline-flex; align-items: center; gap: 9px; color: var(--ink); font-weight: 700; font-size: 19px; letter-spacing: -0.035em; text-decoration: none; }
+.auth-logo:hover .brand-mark { transform: rotate(-6deg) scale(1.06); }
+.auth .wm-text { line-height: 1; }
+.auth .wm-text em { font-style: normal; background: linear-gradient(180deg, #ff8a3d, #ef4f17); -webkit-background-clip: text; background-clip: text; color: transparent; padding-right: 0.02em; }
+.auth-logo.on-dark { color: #fff; --lm-body: #f4f4f2; --lm-face: #1d1f26; }
+
+/* Brand half: the landing page's dark closing panel. */
 .auth-brand {
   position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: var(--space-8);
-  overflow: hidden;
+  gap: 40px;
   min-width: 0;
-  padding: var(--space-10);
-  border-radius: 26px;
-  color: #f6efe9;
-  background:
-    radial-gradient(620px 380px at 78% 84%, rgba(166, 82, 44, 0.34), transparent 66%),
-    linear-gradient(158deg, #33261f 0%, #241a15 52%, #191210 100%);
+  padding: 36px 44px 40px;
+  border-radius: 32px;
+  background: var(--night);
+  color: #fff;
 }
-
-/* Two faint rings, echoing the mark and a wheel head. Ground texture only, so
-   they sit behind everything and never take a pointer. */
-.auth-brand::before,
-.auth-brand::after {
-  content: '';
+/* an orange dawn rising from the bottom edge, and a faint grid over it */
+.auth-brand::before {
+  content: "";
   position: absolute;
   left: 50%;
-  top: 46%;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  top: 100%;
+  z-index: -2;
+  width: 1100px;
+  height: 1100px;
+  margin: -440px 0 0 -550px;
   border-radius: 50%;
-  transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, rgba(239, 90, 36, 0.5), rgba(239, 90, 36, 0.12) 45%, transparent 70%);
   pointer-events: none;
 }
-.auth-brand::before { width: 560px; height: 560px; }
-.auth-brand::after { width: 820px; height: 820px; }
-
-.auth-kicker,
-.auth-brand-mid,
-.auth-brand-foot { position: relative; }
-
-.auth-kicker {
-  margin: 0;
-  max-width: 46ch;
-  font-size: var(--text-sm);
-  color: rgba(246, 239, 233, 0.72);
+.auth-brand::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.35;
+  background-image: linear-gradient(var(--night-line) 1px, transparent 1px), linear-gradient(90deg, var(--night-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 75%);
+  pointer-events: none;
 }
+.auth-glow { position: absolute; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(520px circle at 70% 30%, rgba(255, 138, 76, 0.14), transparent 60%); }
+.auth-rings { position: absolute; left: 62%; top: 52%; z-index: -1; width: 980px; translate: -50% -50%; fill: none; stroke: rgba(255, 255, 255, 0.06); stroke-width: 1; pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 50%, transparent); mask-image: radial-gradient(closest-side, #000 50%, transparent); }
 
-.auth-brand-mid { display: grid; gap: var(--space-8); }
+.auth-brand-mid { display: grid; gap: 22px; max-width: 560px; }
+.auth-label { display: inline-flex; align-items: center; gap: 10px; font: 500 12px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--night-body); }
+.auth-label::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(239, 90, 36, 0.18); }
+.auth-head { margin: 0; font-size: clamp(40px, 4.6vw, 66px); font-weight: 600; line-height: 0.98; letter-spacing: -0.05em; }
+.auth-head em { font-family: var(--serif); font-style: italic; font-weight: 400; letter-spacing: -0.01em; color: var(--accent-2); }
+.auth-kicker { margin: 0; max-width: 44ch; font-size: 17px; line-height: 1.55; color: var(--night-body); }
 
-.auth-head {
-  margin: 0;
-  font-size: clamp(2.3rem, 4.2vw, 3.5rem);
-  font-weight: 600;
-  line-height: 1.03;
-  letter-spacing: -0.035em;
-}
-
-.auth-brand-foot {
-  margin: 0;
-  font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(246, 239, 233, 0.45);
-}
-
-/* A slice of the actual product instead of a stock photo of a wheel. */
+/* the product sample, with two notifications floating off it */
+.auth-stage { position: relative; margin-top: 6px; padding: 44px 0 34px; }
 .auth-mock {
-  width: min(360px, 100%);
-  padding: var(--space-4);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.055);
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
-  transform: rotate(-1.4deg);
+  position: relative;
+  width: min(380px, 100%);
+  padding: 18px 18px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.06);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 30px 60px -24px rgba(0, 0, 0, 0.7);
 }
-
-.auth-mock-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  font-size: var(--text-md);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.auth-mock-count { font-size: var(--text-xs); font-weight: 400; color: rgba(246, 239, 233, 0.6); }
-
-.auth-mock-rows { margin-top: var(--space-3); }
-
+.auth-mock-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
+.auth-mock-count { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--night-body); }
+.auth-mock-rows { margin-top: 10px; }
 .auth-mock-row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: var(--space-3);
+  grid-template-columns: 46px 1fr auto;
+  grid-template-areas: "t n s" ". b b";
+  column-gap: 10px;
+  row-gap: 7px;
   align-items: center;
-  padding: var(--space-2) 0;
-  font-size: var(--text-sm);
+  padding: 11px 0;
+  font-size: 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
-.auth-mock-time { color: rgba(246, 239, 233, 0.6); font-variant-numeric: tabular-nums; }
-.auth-mock-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.auth-mock-seats { color: rgba(246, 239, 233, 0.6); font-variant-numeric: tabular-nums; }
+.auth-mock-time { grid-area: t; font: 500 12.5px var(--mono); color: var(--night-body); font-variant-numeric: tabular-nums; }
+.auth-mock-name { grid-area: n; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-mock-seats { grid-area: s; font: 500 12px var(--mono); color: var(--night-body); }
+.auth-mock-seats.full { color: var(--accent-2); }
+.auth-mock-bar { grid-area: b; height: 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.auth-mock-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ff8a3d, #ef4f17); }
+.auth-mock-chip { display: inline-flex; align-items: center; gap: 7px; margin-top: 12px; padding: 5px 11px; border-radius: 999px; background: rgba(255, 138, 76, 0.14); color: #ffb27f; font-size: 12px; }
+.auth-mock-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
-.auth-mock-chip {
-  display: inline-block;
-  margin-top: var(--space-3);
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
-  background: rgba(224, 168, 120, 0.16);
-  color: #e8bb95;
-  font-size: var(--text-xs);
+.auth-float {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px 11px 11px;
+  border-radius: 16px;
+  background: rgba(22, 24, 29, 0.72);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 24px 50px -20px rgba(0, 0, 0, 0.8);
+  font-size: 12.5px;
+  white-space: nowrap;
 }
+.auth-float b { display: block; font-size: 13.5px; font-weight: 600; color: #fff; }
+.auth-float span { color: var(--night-body); }
+.auth-float-ic { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 10px; font: 600 13px var(--mono); }
+.auth-float-ic.ok { background: rgba(79, 211, 147, 0.16); color: #4fd393; }
+.auth-float-ic.pay { background: rgba(255, 138, 76, 0.18); color: var(--accent-2); }
+.auth-float.f1 { top: 0; left: min(220px, 40%); rotate: 3deg; animation: auth-float 7s ease-in-out infinite; }
+.auth-float.f2 { bottom: 0; left: min(190px, 40%); rotate: -3deg; animation: auth-float 8s ease-in-out infinite -3s; }
+@keyframes auth-float { 50% { translate: 0 -8px; } }
+
+.auth-proof { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.auth-proof li { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px 6px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); font-size: 12.5px; color: #e6e7ea; }
+.auth-dot { width: 8px; height: 8px; border-radius: 50%; }
+.auth-dot.v { background: #8b6cf0; }
+.auth-dot.b { background: #4f8ef5; }
+.auth-dot.g { background: #3cc488; }
 
 /* Form half. */
 .auth-panel {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: var(--space-8);
-  border: 1px solid var(--line);
-  border-radius: 26px;
-  background: var(--card);
-  box-shadow: var(--shadow-lg);
+  padding: 24px 28px 22px;
+  border-radius: 32px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line), 0 40px 80px -48px rgba(14, 15, 18, 0.28);
 }
+.auth-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+/* The brand panel carries the logo on a wide screen; the form card shows it
+   once the panels stack. Hidden rather than removed, so the switch button
+   keeps its place on the right. */
+.auth-top .auth-logo { visibility: hidden; }
 
-.auth-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
-
-.auth-mark {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-lg);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.auth-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+.auth button.auth-switch {
+  height: 40px;
+  padding: 0 14px 0 18px;
+  gap: 6px;
   border: 0;
-  border-radius: var(--radius-pill);
-  background: none;
-  color: var(--muted);
-  font-size: var(--text-sm);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 0 0 1px var(--line-2), 0 1px 2px rgba(14, 15, 18, 0.05);
+  color: var(--ink);
+  font: 500 14px var(--sans);
+  letter-spacing: -0.01em;
+  transition: background 0.25s, box-shadow 0.25s, transform 0.35s var(--out);
 }
-.auth-switch:hover { background: var(--clay-lt); border-color: transparent; color: var(--clay-text); }
+.auth button.auth-switch svg { width: 15px; height: 15px; transition: transform 0.3s var(--out); }
+.auth button.auth-switch:hover { background: #fff; border-color: transparent; transform: translateY(-1px); box-shadow: inset 0 0 0 1px rgba(239, 90, 36, 0.45), 0 10px 24px -14px rgba(14, 15, 18, 0.35); }
+.auth button.auth-switch:hover svg { transform: translateX(2px); }
 
 /* The form is centred in the leftover height rather than pinned under the
    header: on a tall window a top-aligned form drifts up to the ceiling. */
@@ -911,40 +942,37 @@ tr:hover td { background: var(--clay-lt); }
   flex-direction: column;
   justify-content: center;
   width: 100%;
-  max-width: 400px;
+  max-width: 404px;
   margin: 0 auto;
-  padding: var(--space-10) 0;
+  padding: 40px 0;
 }
-.auth-body h1 {
-  font-size: clamp(1.9rem, 2.8vw, 2.5rem);
-  font-weight: 600;
-  letter-spacing: -0.035em;
-}
-.auth-intro { margin: var(--space-2) 0 0; color: var(--muted); font-size: var(--text-base); }
+.auth-body h1 { margin: 0; font-size: clamp(34px, 3.2vw, 46px); font-weight: 600; line-height: 1.02; letter-spacing: -0.045em; }
+.auth-intro { margin: 12px 0 0; color: var(--body); font-size: 16.5px; line-height: 1.55; }
 
-.auth-form { margin-top: var(--space-8); }
-
-.auth-field { margin-bottom: var(--space-3); }
+.auth-form { margin-top: 32px; }
+.auth-field { margin-bottom: 12px; }
 .auth-field-box { position: relative; }
-
 .auth-field input {
   height: 58px;
-  padding: 22px 18px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  font-size: var(--text-base);
+  padding: 22px 20px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 16px;
+  transition: border-color 0.2s, box-shadow 0.25s;
 }
-.auth-field.has-reveal input { padding-right: 52px; }
+.auth-field input:hover { border-color: rgba(14, 15, 18, 0.28); }
+.auth-field.has-reveal input { padding-right: 54px; }
 
 /* The label starts where a placeholder would sit and rides up once the field
    has focus or content, so the name of the box never leaves the screen. */
 .auth-field label {
   position: absolute;
-  left: 19px;
+  left: 21px;
   top: 50%;
   margin: 0;
   color: var(--muted);
-  font-size: var(--text-base);
+  font-size: 16px;
   font-weight: 400;
   pointer-events: none;
   transform: translateY(-50%);
@@ -957,116 +985,161 @@ tr:hover td { background: var(--clay-lt); }
 .auth-field input:focus + label,
 .auth-field input:not(:placeholder-shown) + label {
   transform: translateY(calc(-50% - 15px));
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.03em;
+  font: 500 10.5px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
-.auth-field input:focus + label { color: var(--clay-text); }
+.auth-field input:focus + label { color: var(--accent-ink); }
 
-/* The shared input rules square the corners on focus (radius-sm) and draw an
-   inset outline. Both are wrong on a pill, so this restates them. */
+/* The shared input rules square the corners on focus and draw an inset
+   outline. Both are wrong on a pill, so this restates them. */
 .auth-field input:focus,
 .auth-field input:focus-visible {
   outline: none;
-  border-color: var(--clay);
-  border-radius: var(--radius-pill);
-  box-shadow: 0 0 0 3px var(--clay-lt);
+  border-color: var(--accent);
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px rgba(239, 90, 36, 0.14);
 }
 .auth-field input[aria-invalid="true"] { border-color: var(--danger); }
 
-.auth-reveal {
+.auth button.auth-reveal {
   position: absolute;
-  right: 8px;
+  right: 9px;
   top: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 40px;
   height: 40px;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: none;
+  box-shadow: none;
   color: var(--muted);
   transform: translateY(-50%);
 }
-.auth-reveal:hover { background: var(--clay-lt); color: var(--clay-text); }
+.auth button.auth-reveal svg { width: 18px; height: 18px; }
+.auth button.auth-reveal:hover { background: var(--accent-soft); color: var(--accent-ink); }
 /* The shared :active nudge moves the button; here it would slide out of its
    own field, because the button is centred by transform. */
-.auth-reveal:active:not(:disabled) { transform: translateY(-50%); }
+.auth button.auth-reveal:active:not(:disabled) { transform: translateY(-50%); }
 
-.auth-hint { margin: 6px 0 0; padding-left: 19px; font-size: var(--text-xs); color: var(--muted); }
+.auth-hint { margin: 6px 0 0; padding-left: 21px; font-size: 12.5px; color: var(--muted); }
 .auth-hint.bad { color: var(--danger); }
 
-.auth-err { border-radius: var(--radius-lg); margin: 0 0 var(--space-4); }
+.auth .err { margin: 0 0 16px; padding: 12px 16px; border: 1px solid rgba(201, 53, 53, 0.25); border-radius: 16px; background: #fdf0ef; color: #9b2424; font-size: 14px; }
 
-/* The gradient runs dark-to-clay rather than clay-to-light: the lightest point
-   still holds white text at 5.4:1, which a brighter terracotta does not. */
-.auth-submit {
+/* The primary, as the marketing site draws it: orange pill, lit top edge, a
+   sheen across on hover, and a white disc whose arrow slides out and is
+   replaced by a fresh one. */
+@keyframes auth-sheen { from { transform: translateX(-120%) skewX(-20deg); } to { transform: translateX(220%) skewX(-20deg); } }
+.auth button.auth-submit {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
+  gap: 12px;
   width: 100%;
   height: 56px;
-  margin-top: var(--space-5);
+  margin-top: 20px;
+  padding: 0 28px;
   border: 0;
-  border-radius: var(--radius-pill);
-  background: linear-gradient(115deg, var(--clay-dk) 0%, var(--clay) 78%);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ff7a45, #ef5a24 58%, #e04c16);
   color: #fff;
-  font-size: var(--text-md);
-  font-weight: 600;
-  box-shadow: 0 10px 24px rgba(110, 52, 24, 0.28);
+  font: 500 16px var(--sans);
+  letter-spacing: -0.01em;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(120, 30, 0, 0.35), 0 1px 2px rgba(239, 90, 36, 0.35), 0 12px 28px -12px rgba(239, 90, 36, 0.75);
+  transition: transform 0.35s var(--out), box-shadow 0.35s var(--out);
 }
-/* Restates the gradient: the global `button:hover` (more specific than
-   `.auth-submit`) would otherwise swap it for the pale page background and
-   leave the white label invisible. */
-.auth-submit:hover:not(:disabled) {
-  background: linear-gradient(115deg, var(--clay-dk) 0%, var(--clay) 78%);
-  border-color: transparent;
-  box-shadow: 0 14px 30px rgba(110, 52, 24, 0.36);
-  filter: brightness(1.07);
+.auth button.auth-submit::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.24), transparent);
+  transform: translateX(-120%) skewX(-20deg);
+  pointer-events: none;
 }
-.auth-submit:disabled { box-shadow: none; }
+/* Restates the gradient: the global `button:hover` would otherwise swap it for
+   the pale page background and leave the white label invisible. */
+.auth button.auth-submit:hover:not(:disabled) {
+  background: linear-gradient(180deg, #ff7a45, #ef5a24 58%, #e04c16);
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), inset 0 -1px 0 rgba(120, 30, 0, 0.35), 0 2px 4px rgba(239, 90, 36, 0.3), 0 20px 38px -14px rgba(239, 90, 36, 0.8);
+}
+.auth button.auth-submit:hover:not(:disabled)::after { animation: auth-sheen 0.9s var(--out); }
+.auth button.auth-submit:active:not(:disabled) { transform: translateY(1px) scale(0.985); transition-duration: 0.08s; }
+.auth button.auth-submit:focus-visible { outline: none; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--accent); }
+.auth button.auth-submit:disabled { opacity: 0.7; }
+.auth-submit .lbl { position: relative; z-index: 2; }
+.auth-submit .arr { position: relative; z-index: 2; display: grid; place-items: center; width: 32px; height: 32px; margin-right: -16px; flex: none; overflow: hidden; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px -2px rgba(120, 30, 0, 0.4); transition: transform 0.35s var(--out); }
+.auth-submit .arr svg { grid-area: 1 / 1; width: 12px; height: 12px; fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.4s var(--out); }
+.auth-submit .arr svg + svg { transform: translateX(-22px); }
+.auth-submit:hover:not(:disabled) .arr { transform: scale(1.08); }
+.auth-submit:hover:not(:disabled) .arr svg:first-child { transform: translateX(22px); }
+.auth-submit:hover:not(:disabled) .arr svg + svg { transform: none; }
 
-.auth-legal { margin: var(--space-4) 0 0; text-align: center; font-size: var(--text-xs); line-height: 1.6; color: var(--muted); }
-.auth-legal a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
-.auth-legal a:hover { color: var(--clay-text); }
+.auth-legal { margin: 16px 0 0; text-align: center; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+.auth-legal a { color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; transition: color 0.2s, text-decoration-color 0.2s; }
+.auth-legal a:hover { color: var(--accent-ink); text-decoration-color: currentColor; }
 
-.auth-forgot { margin-top: var(--space-4); text-align: center; }
-.auth-forgot .link { color: var(--muted); font-size: var(--text-sm); }
-.auth-forgot .link:hover { color: var(--clay-text); }
+.auth-forgot { margin-top: 16px; text-align: center; }
+.auth button.link { height: auto; padding: 2px 4px; border: 0; background: none; box-shadow: none; color: var(--body); font: 400 14px var(--sans); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.auth button.link:hover { background: none; color: var(--accent-ink); text-decoration-color: currentColor; }
 
 .auth-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: 8px 16px;
   flex-wrap: wrap;
   color: var(--muted);
-  font-size: var(--text-xs);
+  font: 500 11.5px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
-/* The sidebar's toggle is a full-width block; here it is one item in a row. */
-.auth-foot .theme-toggle { width: auto; margin: 0; }
+.auth-foot nav { display: flex; gap: 18px; flex-wrap: wrap; }
+.auth-foot a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
+.auth-foot a:hover { color: var(--ink); }
 
-/* One column below the split. The brand panel stays — it is the only thing
-   naming the product on a phone — but sheds the mock and the height. */
+/* A laptop screen is short: tighten the brand panel so the whole screen fits
+   without scrolling, and drop the badges when even that is not enough. */
+@media (min-width: 901px) and (max-height: 880px) {
+  .auth-brand { gap: 24px; padding: 28px 40px 30px; }
+  .auth-brand-mid { gap: 16px; }
+  .auth-head { font-size: clamp(38px, 4.2vw, 56px); }
+  .auth-kicker { font-size: 16px; }
+  .auth-stage { margin-top: 0; padding: 38px 0 26px; }
+  .auth-mock-row { padding: 8px 0; row-gap: 6px; }
+  .auth-body { padding: 24px 0; }
+}
+@media (min-width: 901px) and (max-height: 720px) {
+  .auth-proof { display: none; }
+  .auth-kicker { display: none; }
+}
+
+/* Stacked below the split: the form comes first, since that is what the
+   person came to do, with the logo on its card; the brand panel follows as a
+   short band without the sample or the badges. */
 @media (max-width: 900px) {
-  .auth { grid-template-columns: 1fr; gap: 0; min-height: 100dvh; padding: 0; }
-  .auth-brand {
-    gap: var(--space-5);
-    padding: var(--space-8) var(--space-5);
-    border-radius: 0;
-  }
-  .auth-brand-foot { display: none; }
-  .auth-mock { display: none; }
-  .auth-panel {
-    border: 0;
-    border-radius: 0;
-    padding: var(--space-6) var(--space-5) var(--space-8);
-    box-shadow: none;
-  }
-  .auth-body { padding: var(--space-8) 0; }
+  .auth { grid-template-columns: 1fr; gap: 12px; padding: 12px; }
+  .auth-panel { order: -1; padding: 20px 20px 18px; border-radius: 24px; }
+  .auth-top .auth-logo { visibility: visible; }
+  .auth-body { padding: 32px 0; }
+  .auth-brand { gap: 22px; padding: 24px 22px 28px; border-radius: 24px; }
+  .auth-brand .auth-logo { display: none; }
+  .auth-brand-mid { gap: 14px; }
+  .auth-head { font-size: clamp(32px, 9vw, 44px); }
+  .auth-kicker { font-size: 15px; }
+  .auth-stage { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-float { animation: none; }
+  .auth button.auth-submit:hover:not(:disabled)::after { animation: none; }
 }
 
 .modal-backdrop {

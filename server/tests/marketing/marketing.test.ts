@@ -94,6 +94,53 @@ describe('pages', () => {
     expect(res.status).toBe(404);
   });
 
+  describe('the 404 page', () => {
+    // What a browser sends when somebody follows a link.
+    const BROWSER = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+
+    it('shows a browser a page in the site design, not raw JSON', async () => {
+      const res = await request(app).get('/not-a-real-page').set('Accept', BROWSER);
+
+      expect(res.status).toBe(404);
+      expect(res.type).toBe('text/html');
+      expect(res.text).toContain('This page does not exist.');
+      expect(res.text).toContain('class="site-header"');
+      expect(res.text).toContain('class="site-footer"');
+      // A dead URL must not be filed by a crawler, or point one anywhere.
+      expect(res.text).toContain('<meta name="robots" content="noindex, follow">');
+      expect(res.text).not.toContain('rel="canonical"');
+      expect(res.text).not.toContain('Route not found');
+    });
+
+    it('tells a customer which link is dead, under /public/', async () => {
+      const res = await request(app)
+        .get('/public/bookings/not-a-real-token/manage')
+        .set('Accept', BROWSER);
+
+      expect(res.status).toBe(404);
+      expect(res.type).toBe('text/html');
+      expect(res.text).toContain('This link does not work.');
+      expect(res.text).toContain('Booking not found.');
+    });
+
+    it('keeps JSON for fetch(), API clients and the API itself', async () => {
+      // fetch() sends */*; the booking page's own requests must still parse.
+      const fetchLike = await request(app).get('/not-a-real-page').set('Accept', '*/*');
+      expect(fetchLike.type).toBe('application/json');
+      expect(fetchLike.body.error.message).toContain('Route not found');
+
+      // Nothing under /api gets a page, whatever it says it accepts.
+      const api = await request(app).get('/api/not-a-route').set('Accept', BROWSER);
+      expect(api.status).toBe(404);
+      expect(api.type).toBe('application/json');
+
+      // Only page loads: a POST to a dead URL is never answered with HTML.
+      const post = await request(app).post('/not-a-real-page').set('Accept', BROWSER);
+      expect(post.status).toBe(404);
+      expect(post.type).toBe('application/json');
+    });
+  });
+
   it('does not shadow the API or the booking pages', async () => {
     // The marketing router owns the root and matches two path segments, so
     // this is the regression worth guarding.
@@ -254,15 +301,17 @@ describe('technical SEO', () => {
 
   it('needs no JavaScript to show its content', async () => {
     // The visitor is on a phone on mobile data, and the crawler decides
-    // whether anyone ever sees this.
+    // whether anyone ever sees this. The page carries the landing page's
+    // inline script for its menus, but every word and price is in the HTML,
+    // nothing loads from elsewhere, and reveal animations only hide anything
+    // once that script has run (`.js .rv`).
     const res = await request(app).get('/pricing');
 
-    const withoutJsonLd = res.text.replace(
-      /<script type="application\/ld\+json">[\s\S]*?<\/script>/g,
-      '',
-    );
-    expect(withoutJsonLd).not.toContain('<script');
+    expect(res.text).not.toMatch(/<script[^>]+src=/);
+    expect(res.text).toContain('.js .rv{opacity:0');
+    expect(res.text).not.toMatch(/(^|[}\n])\.rv\{[^}]*opacity:0/);
     expect(res.text).toContain('$39');
+    expect(res.text).toContain('Why not a percentage?');
   });
 });
 
@@ -316,9 +365,10 @@ describe('honesty of the copy', () => {
     const res = await request(app).get('/pricing');
 
     expect(res.text).toContain('No commission');
-    expect(res.text).toContain('$39');
-    expect(res.text).toContain('$89');
-    expect(res.text).toContain('$189');
+    // The plan cards set the dollar sign as a superscript, as on the home page.
+    for (const price of ['39', '89', '189']) {
+      expect(res.text).toContain(`<sup>$</sup>${price}<small> /month</small>`);
+    }
   });
 });
 

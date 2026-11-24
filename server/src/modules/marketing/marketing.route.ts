@@ -6,8 +6,8 @@ import { asyncHandler } from '../../lib/async-handler';
 import { rateLimit } from '../../middleware/rate-limit';
 import { ALL_PAGES, type Page } from './content';
 import { VERTICAL_BY_SLUG } from './verticals';
-import { renderMarketingPage, renderRobots, renderSitemap } from './render';
-import { renderLanding } from './landing';
+import { renderRobots, renderSitemap } from './render';
+import { renderDocumentPage, renderLanding } from './landing';
 import { LEGAL_PAGES } from './legal';
 
 export const marketingRouter = Router();
@@ -165,7 +165,7 @@ marketingRouter.get(
       String(req.query.utm_source ?? '') || undefined,
     );
 
-    res.type('html').send(renderMarketingPage(page));
+    res.type('html').send(renderDocumentPage(page));
   }),
 );
 

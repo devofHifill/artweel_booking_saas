@@ -119,7 +119,8 @@ export function createApp() {
    * database, no session, no API. Nothing else imports this.
    *
    * TO REMOVE: delete this block, the `Demo` links in
-   * modules/marketing/landing.ts and modules/marketing/render.ts, the
+   * modules/marketing/landing.ts (header, mobile menu, FAQ help card,
+   * closing call to action, document page heads), the
    * `COPY demos ./demos` line in the Dockerfile, and the server/demos
    * directory. Nothing else references them.
    *

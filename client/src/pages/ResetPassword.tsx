@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
-import { Icon } from '../components/Icon';
-import { AuthField, AuthLayout } from '../components/AuthLayout';
+import { AuthField, AuthLayout, AuthSubmit } from '../components/AuthLayout';
 
 /**
  * "Choose a new password." — the far end of the emailed link.
@@ -107,10 +106,7 @@ export default function ResetPassword() {
           required
         />
 
-        <button className="auth-submit" type="submit" disabled={busy}>
-          <Icon name="signin" size={18} />
-          {busy ? 'Saving…' : 'Set password'}
-        </button>
+        <AuthSubmit busy={busy} label="Set password" busyLabel="Saving…" />
       </form>
     </AuthLayout>
   );
