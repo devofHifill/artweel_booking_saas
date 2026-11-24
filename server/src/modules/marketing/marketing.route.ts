@@ -7,8 +7,9 @@ import { rateLimit } from '../../middleware/rate-limit';
 import { ALL_PAGES, type Page } from './content';
 import { VERTICAL_BY_SLUG } from './verticals';
 import { renderRobots, renderSitemap } from './render';
-import { renderDocumentPage, renderLanding } from './landing';
+import { renderDocumentPage, renderLanding, renderSupportPage } from './landing';
 import { LEGAL_PAGES } from './legal';
+import { SUPPORT } from './support';
 
 export const marketingRouter = Router();
 
@@ -16,7 +17,8 @@ const readLimit = rateLimit({ windowMs: 60_000, max: 240, name: 'marketing' });
 
 // The legal pages are added here rather than to ALL_PAGES: legal.ts imports
 // BRAND from content.ts, so content.ts importing it back would be a cycle.
-const SITE_PAGES: Page[] = [...ALL_PAGES, ...LEGAL_PAGES];
+// /support is listed for the sitemap but has a route of its own below.
+const SITE_PAGES: Page[] = [...ALL_PAGES, ...LEGAL_PAGES, SUPPORT];
 
 const BY_SLUG = new Map<string, Page>(SITE_PAGES.map((page) => [page.slug, page]));
 
@@ -117,6 +119,16 @@ marketingRouter.get(
     // module — as do the ten /for/<trade> pages, which are the same page
     // arguing the same thing in a different trade's nouns.
     res.type('html').send(renderLanding(vertical.page, vertical));
+  }),
+);
+
+/** Support: contact details and answers, on a layout of its own. */
+marketingRouter.get(
+  '/support',
+  readLimit,
+  asyncHandler(async (req, res) => {
+    recordView('/support', req.get('referer'), String(req.query.utm_source ?? '') || undefined);
+    res.type('html').send(renderSupportPage());
   }),
 );
 

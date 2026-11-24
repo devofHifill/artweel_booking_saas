@@ -8,6 +8,7 @@ import { resetRateLimits } from '../../src/middleware/rate-limit';
 import { ALL_PAGES, JUST_SHIPPED } from '../../src/modules/marketing/content';
 import { escapeHtml } from '../../src/modules/marketing/render';
 import { GENERAL, VERTICALS } from '../../src/modules/marketing/verticals';
+import { LEGAL } from '../../src/modules/marketing/legal';
 
 /**
  * The marketing site.
@@ -156,6 +157,46 @@ describe('pages', () => {
 
     const unknownStudio = await request(app).get('/public/no-such-studio');
     expect(unknownStudio.status).toBe(404);
+  });
+});
+
+describe('support', () => {
+  it('serves /support with the real contact details', async () => {
+    const res = await request(app).get('/support');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('class="site-header"');
+    // The same email, phone and address as the legal pages, from one place.
+    expect(res.text).toContain(`mailto:${LEGAL.supportEmail}`);
+    expect(res.text).toContain('href="tel:+16199206864"');
+    expect(res.text).toContain(escapeHtml(LEGAL.address));
+    expect(res.text).toContain('Monday to Thursday');
+  });
+
+  it('sends a customer with a booking to the business, not to us', async () => {
+    // Terms section 5: bookings, prices and refunds belong to the business.
+    const res = await request(app).get('/support');
+
+    expect(res.text).toContain('I booked with a business');
+    expect(res.text).toContain('cannot change, cancel or refund a business');
+  });
+
+  it('marks up its answers and how to reach us', async () => {
+    const res = await request(app).get('/support');
+
+    expect(res.text).toContain('"@type":"FAQPage"');
+    expect(res.text).toContain('"@type":"ContactPoint"');
+    expect(res.text).toContain(`"email":"${LEGAL.supportEmail}"`);
+  });
+
+  it('is linked from every page footer and listed in the sitemap', async () => {
+    for (const path of ['/', '/pricing', '/terms']) {
+      const res = await request(app).get(path);
+      expect(res.text, path).toContain('<a href="/support">Support</a>');
+    }
+
+    const sitemap = await request(app).get('/sitemap.xml');
+    expect(sitemap.text).toMatch(/<loc>[^<]*\/support<\/loc>/);
   });
 });
 
