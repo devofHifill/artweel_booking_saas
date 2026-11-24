@@ -1248,6 +1248,9 @@ ${structuredData(page, canonical)}
     <div class="footer-bottom">
       <span>© ${escapeHtml(BRAND)} ${new Date().getFullYear()}</span>
       <span class="fbm">0% commission on every booking</span>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/refund-policy">Refunds</a>
       <a href="/sitemap.xml">Sitemap</a>
       <a href="#main" class="to-top">Back to top <i aria-hidden="true">↑</i></a>
     </div>

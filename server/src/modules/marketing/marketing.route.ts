@@ -8,12 +8,17 @@ import { ALL_PAGES, type Page } from './content';
 import { VERTICAL_BY_SLUG } from './verticals';
 import { renderMarketingPage, renderRobots, renderSitemap } from './render';
 import { renderLanding } from './landing';
+import { LEGAL_PAGES } from './legal';
 
 export const marketingRouter = Router();
 
 const readLimit = rateLimit({ windowMs: 60_000, max: 240, name: 'marketing' });
 
-const BY_SLUG = new Map<string, Page>(ALL_PAGES.map((page) => [page.slug, page]));
+// The legal pages are added here rather than to ALL_PAGES: legal.ts imports
+// BRAND from content.ts, so content.ts importing it back would be a cycle.
+const SITE_PAGES: Page[] = [...ALL_PAGES, ...LEGAL_PAGES];
+
+const BY_SLUG = new Map<string, Page>(SITE_PAGES.map((page) => [page.slug, page]));
 
 /**
  * Records a page view as an aggregate counter.
@@ -71,7 +76,7 @@ marketingRouter.get(
 marketingRouter.get(
   '/sitemap.xml',
   asyncHandler(async (_req, res) => {
-    res.type('application/xml').send(renderSitemap(ALL_PAGES));
+    res.type('application/xml').send(renderSitemap(SITE_PAGES));
   }),
 );
 

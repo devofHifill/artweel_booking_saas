@@ -233,6 +233,9 @@ function footer(): string {
       <a href="/pricing">Pricing</a>
       <a href="/alternatives/momence">vs Momence</a>
       <a href="/alternatives/punchpass">vs Punchpass</a>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/refund-policy">Refunds</a>
       <a href="/sitemap.xml">Sitemap</a>
     </nav>
   </div>
@@ -290,6 +293,7 @@ function eyebrow(page: Page): string {
   if (page.article) return 'Guide';
   if (page.slug.startsWith('alternatives/')) return 'Comparison';
   if (page.slug === 'pricing') return 'Pricing';
+  if (['terms', 'privacy', 'refund-policy'].includes(page.slug)) return 'Legal';
   return '';
 }
 
