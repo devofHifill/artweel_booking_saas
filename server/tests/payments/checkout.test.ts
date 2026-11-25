@@ -7,7 +7,10 @@ import { signUpStudio, type Studio } from '../helpers/api';
 import { resetRateLimits } from '../../src/middleware/rate-limit';
 import { FakePaymentProvider } from '../../src/modules/payments/fake.provider';
 import { setPaymentProvider } from '../../src/modules/payments/provider.registry';
-import { handleWebhook } from '../../src/modules/payments/payment.service';
+import {
+  CHECKOUT_HOLD_GRACE_MINUTES,
+  handleWebhook,
+} from '../../src/modules/payments/payment.service';
 
 /**
  * The paid booking path, end to end.
@@ -441,6 +444,268 @@ describe('the payment webhook', () => {
 
     const res = await startCheckout();
     expect(res.status).toBe(409);
+  });
+});
+
+/*
+  Launch review 2026-11-25 (docs/LAUNCH-REVIEW-TRACKER.md, RV-01 to RV-04).
+  Every case here used to end with a customer's money kept and no place given,
+  or a place given for less than it costs.
+*/
+describe('money is never kept without a place', () => {
+  async function pendingCheckoutId() {
+    return (await prisma.payment.findFirstOrThrow({})).providerCheckoutSessionId!;
+  }
+
+  async function seatsTaken() {
+    return (await prisma.session.findUniqueOrThrow({ where: { id: sessionId } }))
+      .seatsTaken;
+  }
+
+  it('runs a redelivery when the first attempt failed, which wrote nothing', async () => {
+    // RV-01. The first delivery answered 500, and every retry Stripe then sent
+    // was waved through as a duplicate: charged, never booked.
+    await enablePayments();
+    await startCheckout(2);
+    const event = provider.payCheckout(await pendingCheckoutId());
+
+    // The same event failing part-way through the conversion — a total the
+    // database refuses, standing in for any fault inside it.
+    const metadata = event.data.metadata as Record<string, string>;
+    const failing = {
+      ...event,
+      data: { ...event.data, metadata: { ...metadata, totalCents: 'not-a-number' } },
+    };
+    expect((await deliverWebhook(failing)).status).toBe(500);
+
+    // All or nothing: no booking, the hold still live, the payment pending.
+    expect(await prisma.booking.count()).toBe(0);
+    expect((await prisma.bookingHold.findFirstOrThrow({})).releasedAt).toBeNull();
+    expect((await prisma.payment.findFirstOrThrow({})).status).toBe('PENDING');
+
+    // Stripe's retry of the same event now runs to the end.
+    expect((await deliverWebhook(event)).status).toBe(200);
+
+    const booking = await prisma.booking.findFirstOrThrow({});
+    expect(booking.seats).toBe(2);
+    expect(booking.totalCents).toBe(19_000);
+    const payment = await prisma.payment.findFirstOrThrow({});
+    expect(payment.status).toBe('SUCCEEDED');
+    expect(payment.bookingId).toBe(booking.id);
+    expect(await seatsTaken()).toBe(2);
+
+    const logged = await prisma.webhookEvent.findFirstOrThrow({
+      where: { eventId: event.id },
+    });
+    expect(logged.processedAt).not.toBeNull();
+    expect(logged.error).toBeNull();
+
+    // Once it has run, it is a duplicate like any other.
+    expect((await deliverWebhook(event)).status).toBe(200);
+    expect(await prisma.booking.count()).toBe(1);
+  });
+
+  it('asks Stripe to come back when another delivery of the event is mid-run', async () => {
+    await enablePayments();
+    await startCheckout(1);
+    const event = provider.payCheckout(await pendingCheckoutId());
+
+    // Recorded, neither finished nor failed: another delivery is running it.
+    await prisma.webhookEvent.create({
+      data: {
+        provider: 'stripe',
+        eventId: event.id,
+        eventType: event.type,
+        payload: event.data as object,
+      },
+    });
+
+    // Not 200: that would promise an outcome nobody knows yet.
+    const res = await deliverWebhook(event);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('WEBHOOK_IN_PROGRESS');
+    expect(await prisma.booking.count()).toBe(0);
+  });
+
+  it('takes over an event whose processing died part-way', async () => {
+    await enablePayments();
+    await startCheckout(1);
+    const event = provider.payCheckout(await pendingCheckoutId());
+
+    await prisma.webhookEvent.create({
+      data: {
+        provider: 'stripe',
+        eventId: event.id,
+        eventType: event.type,
+        payload: event.data as object,
+        createdAt: new Date(Date.now() - 10 * 60_000),
+      },
+    });
+
+    expect((await deliverWebhook(event)).status).toBe(200);
+    expect(await prisma.booking.count()).toBe(1);
+  });
+
+  it('keeps the seats well past the end of the checkout, for a late webhook', async () => {
+    // RV-03. The hold and the checkout used to end together, so a payment in
+    // the last seconds met an expired hold when its webhook arrived.
+    await enablePayments();
+    const res = await startCheckout(1);
+
+    const checkoutEnds = new Date(res.body.expiresAt).getTime();
+    const hold = await prisma.bookingHold.findFirstOrThrow({});
+    expect(hold.expiresAt.getTime()).toBeGreaterThanOrEqual(
+      checkoutEnds + CHECKOUT_HOLD_GRACE_MINUTES * 60_000,
+    );
+  });
+
+  it('books a payment that lands after the hold expired but before it was swept', async () => {
+    // Unswept, the hold still owns its seats, and the customer has paid.
+    await enablePayments();
+    await startCheckout(1);
+    await prisma.bookingHold.updateMany({
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+
+    expect((await deliverWebhook(provider.payCheckout(await pendingCheckoutId()))).status).toBe(200);
+
+    expect((await prisma.booking.findFirstOrThrow({})).status).toBe('CONFIRMED');
+    expect(await seatsTaken()).toBe(1);
+  });
+
+  it('refunds in full when the seats went back before the payment arrived', async () => {
+    await enablePayments();
+    await startCheckout(2);
+    const csid = await pendingCheckoutId();
+
+    // The sweep got there first: the seats are back in the pool.
+    const { releaseHold } = await import('../../src/scheduling/hold.service');
+    const hold = await prisma.bookingHold.findFirstOrThrow({});
+    await releaseHold(studio.organizationId, hold.id);
+
+    const event = provider.payCheckout(csid);
+    expect((await deliverWebhook(event)).status).toBe(200);
+
+    expect(await prisma.booking.count()).toBe(0);
+    expect(await seatsTaken()).toBe(0);
+    const payment = await prisma.payment.findFirstOrThrow({});
+    expect(payment.status).toBe('REFUNDED');
+    expect(payment.refundedCents).toBe(19_000);
+    expect(provider.refundsIssued.map((r) => r.amountCents)).toEqual([19_000]);
+
+    // Running it again (a fresh event for the same checkout) refunds nothing more.
+    await handleWebhook({ ...event, id: `${event.id}_again` });
+    expect(provider.refundsIssued).toHaveLength(1);
+    expect(await prisma.refund.count()).toBe(1);
+  });
+
+  it('refuses a class date that belongs to a cheaper service', async () => {
+    // RV-02. The service sets the price and the session gets the seat; paired
+    // freely, a $5 option's id bought a seat in the $95 class.
+    await enablePayments();
+    const cheap = await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send({
+        name: 'Taster',
+        bookingMode: 'EVENT',
+        durationMinutes: 60,
+        capacityMax: 8,
+        priceCents: 500,
+      });
+
+    const res = await request(app)
+      .post(`/public/${slug}/checkout`)
+      .send({
+        serviceTypeId: cheap.body.service.id,
+        sessionId,
+        seats: 1,
+        customer: { name: 'Mallory', email: 'm@x.test' },
+      });
+
+    expect(res.status).toBe(404);
+    expect(await prisma.bookingHold.count()).toBe(0);
+    expect(await prisma.payment.count()).toBe(0);
+    expect(await seatsTaken()).toBe(0);
+  });
+
+  it('refuses a free booking that names a free service but a paid class', async () => {
+    await enablePayments();
+    const free = await request(app)
+      .post(`${studio.base}/services`)
+      .set(studio.headers)
+      .send({
+        name: 'Open studio',
+        bookingMode: 'EVENT',
+        durationMinutes: 60,
+        capacityMax: 8,
+        priceCents: 0,
+      });
+
+    const res = await request(app)
+      .post(`/public/${slug}/bookings`)
+      .send({
+        serviceTypeId: free.body.service.id,
+        sessionId,
+        seats: 1,
+        customer: { name: 'Mallory', email: 'm@x.test' },
+      });
+
+    expect(res.status).toBe(404);
+    expect(await prisma.booking.count()).toBe(0);
+    expect(await seatsTaken()).toBe(0);
+    // Refused before anything was written about the customer.
+    expect(await prisma.customer.count({ where: { email: 'm@x.test' } })).toBe(0);
+  });
+
+  it('refuses paid checkout for a hidden service', async () => {
+    await enablePayments();
+    await prisma.serviceType.update({
+      where: { id: serviceId },
+      data: { isActive: false },
+    });
+
+    expect((await startCheckout(1)).status).toBe(404);
+  });
+
+  it('confirms a paid booking even where the old auto-confirm setting was switched off', async () => {
+    // RV-08. The setting never worked and is gone; a studio that had switched
+    // it off still gets every paid booking confirmed, as it always did.
+    await enablePayments();
+    await prisma.organization.update({
+      where: { id: studio.organizationId },
+      data: { autoConfirmOnPayment: false },
+    });
+    await startCheckout(1);
+
+    await deliverWebhook(provider.payCheckout(await pendingCheckoutId()));
+
+    expect((await prisma.booking.findFirstOrThrow({})).status).toBe('CONFIRMED');
+
+    // And it can no longer be set through the API.
+    await request(app)
+      .patch(studio.base)
+      .set(studio.headers)
+      .send({ autoConfirmOnPayment: true });
+    const org = await prisma.organization.findUniqueOrThrow({
+      where: { id: studio.organizationId },
+    });
+    expect(org.autoConfirmOnPayment).toBe(false);
+  });
+
+  it('refuses paid checkout at a studio that is not taking bookings', async () => {
+    // RV-04. A trial that ended, an unpaid plan, a suspension: free bookings
+    // were refused and paid ones went through.
+    await enablePayments();
+    await prisma.organization.update({
+      where: { id: studio.organizationId },
+      data: { subscriptionStatus: 'SUSPENDED' },
+    });
+
+    const res = await startCheckout(1);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('STUDIO_INACTIVE');
+    expect(await prisma.bookingHold.count()).toBe(0);
   });
 });
 

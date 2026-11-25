@@ -26,9 +26,18 @@ export async function register(req: Request, res: Response) {
     user: result.user,
     organization: result.organization,
     tokens: result.tokens,
-    // Until W1.5 wires the mailer, the caller needs this to complete the flow.
-    // It must be removed the moment email sending lands.
-    verificationToken: result.verificationToken,
+    /*
+      Development and tests only, like the reset token in `forgotPassword`.
+
+      The code is the proof that an address belongs to whoever holds it, so
+      handing it back to whoever registered let anyone mark an address they do
+      not own as verified. Nothing emails it yet — in production an address
+      becomes verified by completing a password reset, whose link does arrive
+      by email (`resetPassword` sets `emailVerifiedAt`).
+    */
+    ...(config.NODE_ENV !== 'production'
+      ? { verificationToken: result.verificationToken }
+      : {}),
   });
 }
 
@@ -117,7 +126,8 @@ export async function verifyEmail(req: Request, res: Response) {
 export async function resendVerification(req: Request, res: Response) {
   if (!req.auth) throw AppError.unauthorized();
   const token = await authService.resendVerification(req.auth.userId);
-  res.json({ verificationToken: token });
+  // Withheld in production for the reason given in `register` above.
+  res.json(config.NODE_ENV !== 'production' ? { verificationToken: token } : {});
 }
 
 export async function forgotPassword(req: Request, res: Response) {

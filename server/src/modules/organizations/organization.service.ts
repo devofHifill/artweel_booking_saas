@@ -121,7 +121,6 @@ export async function updateOrganization(
     seatHoldMinutes?: number;
     overbookingBuffer?: number;
     allowSameDayBookings?: boolean;
-    autoConfirmOnPayment?: boolean;
     requireWaiver?: boolean;
     requirePhoneAtCheckout?: boolean;
     allowChildTickets?: boolean;

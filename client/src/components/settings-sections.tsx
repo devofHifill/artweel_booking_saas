@@ -53,7 +53,6 @@ type Org = {
   seatHoldMinutes: number;
   overbookingBuffer: number;
   allowSameDayBookings: boolean;
-  autoConfirmOnPayment: boolean;
   requireWaiver: boolean;
   requirePhoneAtCheckout: boolean;
   allowChildTickets: boolean;
@@ -189,7 +188,6 @@ export function BookingSettingsSection() {
     seatHoldMinutes: '15',
     overbookingBuffer: '0',
     allowSameDayBookings: true,
-    autoConfirmOnPayment: true,
     requireWaiver: false,
     requirePhoneAtCheckout: false,
     allowChildTickets: true,
@@ -212,7 +210,6 @@ export function BookingSettingsSection() {
       seatHoldMinutes: String(org.seatHoldMinutes),
       overbookingBuffer: String(org.overbookingBuffer),
       allowSameDayBookings: org.allowSameDayBookings,
-      autoConfirmOnPayment: org.autoConfirmOnPayment,
       requireWaiver: org.requireWaiver,
       requirePhoneAtCheckout: org.requirePhoneAtCheckout,
       allowChildTickets: org.allowChildTickets,
@@ -292,11 +289,10 @@ export function BookingSettingsSection() {
           label="Allow same-day bookings"
           onChange={(v) => setForm({ ...form, allowSameDayBookings: v })}
         />
-        <Toggle
-          on={form.autoConfirmOnPayment}
-          label="Confirm bookings automatically when payment succeeds"
-          onChange={(v) => setForm({ ...form, autoConfirmOnPayment: v })}
-        />
+        {/* No "confirm bookings automatically when payment succeeds" toggle.
+            It was offered and never worked: paid bookings are always confirmed,
+            and nothing lets a studio approve a pending one (launch review
+            RV-08). It comes back only with a real approval flow. */}
         <Toggle
           on={form.requireWaiver}
           label="Require a signed waiver before departure"
@@ -336,7 +332,6 @@ export function BookingSettingsSection() {
             seatHoldMinutes: Number(form.seatHoldMinutes) || 15,
             overbookingBuffer: Number(form.overbookingBuffer) || 0,
             allowSameDayBookings: form.allowSameDayBookings,
-            autoConfirmOnPayment: form.autoConfirmOnPayment,
             requireWaiver: form.requireWaiver,
             requirePhoneAtCheckout: form.requirePhoneAtCheckout,
             allowChildTickets: form.allowChildTickets,

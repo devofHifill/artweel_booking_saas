@@ -357,6 +357,30 @@ describe('course checkout', () => {
     expect(sessions.every((s) => s.seatsTaken === 0)).toBe(true);
   });
 
+  it('refunds in full when the hold was swept before the payment arrived', async () => {
+    // Launch review RV-03. The webhook used to fail here, keeping the money
+    // with no enrolment behind it.
+    await enablePayments();
+    await startCourseCheckout();
+    const csid = (await prisma.payment.findFirstOrThrow({}))
+      .providerCheckoutSessionId!;
+
+    await prisma.bookingHold.updateMany({
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+    const { sweepExpiredHolds } = await import('../../src/scheduling/hold.service');
+    await sweepExpiredHolds();
+
+    const res = await deliverWebhook(provider.payCheckout(csid));
+    expect(res.status).toBe(200);
+
+    expect(await prisma.enrollment.count()).toBe(0);
+    const payment = await prisma.payment.findFirstOrThrow({});
+    expect(payment.status).toBe('REFUNDED');
+    expect(payment.refundedCents).toBe(45000);
+    expect(provider.refundsIssued.map((r) => r.amountCents)).toEqual([45000]);
+  });
+
   it('refuses to sell a course whose middle week is full', async () => {
     await enablePayments();
 

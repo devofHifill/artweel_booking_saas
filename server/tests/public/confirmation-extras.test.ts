@@ -224,6 +224,13 @@ describe('the manage page', () => {
   it('keeps the controls off a printed copy', async () => {
     const { manageToken } = await book();
 
+    // The cancel control is drawn only while the booking is still ahead
+    // (launch review RV-05), and this fixture's fixed date has passed.
+    const ahead = Date.now() + 7 * 86_400_000;
+    await prisma.booking.updateMany({
+      data: { startsAt: new Date(ahead), endsAt: new Date(ahead + 3 * 3_600_000) },
+    });
+
     const res = await request(app)
       .get(`/public/bookings/${manageToken}/manage`)
       .expect(200);

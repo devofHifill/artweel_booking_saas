@@ -891,6 +891,9 @@ type ManageData = {
   };
   cancellationQuote: { refundCents: number } | null;
   canReschedule: boolean;
+  /** False once the booking has started; `cancelRefusal` says why. */
+  canCancel: boolean;
+  cancelRefusal: string | null;
 };
 
 /** A booking's status as a customer reads it, not as the database stores it. */
@@ -1010,7 +1013,7 @@ export function renderManagePage(data: ManageData, token: string): string {
   </div>
 
   ${
-    data.cancellationQuote
+    data.cancellationQuote && data.canCancel
       ? `<p class="hint">Cancelling now would refund
          ${money(data.cancellationQuote.refundCents, currency)}.</p>`
       : ''
@@ -1030,8 +1033,16 @@ export function renderManagePage(data: ManageData, token: string): string {
   }
 
   <div id="err"></div>
-  <button class="primary no-print" id="cancel" type="button"
-    style="background:#8b2c21">Cancel this booking</button>
+  ${
+    /* No button once it can only fail: after the start, cancelling is a
+       conversation with the studio (`cancelRefusalFor`), and the page says so. */
+    data.canCancel
+      ? `<button class="primary no-print" id="cancel" type="button"
+    style="background:#8b2c21">Cancel this booking</button>`
+      : data.cancelRefusal
+        ? `<p class="hint">${escapeHtml(data.cancelRefusal)}</p>`
+        : ''
+  }
   `
   }
 </div>

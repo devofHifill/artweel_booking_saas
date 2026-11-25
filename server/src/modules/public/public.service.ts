@@ -636,6 +636,25 @@ export async function createPublicBooking(input: PublicBookingInput) {
     }
   }
 
+  /*
+    The class date must be one of THIS service's dates.
+
+    The payment rule above is judged on the service the request names, and
+    `bookSeats` takes any session of the studio. Nothing tied the two together,
+    so a free option's id paired with a paid class's session booked the paid
+    seat for nothing. Checked before the customer is written, so a refused
+    request leaves no trace.
+  */
+  if (service.bookingMode !== 'APPOINTMENT' && input.sessionId) {
+    const session = await prisma.session.findFirst({
+      where: { id: input.sessionId, organizationId: organization.id },
+      select: { serviceTypeId: true },
+    });
+    if (!session || session.serviceTypeId !== service.id) {
+      throw AppError.notFound('Class not found.');
+    }
+  }
+
   const customer = await upsertCustomer(organization.id, input);
 
   if (service.bookingMode === 'APPOINTMENT') {
@@ -1376,6 +1395,8 @@ export async function getBookingByToken(token: string) {
       )
     : null;
 
+  const cancelRefusal = cancelRefusalFor(booking);
+
   return {
     booking,
     policy,
@@ -1385,15 +1406,53 @@ export async function getBookingByToken(token: string) {
       policy?.allowReschedule !== false &&
       hoursOfNotice >= (policy?.rescheduleCutoffHours ?? 0) &&
       booking.status !== 'CANCELLED',
+    /** Whether the customer may still cancel online, and if not, why. */
+    canCancel: booking.status !== 'CANCELLED' && cancelRefusal === null,
+    cancelRefusal,
   };
 }
 
+/**
+ * Why a customer can no longer cancel their booking online, or null when they can.
+ *
+ * Once the class has started — or the studio has marked them attended or
+ * missed — a cancellation is not a cancellation any more, it is a refund
+ * request for something already delivered. That is a conversation with the
+ * studio, not a button: the link used to cancel and refund at any time, so a
+ * customer could attend and then cancel, and at a studio with no cancellation
+ * policy be refunded in full.
+ */
+function cancelRefusalFor(booking: {
+  status: string;
+  startsAt: Date;
+  organization: { name: string };
+}): string | null {
+  if (booking.status === 'CANCELLED') return null;
+  if (
+    booking.status === 'ATTENDED' ||
+    booking.status === 'NO_SHOW' ||
+    booking.startsAt.getTime() <= Date.now()
+  ) {
+    return (
+      'This booking has already started, so it can no longer be cancelled online. ' +
+      `Contact ${booking.organization.name} if something is wrong.`
+    );
+  }
+  return null;
+}
+
 export async function cancelByToken(token: string) {
-  const { booking } = await getBookingByToken(token);
+  const { booking, cancelRefusal } = await getBookingByToken(token);
 
   if (booking.status === 'CANCELLED') {
     // Idempotent: a double-clicked link is not an error.
     return { cancelled: true, alreadyCancelled: true };
+  }
+
+  // Checked here, not only by hiding the button: the page can be stale, and
+  // the endpoint can be called without it.
+  if (cancelRefusal) {
+    throw AppError.conflict(cancelRefusal, 'CANCEL_NOT_ALLOWED');
   }
 
   const { cancelBooking } = await import('../../scheduling/booking.service');

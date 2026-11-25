@@ -12,6 +12,11 @@
  *      that, five parallel calls produce five refreshes, four of which are
  *      replays of a rotated token — and rotation treats a replay as theft and
  *      revokes the whole family.
+ *
+ *      That holds across TABS too, which share one token pair in
+ *      localStorage. A promise only reaches its own tab, so tabs take turns
+ *      through a Web Lock, and a tab whose turn comes after another has
+ *      already renewed uses the new pair instead of spending the old one.
  */
 
 const ACCESS_KEY = 'bsaas.access';
@@ -147,27 +152,28 @@ export const tokens = {
 /** Shared so parallel 401s collapse into one refresh. */
 let refreshInFlight: Promise<boolean> | null = null;
 
-async function refreshTokens(): Promise<boolean> {
-  const refreshToken = tokens.refresh;
-  if (!refreshToken) return false;
+/**
+ * Renews the session after a 401. Resolves true when there is a fresh access
+ * token to retry with.
+ *
+ * `sentAccess` is the access token the refused request carried. If storage
+ * already holds a different one, another tab (or an earlier refresh in this
+ * one) has renewed since the request went out — there is nothing to renew,
+ * only a retry to make.
+ *
+ * This is what two dashboard tabs used to get wrong. Both hit the expiry, both
+ * sent the same refresh token, the server took the second for a stolen replay
+ * and revoked the whole family, and the losing tab cleared storage — wiping
+ * the pair the winning tab had just saved. Both tabs were signed out.
+ */
+async function refreshTokens(sentAccess: string | null): Promise<boolean> {
+  if (tokens.access && tokens.access !== sentAccess) return true;
+  if (!tokens.refresh) return false;
 
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       try {
-        const response = await fetch('/api/auth/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
-        });
-
-        if (!response.ok) {
-          tokens.clear();
-          return false;
-        }
-
-        const json = await response.json();
-        tokens.set(json.tokens.accessToken, json.tokens.refreshToken);
-        return true;
+        return await oneTabAtATime(() => renew(sentAccess));
       } catch {
         return false;
       } finally {
@@ -181,6 +187,48 @@ async function refreshTokens(): Promise<boolean> {
   }
 
   return refreshInFlight;
+}
+
+/** The refresh itself, run while this tab holds the refresh lock. */
+async function renew(sentAccess: string | null): Promise<boolean> {
+  // Read again now the lock is ours: the tab that held it may just have renewed.
+  if (tokens.access && tokens.access !== sentAccess) return true;
+
+  const refreshToken = tokens.refresh;
+  if (!refreshToken) return false;
+
+  const response = await fetch('/api/auth/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+
+  if (!response.ok) {
+    /* A tab that could not take the lock (a browser without Web Locks) may
+       have renewed while this request was in flight. Its pair is the live
+       one, and clearing storage would sign every tab out for this tab's
+       stale attempt. */
+    if (tokens.refresh !== refreshToken) return true;
+    tokens.clear();
+    return false;
+  }
+
+  const json = await response.json();
+  tokens.set(json.tokens.accessToken, json.tokens.refreshToken);
+  return true;
+}
+
+/**
+ * Runs `fn` while holding a lock every tab of this site shares, so only one
+ * tab renews at a time. Where the browser has no Web Locks (very old ones),
+ * it simply runs — `renew` still declines to sign out over a lost race.
+ */
+async function oneTabAtATime(fn: () => Promise<boolean>): Promise<boolean> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (!locks?.request) return fn();
+  // The lock resolves with whatever `fn` returns — here a promise, which
+  // `await` unwraps.
+  return await locks.request('bsaas.refresh', fn);
 }
 
 async function request<T>(
@@ -216,7 +264,7 @@ async function request<T>(
       tokens.dropSupport();
       window.dispatchEvent(new CustomEvent('bsaas:signed-out'));
     } else if (tokens.refresh) {
-      if (await refreshTokens()) {
+      if (await refreshTokens(access)) {
         return request<T>(path, init, true);
       }
       // Refresh failed — the session is genuinely over.
@@ -265,7 +313,7 @@ async function requestBlob(path: string, retrying = false): Promise<Blob> {
       tokens.dropSupport();
       window.dispatchEvent(new CustomEvent('bsaas:signed-out'));
     } else if (tokens.refresh) {
-      if (await refreshTokens()) return requestBlob(path, true);
+      if (await refreshTokens(access)) return requestBlob(path, true);
       window.dispatchEvent(new CustomEvent('bsaas:signed-out'));
     }
   }
