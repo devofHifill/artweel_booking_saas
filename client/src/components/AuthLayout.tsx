@@ -90,7 +90,7 @@ export function AuthLayout({
         </div>
 
         <footer className="auth-foot">
-          <span>© {new Date().getFullYear()} BookAIHub Inc</span>
+          <span>© {new Date().getFullYear()} BookAIHub</span>
           <nav aria-label="Legal">
             <a href={marketingUrl('/support')}>Help</a>
             <a href={marketingUrl('/terms')}>Terms</a>

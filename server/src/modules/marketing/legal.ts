@@ -20,13 +20,14 @@ export const SUPPORT_HOURS = [
 ] as const;
 
 export const LEGAL = {
-  entity: 'BookAIHub Inc',
-  address: '10 Evergreen Ave #D, Imperial Beach, CA 91932',
+  // BookAIHub is a DBA of the LLC, not a corporation (Suren, 2026-11-25).
+  entity: 'TJLK Creative LLC dba BookAIHub',
+  address: '133 Elder Ave, Imperial Beach, CA 91932',
   governingLaw: 'the State of California, USA',
   supportEmail: 'support@bookaihub.com',
   supportPhone: '+1 619-920-6864',
   supportHours: `${SUPPORT_HOURS.map(([days, time]) => `${days}, ${time}`).join(', and ')} (Pacific Time)`,
-  updated: 'November 24, 2026',
+  updated: 'November 25, 2026',
 };
 
 const updated = `Last updated ${LEGAL.updated}.`;
