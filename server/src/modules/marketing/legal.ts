@@ -77,7 +77,7 @@ export const TERMS: Page = {
       heading: '6. Acceptable use',
       body: [
         "You agree not to use the Service to process transactions prohibited under Stripe's restricted businesses list, to transmit unlawful or fraudulent content, to reverse-engineer the Service, or to interfere with its security.",
-        `In particular, you may not use ${BRAND} to sell or take bookings for: prescription medicines or treatments, including weight-loss injections, peptides, Botox and IV therapy; telehealth, medical diagnosis or licensed clinical therapy; CBD or hemp products, or kava; supplements that make medical claims; adult, sensual or escort services; travel packages that include flights, cruises or hotels; or gift cards and stored value usable at more than one business.`,
+        `In particular, you may not use ${BRAND} to sell or take bookings for: prescription medicines or treatments, including weight-loss injections, peptides, Botox and IV therapy; telehealth, medical diagnosis or licensed clinical therapy; CBD or hemp products, or kava; supplements that make medical claims; adult, sensual or escort services; travel packages that include flights, cruises or hotels; gift cards and stored value usable at more than one business; or multi-level marketing, including recruiting distributors or selling MLM products such as oils or supplements.`,
         `We may suspend or close an account that breaks this section, and you agree to cover any loss ${BRAND} suffers as a result, including fees, fines or chargebacks passed on by Stripe.`,
       ],
     },
