@@ -25,6 +25,7 @@ export default function SignUp({
   const [organizationName, setOrganizationName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [permitted, setPermitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -112,6 +113,26 @@ export default function SignUp({
           hint="At least 12 characters. Length beats symbols."
           required
         />
+
+        {/* Stripe holds the platform answerable for what its studios sell, so
+            a studio confirms up front that it is not a restricted business.
+            Required by the browser only: it is not recorded on the server. */}
+        <label className="auth-check">
+          <input
+            type="checkbox"
+            checked={permitted}
+            onChange={(e) => setPermitted(e.target.checked)}
+            required
+          />
+          <span>
+            My studio does not sell prescription or medical treatments, CBD or
+            kava, adult services, or anything else on the{' '}
+            <a href={marketingUrl('/terms')} target="_blank" rel="noopener">
+              restricted list in our Terms
+            </a>
+            .
+          </span>
+        </label>
 
         <AuthSubmit busy={busy} label="Create my studio" busyLabel="Creating…" />
 

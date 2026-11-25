@@ -77,6 +77,8 @@ export const TERMS: Page = {
       heading: '6. Acceptable use',
       body: [
         "You agree not to use the Service to process transactions prohibited under Stripe's restricted businesses list, to transmit unlawful or fraudulent content, to reverse-engineer the Service, or to interfere with its security.",
+        `In particular, you may not use ${BRAND} to sell or take bookings for: prescription medicines or treatments, including weight-loss injections, peptides, Botox and IV therapy; telehealth, medical diagnosis or licensed clinical therapy; CBD or hemp products, or kava; supplements that make medical claims; adult, sensual or escort services; travel packages that include flights, cruises or hotels; or gift cards and stored value usable at more than one business.`,
+        `We may suspend or close an account that breaks this section, and you agree to cover any loss ${BRAND} suffers as a result, including fees, fines or chargebacks passed on by Stripe.`,
       ],
     },
     {
@@ -147,10 +149,26 @@ export const PRIVACY: Page = {
       heading: '6. Data retention and your rights',
       body: [
         `We keep account data for as long as your account is active, or as needed for legal, tax and accounting obligations. Depending on where you live (including under the GDPR and the CCPA/CPRA), you can ask to access, correct or delete your personal data by emailing ${LEGAL.supportEmail}.`,
+        `Booking data that a studio keeps about its customers is held on that studio's behalf. If you booked with a studio and want to see, correct or delete that data, contact the studio, or email ${LEGAL.supportEmail} and we will help them answer you.`,
       ],
     },
     {
-      heading: '7. Contact us',
+      heading: '7. European and UK users (GDPR and UK GDPR)',
+      body: [
+        `If you are in the European Economic Area or the United Kingdom, we process your personal data on these legal bases: contractual necessity, to provide the ${BRAND} software, run your subscription and handle bookings; legitimate interests, to secure the Service, prevent fraud and improve it, balanced against your rights; legal obligation, to keep tax and accounting records; and consent, where we ask for it, which you can withdraw at any time.`,
+        `You have the right to access, correct, delete, restrict or port your personal data, and to object to processing based on legitimate interests. To use these rights, email ${LEGAL.supportEmail}. You also have the right to complain to your local data protection authority.`,
+      ],
+    },
+    {
+      heading: '8. California residents (CCPA/CPRA)',
+      body: [
+        'If you live in California, you have the right to know what categories and specific pieces of personal information we have collected about you, and to ask us to delete or correct it, subject to exceptions the law allows.',
+        `${BRAND} does not sell personal information and does not share it for cross-context behavioural advertising.`,
+        `We will not treat you differently for using any of these rights. To make a request, email ${LEGAL.supportEmail}. We may need to confirm your identity before acting on it.`,
+      ],
+    },
+    {
+      heading: '9. Contact us',
       body: [
         `Questions about this policy or our data practices: email ${LEGAL.supportEmail}, call ${LEGAL.supportPhone}, or write to ${LEGAL.entity}, ${LEGAL.address}.`,
       ],
