@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Booking } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { config } from '../config';
 import { AppError, BookingErrorCode } from '../lib/app-error';
@@ -116,7 +116,32 @@ export async function createHold(input: CreateHoldInput) {
 export async function convertHold(
   organizationId: string,
   holdId: string,
-  opts: { customerId: string; serviceTypeId?: string; source?: string },
+  opts: {
+    customerId: string;
+    serviceTypeId?: string;
+    source?: string;
+    /**
+     * Convert a hold past its expiry, as long as it has not been released.
+     *
+     * For the payment webhook only. The customer has already paid, and an
+     * expired hold that the sweep has not reached still owns its seats in
+     * `seats_taken` — nobody else can have them — so refusing it would keep
+     * the money and give back nothing. Once the sweep has released the hold,
+     * the seats really are gone and this still refuses.
+     */
+    acceptExpired?: boolean;
+    /**
+     * Runs inside the same transaction, once the booking exists.
+     *
+     * The payment webhook records the money here: the totals, and the payment
+     * row pointed at the booking. Done as a second step after this function
+     * returned, a failure in between left the hold spent and a booking with no
+     * payment against it, and Stripe's retry could neither finish that nor
+     * start again. In one transaction a failure writes nothing, so the retry
+     * runs the whole conversion again from a live hold.
+     */
+    finalize?: (tx: Tx, booking: Booking) => Promise<Booking>;
+  },
 ) {
   return prisma.$transaction(async (tx: Tx) => {
     // Lock the hold itself so a concurrent expiry sweep cannot release the
@@ -145,7 +170,7 @@ export async function convertHold(
         BookingErrorCode.HOLD_EXPIRED,
       );
     }
-    if (hold.expires_at.getTime() <= Date.now()) {
+    if (!opts.acceptExpired && hold.expires_at.getTime() <= Date.now()) {
       throw new AppError(
         'Your reservation expired. Please pick your seats again.',
         409,
@@ -177,12 +202,14 @@ export async function convertHold(
       },
     });
 
+    const finished = opts.finalize ? await opts.finalize(tx, booking) : booking;
+
     await tx.bookingHold.update({
       where: { id: hold.id },
       data: { releasedAt: new Date() },
     });
 
-    return booking;
+    return finished;
   }, TX_OPTIONS);
 }
 

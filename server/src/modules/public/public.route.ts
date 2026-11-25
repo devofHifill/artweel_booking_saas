@@ -649,6 +649,7 @@ publicRouter.get(
       },
       cancellationQuote: data.cancellationQuote,
       canReschedule: data.canReschedule,
+      canCancel: data.canCancel,
     });
   }),
 );

@@ -322,6 +322,28 @@ describe('email verification', () => {
       .send({ token: 'not-a-real-token' });
     expect(res.status).toBe(400);
   });
+
+  it('keeps the verification code out of the response in production', async () => {
+    // Launch review RV-07. The code proves the address belongs to whoever
+    // holds it; handing it to whoever registered let anyone "verify" an
+    // address they do not own.
+    const { config } = await import('../../src/config');
+    const was = config.NODE_ENV;
+    config.NODE_ENV = 'production';
+    try {
+      const registered = await registerUser();
+      expect(registered.status).toBe(201);
+      expect(registered.body.verificationToken).toBeUndefined();
+
+      const resent = await request(app)
+        .post('/api/auth/resend-verification')
+        .set('Authorization', `Bearer ${registered.body.tokens.accessToken}`);
+      expect(resent.status).toBe(200);
+      expect(resent.body.verificationToken).toBeUndefined();
+    } finally {
+      config.NODE_ENV = was;
+    }
+  });
 });
 
 describe('password reset', () => {

@@ -156,7 +156,10 @@ organizationRouter.patch(
       seatHoldMinutes: z.number().int().min(1).max(60).optional(),
       overbookingBuffer: z.number().int().min(0).max(20).optional(),
       allowSameDayBookings: z.boolean().optional(),
-      autoConfirmOnPayment: z.boolean().optional(),
+      /* No `autoConfirmOnPayment`. It was settable and never did anything:
+         paid bookings are always confirmed, and there is no way to approve a
+         pending one (launch review RV-08). The column stays, unused, until an
+         approval flow exists to give it a meaning. */
       requireWaiver: z.boolean().optional(),
       requirePhoneAtCheckout: z.boolean().optional(),
       allowChildTickets: z.boolean().optional(),

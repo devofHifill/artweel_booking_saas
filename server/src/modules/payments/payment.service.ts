@@ -15,6 +15,7 @@ import {
   resolvePolicyForService,
   type PolicyTier,
 } from '../policies/policy.service';
+import { canAcceptBookings } from '../billing/plan';
 import { allocateRefund, collectedCents, priceBooking } from './money';
 import { getPaymentProvider } from './provider.registry';
 import type { ConnectAccountStatus, WebhookEvent } from './provider';
@@ -25,6 +26,25 @@ import type { ConnectAccountStatus, WebhookEvent } from './provider';
  * session and for the request itself.
  */
 export const CHECKOUT_HOLD_MIN_MINUTES = 32;
+
+/**
+ * How much longer the seat hold lasts than the Checkout Session it pays for.
+ *
+ * Stripe takes the money up to the session's last second, and the webhook
+ * saying so arrives after that — usually seconds later, sometimes minutes. A
+ * hold that ended with the session refused exactly that late webhook, and the
+ * customer was charged for seats that had gone back to the pool. An abandoned
+ * checkout does not keep its seats for the extra time: `checkout.session.expired`
+ * releases them the moment the session ends.
+ */
+export const CHECKOUT_HOLD_GRACE_MINUTES = 15;
+
+/**
+ * How long a webhook may sit "being processed" before a redelivery of it may
+ * take it over. Long enough that no live handler is still running; a process
+ * that died mid-handler leaves exactly this state behind.
+ */
+const WEBHOOK_STALE_CLAIM_MS = 5 * 60_000;
 
 // ---------------------------------------------------------------------------
 // Connect onboarding
@@ -226,6 +246,18 @@ export async function startCheckout(input: StartCheckoutInput) {
     where: { id: input.organizationId },
   });
 
+  /* The same rule, and the same words, as a free booking (`createPublicBooking`).
+     It used to stop there: a studio whose trial had ended, or that was
+     suspended, refused free bookings and went on taking paid ones. */
+  if (!canAcceptBookings(org.subscriptionStatus)) {
+    throw new AppError(
+      'This studio is not taking online bookings at the moment. ' +
+        'Please contact them directly.',
+      409,
+      'STUDIO_INACTIVE',
+    );
+  }
+
   if (!org.stripeAccountId || !org.stripeChargesEnabled) {
     throw AppError.conflict(
       'This studio is not set up to take payments yet.',
@@ -279,6 +311,28 @@ export async function startCheckout(input: StartCheckoutInput) {
     throw AppError.notFound('Course not found.');
   }
 
+  /*
+    The class date must be one of THIS service's dates, and the service on sale.
+
+    The request names both — the service sets the price, the session gets the
+    seat — and nothing tied them together, so pairing a $5 option's id with a
+    $120 class's session bought the $120 seat for $5. The webhook then even
+    recorded the cheap service on the booking. A hidden service is refused as
+    the free path refuses it (`createPublicBooking`).
+  */
+  if (input.sessionId) {
+    const session = await prisma.session.findFirst({
+      where: { id: input.sessionId, organizationId: input.organizationId },
+      select: { serviceTypeId: true },
+    });
+    if (!service.isActive || !session || session.serviceTypeId !== service.id) {
+      throw AppError.notFound('Class not found.');
+    }
+  }
+  if (series && series.serviceTypeId !== service.id) {
+    throw AppError.notFound('Course not found.');
+  }
+
   const price = priceBooking({
     unitPriceCents: series ? series.priceCents : service.priceCents,
     seats: input.seats,
@@ -309,25 +363,30 @@ export async function startCheckout(input: StartCheckoutInput) {
      for seats they no longer have. An abandoned checkout still gives its
      seats back on `checkout.session.expired`. */
   const seatHoldMinutes = Math.max(org.seatHoldMinutes, CHECKOUT_HOLD_MIN_MINUTES);
+  const holdTtlMinutes = seatHoldMinutes + CHECKOUT_HOLD_GRACE_MINUTES;
 
   const hold = series
     ? await createSeriesHold({
         organizationId: input.organizationId,
         courseSeriesId: series.id,
         seats: input.seats,
-        ttlMinutes: seatHoldMinutes,
+        ttlMinutes: holdTtlMinutes,
       })
     : await createHold({
         organizationId: input.organizationId,
         sessionId: input.sessionId!,
         seats: input.seats,
-        ttlMinutes: seatHoldMinutes,
+        ttlMinutes: holdTtlMinutes,
       });
 
-  // The Stripe session must die no later than the hold, or somebody could pay
-  // for seats that had already been released back to the pool.
+  // The Stripe session must die well before the hold — by the grace period —
+  // or a customer paying in its last seconds is charged for seats whose hold
+  // ran out while the webhook was on its way.
   const expiresAt = new Date(
-    Math.min(hold!.expiresAt.getTime(), Date.now() + seatHoldMinutes * 60_000),
+    Math.min(
+      hold!.expiresAt.getTime() - CHECKOUT_HOLD_GRACE_MINUTES * 60_000,
+      Date.now() + seatHoldMinutes * 60_000,
+    ),
   );
 
   try {
@@ -513,27 +572,30 @@ export async function startPackCheckout(input: {
  * This is also the AUTHORITATIVE path. The browser redirect after payment is
  * a convenience that may never happen — the customer can close the tab — so
  * nothing depends on it.
+ *
+ * "Exactly once" means once SUCCESSFULLY. A delivery whose processing failed
+ * answers 500 so that Stripe sends it again, and that redelivery must then
+ * run — see `claimWebhookEvent`. Every handler below is safe to run again
+ * after a failure part-way.
  */
 export async function handleWebhook(event: WebhookEvent) {
-  try {
-    await prisma.webhookEvent.create({
-      data: {
-        provider: 'stripe',
-        eventId: event.id,
-        eventType: event.type,
-        payload: event.data as Prisma.InputJsonValue,
-        organizationId: await studioForEvent(event),
-      },
-    });
-  } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === 'P2002'
-    ) {
-      logger.info({ eventId: event.id }, 'Duplicate webhook ignored');
-      return { handled: false, reason: 'duplicate' as const };
-    }
-    throw err;
+  const claim = await claimWebhookEvent(event);
+
+  if (claim === 'processed') {
+    logger.info({ eventId: event.id }, 'Duplicate webhook ignored');
+    return { handled: false, reason: 'duplicate' as const };
+  }
+
+  if (claim === 'in_progress') {
+    /* Another delivery of this event is being handled right now. Answering
+       200 would be a promise about an outcome nobody knows yet — if that run
+       then fails, Stripe has already been told not to send it again. A non-2xx
+       makes Stripe come back later, when the answer is known. */
+    throw new AppError(
+      'This event is still being processed.',
+      409,
+      'WEBHOOK_IN_PROGRESS',
+    );
   }
 
   try {
@@ -572,20 +634,95 @@ export async function handleWebhook(event: WebhookEvent) {
 
     await prisma.webhookEvent.update({
       where: { provider_eventId: { provider: 'stripe', eventId: event.id } },
-      data: { processedAt: new Date() },
+      data: { processedAt: new Date(), error: null },
     });
 
     return { handled: true };
   } catch (err) {
     // Record the failure and rethrow. A non-2xx makes Stripe retry, which is
-    // what we want for a transient fault — and the row is already there, so a
-    // retry of a genuinely broken event will not loop forever unnoticed.
+    // what we want for a transient fault — and the recorded error is what lets
+    // that retry take the event up again (`claimWebhookEvent`), while the
+    // platform's webhook log shows it as failed until one succeeds.
     await prisma.webhookEvent.update({
       where: { provider_eventId: { provider: 'stripe', eventId: event.id } },
       data: { error: err instanceof Error ? err.message : String(err) },
     });
     throw err;
   }
+}
+
+/**
+ * Decides whether this delivery of an event is the one that runs it.
+ *
+ * The first delivery records the event and runs it. A later delivery of the
+ * same event finds the row, and then:
+ *
+ *  - `processed` — it already ran to the end. A plain duplicate; answer 200.
+ *  - `claimed`   — it never finished: the last attempt failed (its error is
+ *                  recorded), or died part-way and has sat unfinished past
+ *                  `WEBHOOK_STALE_CLAIM_MS`. This is Stripe's retry, and the
+ *                  reason retries exist, so it runs.
+ *  - `in_progress` — another delivery is running it right now.
+ *
+ * It used to treat every later delivery as a duplicate. So a payment whose
+ * first processing hit a transient fault answered 500, Stripe retried as
+ * designed, and every retry was waved through as "already handled": the
+ * customer was charged and never booked.
+ *
+ * Taking the event up is one conditional update, so two overlapping retries
+ * cannot both run it: the winner clears the error and restamps the row, and
+ * the loser's `WHERE` no longer matches.
+ */
+async function claimWebhookEvent(
+  event: WebhookEvent,
+): Promise<'claimed' | 'processed' | 'in_progress'> {
+  try {
+    await prisma.webhookEvent.create({
+      data: {
+        provider: 'stripe',
+        eventId: event.id,
+        eventType: event.type,
+        payload: event.data as Prisma.InputJsonValue,
+        organizationId: await studioForEvent(event),
+      },
+    });
+    return 'claimed';
+  } catch (err) {
+    if (
+      !(
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      )
+    ) {
+      throw err;
+    }
+  }
+
+  const retaken = await prisma.webhookEvent.updateMany({
+    where: {
+      provider: 'stripe',
+      eventId: event.id,
+      processedAt: null,
+      OR: [
+        { error: { not: null } },
+        { createdAt: { lt: new Date(Date.now() - WEBHOOK_STALE_CLAIM_MS) } },
+      ],
+    },
+    // `createdAt` becomes the start of THIS attempt, which is also what keeps
+    // a second retry from taking it up again while this one runs.
+    data: { error: null, createdAt: new Date() },
+  });
+
+  if (retaken.count === 1) {
+    logger.warn({ eventId: event.id, type: event.type }, 'Retrying a webhook that did not finish');
+    return 'claimed';
+  }
+
+  const row = await prisma.webhookEvent.findUnique({
+    where: { provider_eventId: { provider: 'stripe', eventId: event.id } },
+    select: { processedAt: true },
+  });
+  return row?.processedAt ? 'processed' : 'in_progress';
 }
 
 /**
@@ -670,6 +807,17 @@ async function onCheckoutCompleted(event: WebhookEvent) {
     return;
   }
 
+  /*
+    Already turned into a booking by an earlier delivery of this event. The
+    payment row is pointed at the booking in the same transaction that makes
+    it (below), so this is set if and only if the conversion happened — and a
+    redelivery must not queue the confirmation emails a second time.
+  */
+  if (await checkoutAlreadyBooked(data.id)) {
+    logger.info({ checkoutSessionId: data.id }, 'Checkout webhook replayed; booking already made');
+    return;
+  }
+
   const customer = await upsertCustomer(organizationId, {
     email: metadata.customerEmail ?? '',
     name: metadata.customerName ?? 'Customer',
@@ -694,62 +842,84 @@ async function onCheckoutCompleted(event: WebhookEvent) {
     return;
   }
 
+  /*
+    Paying confirms the place, always. `convertHold` creates the booking
+    CONFIRMED and nothing here changes that.
+
+    There was a studio setting, "Confirm bookings automatically when payment
+    succeeds", read right here — and switching it off did nothing, because the
+    booking was already CONFIRMED and only ever set CONFIRMED again. Making it
+    work needs an approval flow that does not exist (a way to confirm or
+    decline a pending booking, and an email that does not say "You are booked
+    in"), so the setting was taken away instead (launch review RV-08).
+  */
+
   // The hold already owns the seats, so this transfers them rather than
   // taking more. Double-incrementing here would silently shrink the class.
-  const booking = await convertHold(organizationId, holdId, {
-    customerId: customer.id,
-    serviceTypeId: metadata.serviceTypeId,
-    source: 'web',
-  });
+  //
+  // Everything the payment changes happens inside the conversion's own
+  // transaction (`finalize`): either the booking exists with its totals and
+  // its payment, or nothing was written and the hold is still live for
+  // Stripe's retry.
+  let booking;
+  try {
+    booking = await convertHold(organizationId, holdId, {
+      customerId: customer.id,
+      serviceTypeId: metadata.serviceTypeId,
+      source: 'web',
+      // Paid already: a hold the sweep has not released still owns its seats.
+      acceptExpired: true,
+      finalize: async (tx, created) => {
+        /*
+          `children` comes off the metadata rather than being recomputed,
+          because the metadata is what the charged amount was derived from.
+          Recomputing it from the service's current rates would disagree with
+          the receipt the moment a studio edits its prices between checkout
+          and webhook — a window of seconds, but one that lands on a customer
+          who has already paid.
 
-  /*
-    `children` comes off the metadata rather than being recomputed, because
-    the metadata is what the charged amount was derived from. Recomputing it
-    from the service's current rates would disagree with the receipt the
-    moment a studio edits its prices between checkout and webhook — a window
-    of seconds, but one that lands on a customer who has already paid.
+          Clamped to the seats the hold actually converted: the CHECK
+          constraint refuses children > seats, and a rejected write here would
+          strand a paid booking.
+        */
+        const children = Math.min(
+          created.seats,
+          Math.max(0, Number(metadata.children ?? 0) || 0),
+        );
 
-    Clamped to the seats the hold actually converted: the CHECK constraint
-    refuses children > seats, and a rejected write here would strand a paid
-    booking as PENDING.
-  */
-  const children = Math.min(
-    booking.seats,
-    Math.max(0, Number(metadata.children ?? 0) || 0),
-  );
+        const updated = await tx.booking.update({
+          where: { id: created.id },
+          data: { totalCents, travelFeeCents, children },
+        });
 
-  /*
-    Whether paying confirms the place, or only pays for it.
+        await tx.payment.updateMany({
+          where: { providerCheckoutSessionId: data.id },
+          data: {
+            bookingId: created.id,
+            status: 'SUCCEEDED',
+            providerPaymentIntentId: data.payment_intent ?? null,
+            succeededAt: new Date(),
+          },
+        });
 
-    A studio that switches this off wants to look at each booking before
-    committing — a mobile party it has to check the van for, say. The money is
-    still taken and the seat is still held; only the status differs, so
-    nothing here can lose a payment if the setting is misread.
-  */
-  const { autoConfirmOnPayment } = await prisma.organization.findUniqueOrThrow({
-    where: { id: booking.organizationId },
-    select: { autoConfirmOnPayment: true },
-  });
+        return updated;
+      },
+    });
+  } catch (err) {
+    if (!(err instanceof AppError && err.code === BookingErrorCode.HOLD_EXPIRED)) {
+      throw err;
+    }
+    // A second delivery that raced the check at the top: the first one has
+    // made the booking since. Nothing left to do.
+    if (await checkoutAlreadyBooked(data.id)) return;
 
-  await prisma.booking.update({
-    where: { id: booking.id },
-    data: {
-      totalCents,
-      travelFeeCents,
-      children,
-      ...(autoConfirmOnPayment ? { status: 'CONFIRMED' as const } : {}),
-    },
-  });
-
-  await prisma.payment.updateMany({
-    where: { providerCheckoutSessionId: data.id },
-    data: {
-      bookingId: booking.id,
-      status: 'SUCCEEDED',
-      providerPaymentIntentId: data.payment_intent ?? null,
-      succeededAt: new Date(),
-    },
-  });
+    await refundLapsedCheckout({
+      organizationId,
+      checkoutSessionId: data.id,
+      paymentIntentId: data.payment_intent ?? null,
+    });
+    return;
+  }
 
   // Queued, not sent. The webhook must return 200 quickly or Stripe retries
   // it, and an email provider is not something to make Stripe wait on.
@@ -781,14 +951,29 @@ async function completeCourseCheckout(input: {
   checkoutSessionId: string;
   paymentIntentId: string | null;
 }) {
-  const result = await convertSeriesHold({
-    organizationId: input.organizationId,
-    holdId: input.holdId,
-    customerId: input.customerId,
-    totalCents: input.totalCents,
-    children: input.children,
-    source: 'web',
-  });
+  let result;
+  try {
+    result = await convertSeriesHold({
+      organizationId: input.organizationId,
+      holdId: input.holdId,
+      customerId: input.customerId,
+      totalCents: input.totalCents,
+      children: input.children,
+      source: 'web',
+    });
+  } catch (err) {
+    if (!(err instanceof AppError && err.code === BookingErrorCode.HOLD_EXPIRED)) {
+      throw err;
+    }
+    // The hold was swept before the money arrived and no enrolment exists:
+    // the seats have gone back. Give the money back rather than keep it.
+    await refundLapsedCheckout({
+      organizationId: input.organizationId,
+      checkoutSessionId: input.checkoutSessionId,
+      paymentIntentId: input.paymentIntentId,
+    });
+    return;
+  }
 
   await prisma.payment.updateMany({
     where: { providerCheckoutSessionId: input.checkoutSessionId },
@@ -823,6 +1008,92 @@ async function completeCourseCheckout(input: {
   logger.info(
     { enrollmentId: result.enrollment.id, weeks: result.sessionCount },
     'Course enrolment confirmed by payment',
+  );
+}
+
+/** Whether an earlier delivery of this checkout's webhook already made its booking. */
+async function checkoutAlreadyBooked(checkoutSessionId: string) {
+  const payment = await prisma.payment.findFirst({
+    where: { providerCheckoutSessionId: checkoutSessionId, bookingId: { not: null } },
+    select: { id: true },
+  });
+  return payment !== null;
+}
+
+const LAPSED_REFUND_REASON = 'Seats released before the payment arrived';
+
+/**
+ * Gives the money back for a checkout whose seats were gone before it was paid.
+ *
+ * Reached only once the hold has been RELEASED — the webhook came after the
+ * sweep, beyond the grace `CHECKOUT_HOLD_GRACE_MINUTES` gives it (a Stripe
+ * outage, or a retry hours later). The seats may have been sold to somebody
+ * else since, so there is nothing to book, and keeping the money for nothing
+ * is the one outcome that must not happen. Before this it did: the webhook
+ * failed, the payment stayed PENDING, and the money sat with the studio.
+ *
+ * In full, whatever the studio's cancellation policy says — the customer did
+ * not cancel anything. Safe to repeat: a payment already refunded is left
+ * alone, and the Stripe idempotency key replays the same refund.
+ */
+async function refundLapsedCheckout(input: {
+  organizationId: string;
+  checkoutSessionId: string;
+  paymentIntentId: string | null;
+}) {
+  const payment = await prisma.payment.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      providerCheckoutSessionId: input.checkoutSessionId,
+    },
+  });
+  const paymentIntentId = input.paymentIntentId ?? payment?.providerPaymentIntentId ?? null;
+
+  if (!payment || !paymentIntentId || !payment.providerAccountId) {
+    // Thrown, so the webhook fails and shows as failed in the platform's log,
+    // where somebody can refund it by hand.
+    throw new Error(
+      `Paid checkout ${input.checkoutSessionId} lost its seats and cannot be refunded automatically.`,
+    );
+  }
+  if (payment.status === 'REFUNDED') return;
+
+  const refund = await getPaymentProvider().createRefund({
+    connectedAccountId: payment.providerAccountId,
+    paymentIntentId,
+    amountCents: payment.amountCents,
+    reason: LAPSED_REFUND_REASON,
+    idempotencyKey: `lapsed_${input.checkoutSessionId}`,
+  });
+
+  await prisma.$transaction([
+    prisma.refund.create({
+      data: {
+        paymentId: payment.id,
+        amountCents: payment.amountCents,
+        reason: LAPSED_REFUND_REASON,
+        providerRefundId: refund.id,
+        status: refund.status,
+      },
+    }),
+    prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: 'REFUNDED',
+        refundedCents: payment.amountCents,
+        providerPaymentIntentId: paymentIntentId,
+        succeededAt: payment.succeededAt ?? new Date(),
+      },
+    }),
+  ]);
+
+  logger.error(
+    {
+      organizationId: input.organizationId,
+      checkoutSessionId: input.checkoutSessionId,
+      amountCents: payment.amountCents,
+    },
+    'Payment arrived after its seats were released; refunded in full',
   );
 }
 

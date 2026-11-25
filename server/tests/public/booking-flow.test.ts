@@ -54,13 +54,17 @@ async function makeClass(overrides: Record<string, unknown> = {}) {
   return res.body.service;
 }
 
-async function makeSession(serviceTypeId: string, capacity = 8) {
+async function makeSession(
+  serviceTypeId: string,
+  capacity = 8,
+  startsAt = new Date('2026-09-15T18:00:00Z'),
+) {
   const { createSession } = await import('../../src/scheduling/session.service');
   return createSession({
     organizationId: studio.organizationId,
     serviceTypeId,
-    startsAt: new Date('2026-09-15T18:00:00Z'),
-    endsAt: new Date('2026-09-15T21:00:00Z'),
+    startsAt,
+    endsAt: new Date(startsAt.getTime() + 3 * 3_600_000),
     timezone: 'America/New_York',
     localStartTime: '14:00',
     capacity,
@@ -460,7 +464,13 @@ describe('booking an appointment', () => {
 describe('managing a booking by token', () => {
   async function bookOne() {
     const service = await makeClass();
-    const session = await makeSession(service.id);
+    // In the future, relative to now: a fixed date passes, and a booking that
+    // has started can no longer be cancelled online (RV-05).
+    const session = await makeSession(
+      service.id,
+      8,
+      new Date(Date.now() + 30 * 86_400_000),
+    );
 
     const res = await request(app).post(`/public/${slug}/bookings`).send({
       serviceTypeId: service.id,
@@ -505,6 +515,48 @@ describe('managing a booking by token', () => {
     const second = await request(app).post(`/public/bookings/${token}/cancel`);
     expect(second.status).toBe(200);
     expect(second.body.alreadyCancelled).toBe(true);
+  });
+
+  it('will not cancel online once the booking has started', async () => {
+    // Launch review RV-05. The link cancelled, and refunded, at any time — so
+    // a customer could attend and then cancel.
+    const { token, sessionId } = await bookOne();
+    await prisma.booking.updateMany({
+      data: { startsAt: new Date(Date.now() - 3_600_000) },
+    });
+
+    const res = await request(app).post(`/public/bookings/${token}/cancel`);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CANCEL_NOT_ALLOWED');
+
+    expect((await prisma.booking.findFirstOrThrow({})).status).not.toBe('CANCELLED');
+    const session = await prisma.session.findUniqueOrThrow({ where: { id: sessionId } });
+    expect(session.seatsTaken).toBe(1);
+
+    // The page says why, instead of a button that can only fail. (The button
+    // by its id: the page's script carries the confirm prompt's wording.)
+    const page = await request(app).get(`/public/bookings/${token}/manage`);
+    expect(page.text).not.toContain('id="cancel"');
+    expect(page.text).toContain('can no longer be cancelled online');
+    expect((await request(app).get(`/public/bookings/${token}`)).body.canCancel).toBe(false);
+  });
+
+  it('will not cancel online once the studio has marked it attended', async () => {
+    const { token } = await bookOne();
+    await prisma.booking.updateMany({ data: { status: 'ATTENDED' } });
+
+    const res = await request(app).post(`/public/bookings/${token}/cancel`);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CANCEL_NOT_ALLOWED');
+  });
+
+  it('offers the cancel button while the booking is still ahead', async () => {
+    const { token } = await bookOne();
+
+    const page = await request(app).get(`/public/bookings/${token}/manage`);
+    expect(page.text).toContain('id="cancel"');
+    expect(page.text).not.toContain('can no longer be cancelled online');
+    expect((await request(app).get(`/public/bookings/${token}`)).body.canCancel).toBe(true);
   });
 
   it('rejects a malformed or unknown token', async () => {
