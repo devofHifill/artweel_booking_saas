@@ -20,8 +20,8 @@ export const SUPPORT_HOURS = [
 ] as const;
 
 export const LEGAL = {
-  // BookAIHub is a DBA of the LLC, not a corporation (Suren, 2026-11-25).
-  entity: 'TJLK Creative LLC dba BookAIHub',
+  // BookAIHub is a DBA, not a corporation; the pages name only the DBA (Suren, 2026-11-25).
+  entity: 'BookAIHub',
   address: '133 Elder Ave, Imperial Beach, CA 91932',
   governingLaw: 'the State of California, USA',
   supportEmail: 'support@bookaihub.com',
@@ -42,7 +42,7 @@ export const TERMS: Page = {
     {
       heading: '1. Agreement to terms',
       body: [
-        `By accessing or using the website bookaihub.com, the web application at app.bookaihub.com, or any related services (together, the "Service") operated by ${LEGAL.entity} ("${BRAND}", "we", "us" or "our"), you agree to be bound by these Terms of Service ("Terms"). If you accept these Terms on behalf of a business or studio, you confirm that you have the authority to bind that business.`,
+        `By accessing or using the website bookaihub.com, the web application at app.bookaihub.com, or any related services (together, the "Service") operated by ${LEGAL.entity} ("we", "us" or "our"), you agree to be bound by these Terms of Service ("Terms"). If you accept these Terms on behalf of a business or studio, you confirm that you have the authority to bind that business.`,
       ],
     },
     {
@@ -111,7 +111,7 @@ export const PRIVACY: Page = {
     {
       heading: '1. Overview',
       body: [
-        `${LEGAL.entity} ("${BRAND}", "we", "us" or "our") respects your privacy and protects the personal data collected through bookaihub.com and app.bookaihub.com.`,
+        `${LEGAL.entity} ("we", "us" or "our") respects your privacy and protects the personal data collected through bookaihub.com and app.bookaihub.com.`,
       ],
     },
     {
