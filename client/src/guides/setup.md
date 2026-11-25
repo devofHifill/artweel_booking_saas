@@ -113,7 +113,6 @@ The **SOLO** plan includes 1 location. See [Your trial and plan](#14-your-trial-
 | Seat hold during checkout (minutes) | How long a place is held while someone pays |
 | Overbooking buffer | Extra places sold on each class beyond its capacity. Leave at 0 unless you mean to overbook |
 | Allow same-day bookings | Off: nothing can be booked for today |
-| Confirm bookings automatically when payment succeeds | Usually on |
 | Require a signed waiver before departure | Flags guests who haven't signed, on the daily manifest. **It doesn't stop them booking** |
 | Require a phone number at checkout | Makes the phone field compulsory |
 | Allow child tickets where the activity supports them | Child prices are set per activity |
