@@ -132,6 +132,11 @@ marketingRouter.get(
   }),
 );
 
+/** /contact is the common guess for the support page, so send it there. */
+marketingRouter.get('/contact', (_req, res) => {
+  res.redirect(301, '/support');
+});
+
 /**
  * Matched against a KNOWN list of slugs rather than a wildcard lookup.
  *
